@@ -1,0 +1,41 @@
+export type Language = 'en' | 'fr';
+export type Unit = 'celsius' | 'fahrenheit';
+
+export interface WeatherData {
+  current: {
+    temperature: number;
+    weatherCode: number;
+    windSpeed: number;
+    isDay: number;
+    relativeHumidity: number;
+  };
+  hourly: {
+    time: string[];
+    temperature_2m: number[];
+    weather_code: number[];
+  };
+  daily: {
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    sunrise: string[];
+    sunset: string[];
+  };
+}
+
+export interface QuoteData {
+  text: string;
+  author: string;
+}
+
+export enum ConfidenceLevel {
+  HIGH = 'High',
+  MEDIUM = 'Medium',
+  LOW = 'Low'
+}
+
+export interface CommunityReport {
+  id: string;
+  timestamp: number;
+  conditions: number[]; // WMO codes
+  userId: string;
+}
