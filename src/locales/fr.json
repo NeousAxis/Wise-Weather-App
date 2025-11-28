@@ -1,0 +1,36 @@
+{
+    "header": {
+        "title": "Wise Weather",
+        "language": "Langue",
+        "unit": "Unité"
+    },
+    "nav": {
+        "home": "Accueil",
+        "map": "Carte",
+        "alerts": "Alertes",
+        "feedback": "Retour"
+    },
+    "dashboard": {
+        "current_weather": "Météo actuelle",
+        "feels_like": "Ressenti",
+        "wind": "Vent",
+        "humidity": "Humidité",
+        "sunrise": "Lever du soleil",
+        "sunset": "Coucher du soleil"
+    },
+    "community": {
+        "title": "Communauté Météo",
+        "subtitle": "Cette chronologie compare les données météorologiques officielles avec les rapports de la communauté des six dernières heures.",
+        "official": "OFFICIEL",
+        "community": "COMMUNAUTÉ",
+        "share_prompt": "Quel temps fait-il ?",
+        "share_button": "Partager ma météo"
+    },
+    "map": {
+        "title": "Carte Interactive",
+        "search_placeholder": "ex., Paris, France",
+        "official_forecasts": "Prévisions Officielles",
+        "community_reports": "Rapports Communautaires",
+        "my_position": "Ma Position"
+    }
+}

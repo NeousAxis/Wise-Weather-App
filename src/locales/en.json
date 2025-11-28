@@ -1,0 +1,36 @@
+{
+  "header": {
+    "title": "Wise Weather",
+    "language": "Language",
+    "unit": "Unit"
+  },
+  "nav": {
+    "home": "Home",
+    "map": "Map",
+    "alerts": "Alerts",
+    "feedback": "Feedback"
+  },
+  "dashboard": {
+    "current_weather": "Current Weather",
+    "feels_like": "Feels like",
+    "wind": "Wind",
+    "humidity": "Humidity",
+    "sunrise": "Sunrise",
+    "sunset": "Sunset"
+  },
+  "community": {
+    "title": "Weather Community",
+    "subtitle": "This timeline compares official weather data with community reports from the last six hours.",
+    "official": "OFFICIAL",
+    "community": "COMMUNITY",
+    "share_prompt": "What's the weather?",
+    "share_button": "Share my weather"
+  },
+  "map": {
+    "title": "Interactive Map",
+    "search_placeholder": "e.g., Paris, France",
+    "official_forecasts": "Official Forecasts",
+    "community_reports": "Community Reports",
+    "my_position": "My Position"
+  }
+}

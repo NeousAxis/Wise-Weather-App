@@ -1,0 +1,18 @@
+serviceId: wise-weather-app
+runConfig:
+  cpu: 1
+  memory: 512MiB
+env:
+  - name: NEXT_PUBLIC_FIREBASE_API_KEY
+    secret: FIREBASE_API_KEY
+  - name: CRON_SECRET
+    secret: CRON_SECRET
+crons:
+  - schedule: "0 7 * * *"
+    target: "/api/notify"
+  - schedule: "0 11 * * *"
+    target: "/api/notify"
+  - schedule: "0 16 * * *"
+    target: "/api/notify"
+  - schedule: "*/15 * * * *"
+    target: "/api/cron/check-alerts"
