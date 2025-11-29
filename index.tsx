@@ -19,7 +19,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
     primary: "bg-primary text-white hover:bg-blue-600 focus:ring-blue-500 shadow-md hover:shadow-lg",
     secondary: "bg-white text-foreground border border-gray-200 hover:bg-gray-50 focus:ring-gray-200",
     ghost: "hover:bg-gray-100 text-gray-700",
-    radiant: "text-white font-bold bg-gradient-to-r from-yellow-400 via-pink-500 to-indigo-500 animate-radiant bg-[length:200%_auto] hover:opacity-90 shadow-lg",
+    radiant: "text-white font-bold bg-gradient-to-r from-amber-400 via-rose-500 to-blue-500 animate-radiant bg-[length:200%_auto] hover:opacity-90 shadow-lg",
     destructive: "bg-red-500 text-white hover:bg-red-600 shadow-md"
   };
   const sizes = {
@@ -319,9 +319,11 @@ const MapPage = () => {
             attributionControl: false
           }).setView([initialLat, initialLng], 13);
 
-          Leaflet.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+          // Changed to CartoDB Voyager for colorful map with labels
+          Leaflet.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
             maxZoom: 19,
-            subdomains: 'abcd'
+            subdomains: 'abcd',
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           }).addTo(map);
 
           mapInstance.current = map;
@@ -354,34 +356,37 @@ const MapPage = () => {
     const lat = location ? location.lat : 48.8566;
     const lng = location ? location.lng : 2.3522;
 
-    // Helper: SVG Icons with corrected paths
+    // Helper: SVG Icons with Lucide paths for perfect consistency
     const getIconHtml = (type: 'sun' | 'rain' | 'cloud', isCommunity: boolean) => {
       const color = isCommunity ? '#fff' : (type === 'sun' ? '#F59E0B' : type === 'rain' ? '#3B82F6' : '#9CA3AF');
       
       let svgContent = '';
       
       if(type === 'sun') {
+          // Lucide 'Sun' path
           svgContent = `
-            <circle cx="12" cy="12" r="4" fill="currentColor" />
-            <path d="M12 2v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M12 20v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M4.93 4.93l1.41 1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M17.66 17.66l1.41 1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M2 12h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M20 12h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M6.34 17.66l-1.41 1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M19.07 4.93l-1.41 1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 2v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 20v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4.93 4.93l1.41 1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M17.66 17.66l1.41 1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 12h2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M20 12h2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M6.34 17.66l-1.41 1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M19.07 4.93l-1.41 1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           `;
       } else if (type === 'cloud') {
+          // Lucide 'Cloud' path
           svgContent = `
-            <path d="M17.5 19c2.485 0 4.5-2.015 4.5-4.5s-2.015-4.5-4.5-4.5c-.4 0-.77.08-1.12.23C15.9 7.65 13.5 6 10.5 6 6.36 6 3 9.36 3 13.5c0 .32.03.64.08.95C1.27 15.17 0 16.92 0 19h17.5z" fill="currentColor"/>
+            <path d="M17.5 19c2.485 0 4.5-2.015 4.5-4.5s-2.015-4.5-4.5-4.5c-.4 0-.77.08-1.12.23C15.9 7.65 13.5 6 10.5 6 6.36 6 3 9.36 3 13.5c0 .32.03.64.08.95C1.27 15.17 0 16.92 0 19h17.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
           `;
       } else if (type === 'rain') {
+           // Lucide 'CloudRain' path
            svgContent = `
-            <path d="M17.5 19c2.485 0 4.5-2.015 4.5-4.5s-2.015-4.5-4.5-4.5c-.4 0-.77.08-1.12.23C15.9 7.65 13.5 6 10.5 6 6.36 6 3 9.36 3 13.5c0 .32.03.64.08.95C1.27 15.17 0 16.92 0 19h17.5z" fill="currentColor" fill-opacity="0.4"/>
-            <path d="M8 13v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M12 13v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M16 13v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <path d="M16 14v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M8 14v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 16v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           `;
       }
 
@@ -440,34 +445,35 @@ const MapPage = () => {
 
   return (
     <div className="flex-1 w-full h-full relative isolate"> 
-      {/* Top Floating Card - Positioned below header */}
-      <div className="absolute top-20 left-4 right-4 z-[500] mt-2">
-        <Card className="p-3 shadow-xl">
-            <div className="flex items-center gap-2 mb-3 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
-                <Search className="text-gray-400" size={18} />
-                <input 
-                    type="text" 
-                    placeholder="Search city..." 
-                    className="flex-1 bg-transparent outline-none text-sm font-medium"
-                />
-            </div>
-            
-            {/* Toggle */}
-            <div className="bg-gray-100 p-1 rounded-lg flex relative">
-                <button 
-                    onClick={() => setViewMode('official')}
-                    className={`flex-1 py-2 text-xs font-bold rounded-md transition-all z-10 ${viewMode === 'official' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}
-                >
-                    Official Forecasts
-                </button>
-                <button 
-                    onClick={() => setViewMode('community')}
-                    className={`flex-1 py-2 text-xs font-bold rounded-md transition-all z-10 ${viewMode === 'community' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500'}`}
-                >
-                    Community Reports
-                </button>
-            </div>
-        </Card>
+      {/* 1. Search Bar - Floating Independent Card */}
+      <div className="absolute top-20 left-0 right-0 z-[500] flex justify-center px-4 mt-2 pointer-events-none">
+        <div className="bg-white rounded-2xl shadow-xl p-3.5 flex items-center gap-3 border border-gray-100 w-full max-w-sm pointer-events-auto">
+            <Search className="text-gray-400" size={20} />
+            <input 
+                type="text" 
+                placeholder="Search city..." 
+                className="flex-1 bg-transparent outline-none text-base font-medium text-gray-700 placeholder:text-gray-400"
+            />
+        </div>
+      </div>
+      
+      {/* 2. Toggle - Floating Independent Below Search (Separated) */}
+      <div className="absolute top-40 left-0 right-0 z-[500] flex justify-center px-4 mt-2 pointer-events-none">
+          {/* Pointer events auto on children to allow clicking, none on container to let map clicks through on sides if wide */}
+          <div className="bg-gray-100/90 backdrop-blur-md p-1.5 rounded-full flex shadow-lg border border-gray-200/50 w-full max-w-sm pointer-events-auto">
+              <button 
+                  onClick={() => setViewMode('official')}
+                  className={`flex-1 py-2.5 text-xs font-bold rounded-full transition-all duration-300 ${viewMode === 'official' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                  Official Forecasts
+              </button>
+              <button 
+                  onClick={() => setViewMode('community')}
+                  className={`flex-1 py-2.5 text-xs font-bold rounded-full transition-all duration-300 ${viewMode === 'community' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                  Community Reports
+              </button>
+          </div>
       </div>
 
       {/* Recenter Button */}
