@@ -25,17 +25,15 @@
               card: '#FFFFFF',
             },
             animation: {
-              'radiant': 'radiant 4s ease infinite',
+              'radiant': 'radiant 4s linear infinite',
             },
             keyframes: {
               radiant: {
-                '0%, 100%': {
-                  'background-size': '200% 200%',
-                  'background-position': 'left center'
+                '0%': {
+                  'background-position': '0% 50%'
                 },
-                '50%': {
-                  'background-size': '200% 200%',
-                  'background-position': 'right center'
+                '100%': {
+                  'background-position': '-200% 50%'
                 },
               },
             }
@@ -49,7 +47,8 @@
         color: hsl(222.2, 84%, 4.9%);
       }
       .radiant-text {
-        background: linear-gradient(to right, #FBBF24, #FB923C, #F43F5E, #3B82F6);
+        /* Seamless loop: The sequence matches the keyframes movement */
+        background: linear-gradient(90deg, #FBBF24, #FB923C, #F43F5E, #3B82F6, #FBBF24);
         background-size: 200% auto;
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -78,8 +77,8 @@
         border: 2px solid white;
       }
       .map-marker-community {
-        background-color: #8B5CF6; /* Violet */
-        border: 2px solid white;
+        background-color: #A78BFA; /* Lighter Violet (Violet-400) */
+        /* No border as requested */
         color: white;
       }
       .map-marker-official:hover, .map-marker-community:hover {

@@ -58,12 +58,3 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "feedback.feature": "Demander une fonction",
   }
 };
-
-export const MOCK_COMMUNITY_DATA = [
-  { hourOffset: 0, conditions: [1, 1, 1] }, // All same -> High Confidence
-  { hourOffset: -1, conditions: [3, 3, 3] }, // All same -> High Confidence
-  { hourOffset: -2, conditions: [61, 0, 95] }, // Mixed -> Low Confidence (Conflict)
-  { hourOffset: -3, conditions: [0] }, // Single -> Medium Confidence
-  { hourOffset: -4, conditions: [0, 0] }, // All same -> High
-  { hourOffset: -5, conditions: [61, 61, 0] }, // Mostly rain but some sun -> Low/Conflict logic
-];

@@ -1,3 +1,4 @@
+
 export type Language = 'en' | 'fr';
 export type Unit = 'celsius' | 'fahrenheit';
 
@@ -22,9 +23,12 @@ export interface WeatherData {
   };
 }
 
-export interface QuoteData {
-  text: string;
-  author: string;
+export interface SearchResult {
+  id: number;
+  name: string;
+  country: string;
+  latitude: number;
+  longitude: number;
 }
 
 export enum ConfidenceLevel {
@@ -36,6 +40,9 @@ export enum ConfidenceLevel {
 export interface CommunityReport {
   id: string;
   timestamp: number;
-  conditions: number[]; // WMO codes
+  conditions: string[]; // Store labels like 'Rain', 'Sunny'
+  lat: number;
+  lng: number;
   userId: string;
+  temp?: number; // Snapshot of temperature at report time
 }
