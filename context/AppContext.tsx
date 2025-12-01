@@ -129,49 +129,96 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   // --- Quote Generation ---
   useEffect(() => {
     const generateQuote = async () => {
-      try {
-        const hour = new Date().getHours();
-        let theme = "";
-        
-        if (hour >= 5 && hour < 12) {
-          theme = "Wisdom & Presence (introspection, silence, trust, attention, peace). Authors: Lao Tzu, Buddha, Epictetus, Seneca, Marcus Aurelius, Eckhart Tolle, Jiddu Krishnamurti, Thich Nhat Hanh, Alan Watts, Rumi, Khalil Gibran, Sri Nisargadatta Maharaj, Ramana Maharshi.";
-        } else if (hour >= 12 && hour < 18) {
-          theme = "Creation, Courage & Transformation (action, dreaming, evolving, rising up). Authors: Nietzsche, Emerson, Thoreau, Walt Whitman, Carl Jung, Joseph Campbell, Anaïs Nin, Virginia Woolf, Albert Camus, Jean-Paul Sartre, Saint-Exupéry, Maya Angelou.";
-        } else {
-          theme = "Mysticism, Love & Transcendence (spirit, unity, light, mystery). Authors: Meister Eckhart, Teresa of Avila, Rumi, Hildegard of Bingen, Ibn Arabi, Simone Weil, Teilhard de Chardin, Sri Aurobindo, Osho, Thomas Merton.";
-        }
+      const now = new Date();
+      const currentHour = now.getHours();
+      const todayStr = now.toDateString(); // e.g. "Mon Jan 01 2024"
+      
+      let theme = "";
+      let slotKey = "";
 
-        const prompt = `Generate a short, inspiring quote based on the theme: "${theme}". 
-        Return ONLY a JSON object with "text" and "author" keys. Do not use Markdown. 
-        Language: ${language === 'fr' ? 'French' : 'English'}.`;
+      // Logic: 3 times per day (7am, 11am, 16pm)
+      // Slot 1: 07:00 -> 11:00
+      // Slot 2: 11:00 -> 16:00
+      // Slot 3: 16:00 -> Next Day 07:00
+      
+      if (currentHour >= 7 && currentHour < 11) {
+        slotKey = `${todayStr}-slot-7am`;
+        theme = "Wisdom & Presence (introspection, silence, trust, attention, peace). Authors: Lao Tzu, Buddha, Epictetus, Seneca, Marcus Aurelius, Eckhart Tolle, Jiddu Krishnamurti, Thich Nhat Hanh, Alan Watts, Rumi, Khalil Gibran, Sri Nisargadatta Maharaj, Ramana Maharshi.";
+      } else if (currentHour >= 11 && currentHour < 16) {
+        slotKey = `${todayStr}-slot-11am`;
+        theme = "Creation, Courage & Transformation (action, dreaming, evolving, rising up). Authors: Nietzsche, Emerson, Thoreau, Walt Whitman, Carl Jung, Joseph Campbell, Anaïs Nin, Virginia Woolf, Albert Camus, Jean-Paul Sartre, Saint-Exupéry, Maya Angelou.";
+      } else if (currentHour >= 16) {
+        slotKey = `${todayStr}-slot-16pm`;
+        theme = "Mysticism, Love & Transcendence (spirit, unity, light, mystery). Authors: Meister Eckhart, Teresa of Avila, Rumi, Hildegard of Bingen, Ibn Arabi, Simone Weil, Teilhard de Chardin, Sri Aurobindo, Osho, Thomas Merton.";
+      } else {
+        // Before 7am: Use previous day's 16pm slot to maintain continuity overnight
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toDateString();
+        slotKey = `${yesterdayStr}-slot-16pm`;
+        theme = "Mysticism, Love & Transcendence (spirit, unity, light, mystery). Authors: Meister Eckhart, Teresa of Avila, Rumi, Hildegard of Bingen, Ibn Arabi, Simone Weil, Teilhard de Chardin, Sri Aurobindo, Osho, Thomas Merton.";
+      }
+
+      // Check LocalStorage first to prevent regeneration on reload
+      const cachedData = localStorage.getItem('wise_weather_quote');
+      if (cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          // If we are in the same slot as the stored quote, use it.
+          if (parsed.slotKey === slotKey && parsed.quote) {
+            setDailyQuote(parsed.quote);
+            return; 
+          }
+        } catch (e) {
+          // Invalid cache, proceed to generate
+        }
+      }
+
+      try {
+        const prompt = `Generate a SINGLE, SHORT inspiring quote (MAX 20 WORDS) based on the theme: "${theme}". 
+        
+        CRITICAL INSTRUCTIONS:
+        1. Return ONLY a JSON object. NO Markdown formatting.
+        2. The JSON MUST strictly follow this structure with BOTH English and French translations:
+        {
+          "en": { "text": "Quote text in English", "author": "Author Name" },
+          "fr": { "text": "Quote text in French", "author": "Author Name" }
+        }
+        3. Do NOT provide a long text. Do NOT provide an explanation. STRICTLY JSON.`;
 
         const response = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
           contents: prompt,
           config: {
-             responseMimeType: 'application/json',
-             responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  text: { type: Type.STRING },
-                  author: { type: Type.STRING }
-                }
-             }
+             responseMimeType: 'application/json'
           }
         });
         
         const data = JSON.parse(response.text);
-        setDailyQuote(data);
+        
+        // Robust check to ensure structure is correct
+        if (data.en && data.fr) {
+            setDailyQuote(data);
+            // Save to LocalStorage
+            localStorage.setItem('wise_weather_quote', JSON.stringify({
+              slotKey: slotKey,
+              quote: data
+            }));
+        } else {
+            throw new Error("Invalid quote structure");
+        }
+
       } catch (e) {
         console.error("Failed to generate quote", e);
-        setDailyQuote({
-           text: "The future belongs to those who believe in the beauty of their dreams.",
-           author: "Eleanor Roosevelt"
-        });
+        const fallback = {
+           en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
+           fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" }
+        };
+        setDailyQuote(fallback);
       }
     };
     generateQuote();
-  }, [language]);
+  }, []); // Run once on mount
 
   const updateLocation = (lat: number, lng: number, name?: string, country?: string, source: 'gps' | 'manual' = 'manual') => {
     setLocation({ lat, lng });

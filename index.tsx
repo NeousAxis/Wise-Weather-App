@@ -96,7 +96,7 @@ const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
 // --- Features ---
 
 const QuoteBlock = () => {
-  const { dailyQuote } = useContext(AppContext)!;
+  const { dailyQuote, language } = useContext(AppContext)!;
   
   if (!dailyQuote) {
       return (
@@ -107,14 +107,16 @@ const QuoteBlock = () => {
       )
   }
 
+  const quote = dailyQuote[language];
+
   return (
     <Card className="mx-4 mt-4 mb-6 p-6 bg-gradient-to-br from-white to-blue-50">
       <div className="flex flex-col gap-3">
         <p className="text-lg italic text-gray-700 leading-relaxed">
-          "{dailyQuote.text}"
+          "{quote.text}"
         </p>
         <p className="text-sm font-semibold text-primary self-end">
-          — {dailyQuote.author}
+          — {quote.author}
         </p>
       </div>
     </Card>
@@ -169,7 +171,7 @@ const WeatherDashboard = () => {
       <div className="flex justify-between items-start mb-8">
         <div>
           <h2 className="text-3xl font-bold text-foreground tracking-tight">{cityName}</h2>
-          <p className="text-gray-500 font-medium mt-1">Official Forecast</p>
+          <p className="text-gray-500 font-medium mt-1">{t('weather.official_forecast')}</p>
         </div>
         <div className="text-right">
            <div className="flex items-center justify-end gap-3">
@@ -192,7 +194,7 @@ const WeatherDashboard = () => {
             <Sunrise size={20} />
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">Sunrise</p>
+            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.sunrise')}</p>
             <p className="font-semibold text-gray-700">{formatTime(weather.daily.sunrise[0])}</p>
           </div>
         </div>
@@ -203,7 +205,7 @@ const WeatherDashboard = () => {
             <Sunset size={20} />
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">Sunset</p>
+            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.sunset')}</p>
             <p className="font-semibold text-gray-700">{formatTime(weather.daily.sunset[0])}</p>
           </div>
         </div>
@@ -214,7 +216,7 @@ const WeatherDashboard = () => {
             <Wind size={20} />
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">Wind</p>
+            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.wind')}</p>
             <p className="font-semibold text-gray-700">{weather.current.windSpeed} km/h</p>
           </div>
         </div>
@@ -225,7 +227,7 @@ const WeatherDashboard = () => {
             <Droplets size={20} />
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">Humidity</p>
+            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.humidity')}</p>
             <p className="font-semibold text-gray-700">{weather.current.relativeHumidity}%</p>
           </div>
         </div>
@@ -233,7 +235,7 @@ const WeatherDashboard = () => {
 
       {/* Hourly Forecast */}
       <div className="border-t border-gray-100 pt-6">
-        <h3 className="text-xs font-bold text-gray-400 uppercase mb-4 tracking-wider">Hourly Forecast</h3>
+        <h3 className="text-xs font-bold text-gray-400 uppercase mb-4 tracking-wider">{t('weather.hourly')}</h3>
         <div className="flex overflow-x-auto gap-8 pb-2 scrollbar-hide">
           {nextHours.map((time, i) => {
              const index = safeIndex + i;
@@ -378,7 +380,7 @@ const MapPage = () => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
-  const { location, userPosition, weather, cityName, communityReports, searchCity, updateLocation, majorCitiesWeather, unit } = useContext(AppContext)!;
+  const { location, userPosition, weather, cityName, communityReports, searchCity, updateLocation, majorCitiesWeather, unit, t } = useContext(AppContext)!;
   const [viewMode, setViewMode] = useState<'official' | 'community'>('official');
   
   // Search State
@@ -667,7 +669,7 @@ const MapPage = () => {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              Official Forecasts
+              {t('map.toggle.official')}
             </button>
             <button 
               onClick={() => setViewMode('community')}
@@ -677,7 +679,7 @@ const MapPage = () => {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              Community Reports
+              {t('map.toggle.community')}
             </button>
          </div>
 
@@ -689,7 +691,7 @@ const MapPage = () => {
             <input
               type="text"
               className="block w-full pl-11 pr-12 py-3.5 border-none rounded-full leading-5 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0 text-base"
-              placeholder="e.g., Paris, France"
+              placeholder={t('map.search.placeholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -707,7 +709,7 @@ const MapPage = () => {
                   <Crosshair size={20} />
                </button>
                <button className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-4 py-1.5 ml-2 text-sm font-medium">
-                 Search
+                 {t('map.search.button')}
                </button>
             </div>
 
@@ -767,9 +769,9 @@ const AlertsPage = () => {
              <div className="flex gap-3">
                <AlertTriangle className="text-red-600 shrink-0" />
                <div>
-                  <h3 className="font-bold text-red-700">SEVERE WEATHER WARNING</h3>
+                  <h3 className="font-bold text-red-700">{t('alert.warning.title')}</h3>
                   <p className="text-sm text-red-600 mt-1">
-                    Storm conditions detected in your area. Please stay safe.
+                    {t('alert.warning.desc')}
                   </p>
                </div>
              </div>
@@ -819,12 +821,12 @@ const AlertsPage = () => {
                  <p className="text-gray-500">{city}</p>
               </div>
               <div className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded uppercase">
-                Active
+                {t('alert.active')}
               </div>
            </div>
            <div className="mt-4 flex gap-2">
               <CloudRain size={16} className="text-blue-500"/>
-              <span className="text-sm text-gray-600">Monitoring for Rain</span>
+              <span className="text-sm text-gray-600">{t('alert.monitoring')}</span>
            </div>
         </Card>
       )}
@@ -871,7 +873,7 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
         <div className="text-center mb-6">
           <h2 className="text-2xl font-bold mb-2">{t('modal.title')}</h2>
           <p className="text-gray-500">{t('modal.desc')}</p>
-          <p className="text-xs font-bold text-primary mt-2 uppercase tracking-wide">Select up to 3 elements to share the weather now</p>
+          <p className="text-xs font-bold text-primary mt-2 uppercase tracking-wide">{t('modal.select_hint')}</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3 mb-6">
@@ -913,7 +915,7 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
         <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center p-4 bg-black/20 backdrop-blur-[2px]" onClick={onClose}>
             <div className="w-full max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 pb-10" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold">Feedback</h2>
+                    <h2 className="text-xl font-bold">{t('nav.feedback')}</h2>
                     <button onClick={onClose}><X className="text-gray-400"/></button>
                 </div>
                 
@@ -938,7 +940,7 @@ const App = () => {
   const [page, setPage] = useState<'home'|'map'|'alerts'>('home');
   const [showContribution, setShowContribution] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const { language, setLanguage, alertsCount, unit, setUnit } = useContext(AppContext)!;
+  const { language, setLanguage, alertsCount, unit, setUnit, t } = useContext(AppContext)!;
 
   // Auto-open contribution on first visit
   useEffect(() => {
@@ -957,7 +959,7 @@ const App = () => {
         <div className="flex items-center gap-2">
             <Sun className="text-yellow-400 animate-spin-slow" size={28} />
             <span className="text-xl font-extrabold tracking-tight radiant-text">
-            Wise Weather
+            {t('app.name')}
             </span>
         </div>
         <div className="flex gap-2">
@@ -1001,7 +1003,7 @@ const App = () => {
              <Sun size={24} strokeWidth={page === 'home' ? 2.5 : 2} />
              {page === 'home' && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 bg-primary rounded-full"></span>}
           </div>
-          <span>Home</span>
+          <span>{t('nav.home')}</span>
         </button>
 
         <button 
@@ -1009,7 +1011,7 @@ const App = () => {
           className={`flex flex-col items-center gap-1 transition-colors ${page === 'map' ? 'text-primary' : 'hover:text-gray-600'}`}
         >
           <MapIcon size={24} strokeWidth={page === 'map' ? 2.5 : 2} />
-          <span>Map</span>
+          <span>{t('nav.map')}</span>
         </button>
 
         {/* Contribution FAB in Center */}
@@ -1032,7 +1034,7 @@ const App = () => {
                 <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>
             )}
           </div>
-          <span>Alerts</span>
+          <span>{t('nav.alerts')}</span>
         </button>
 
         <button 
@@ -1040,7 +1042,7 @@ const App = () => {
           className={`flex flex-col items-center gap-1 transition-colors ${showFeedback ? 'text-primary' : 'hover:text-gray-600'}`}
         >
           <MessageSquare size={24} />
-          <span>Feedback</span>
+          <span>{t('nav.feedback')}</span>
         </button>
       </nav>
 

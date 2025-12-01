@@ -48,6 +48,12 @@ export interface CommunityReport {
 }
 
 export interface DailyQuote {
-  text: string;
-  author: string;
+  en: {
+    text: string;
+    author: string;
+  };
+  fr: {
+    text: string;
+    author: string;
+  };
 }
