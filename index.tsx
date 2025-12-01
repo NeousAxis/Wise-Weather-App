@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
@@ -95,15 +96,25 @@ const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
 // --- Features ---
 
 const QuoteBlock = () => {
-  const { language } = useContext(AppContext)!;
+  const { dailyQuote } = useContext(AppContext)!;
+  
+  if (!dailyQuote) {
+      return (
+        <Card className="mx-4 mt-4 mb-6 p-6 bg-gradient-to-br from-white to-blue-50 animate-pulse">
+           <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+           <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+        </Card>
+      )
+  }
+
   return (
     <Card className="mx-4 mt-4 mb-6 p-6 bg-gradient-to-br from-white to-blue-50">
       <div className="flex flex-col gap-3">
         <p className="text-lg italic text-gray-700 leading-relaxed">
-          "The future belongs to those who believe in the beauty of their dreams."
+          "{dailyQuote.text}"
         </p>
         <p className="text-sm font-semibold text-primary self-end">
-          — Eleanor Roosevelt
+          — {dailyQuote.author}
         </p>
       </div>
     </Card>

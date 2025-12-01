@@ -1,6 +1,7 @@
 
 import React, { createContext, useState, useEffect } from 'react';
-import { Language, Unit, WeatherData, CommunityReport, SearchResult } from '../types';
+import { GoogleGenAI, Type } from "@google/genai";
+import { Language, Unit, WeatherData, CommunityReport, SearchResult, DailyQuote } from '../types';
 import { TRANSLATIONS } from '../constants';
 
 interface AppContextType {
@@ -19,10 +20,14 @@ interface AppContextType {
   searchCity: (query: string) => Promise<SearchResult[]>;
   majorCitiesWeather: any[];
   alertsCount: number;
+  dailyQuote: DailyQuote | null;
   t: (key: string) => string;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
+
+// Initialize Gemini AI
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Database of major cities by country (Expanded)
 const COUNTRY_MAJOR_CITIES: Record<string, {name: string, lat: number, lng: number}[]> = {
@@ -77,7 +82,7 @@ const COUNTRY_MAJOR_CITIES: Record<string, {name: string, lat: number, lng: numb
   ],
   "Thailand": [
     { name: "Bangkok", lat: 13.7563, lng: 100.5018 },
-    { name: "Chiang Mai", lat: 18.7061, lng: 98.9817 },
+    { name: "Chiang Mai", lat: 18.7883, lng: 98.9853 },
     { name: "Phuket", lat: 7.8804, lng: 98.3923 }
   ],
   "Canada": [
@@ -90,181 +95,151 @@ const COUNTRY_MAJOR_CITIES: Record<string, {name: string, lat: number, lng: numb
     { name: "Melbourne", lat: -37.8136, lng: 144.9631 },
     { name: "Brisbane", lat: -27.4698, lng: 153.0251 }
   ],
-  "United States": [
-    { name: "New York", lat: 40.7128, lng: -74.0060 },
-    { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
-    { name: "Chicago", lat: 41.8781, lng: -87.6298 }
-  ],
-  "Global": [
-    { name: "London", lat: 51.5074, lng: -0.1278 },
-    { name: "Paris", lat: 48.8566, lng: 2.3522 },
-    { name: "New York", lat: 40.7128, lng: -74.0060 },
-    { name: "Tokyo", lat: 35.6762, lng: 139.6503 },
-    { name: "Sydney", lat: -33.8688, lng: 151.2093 }
+  "USA": [
+      { name: "New York", lat: 40.7128, lng: -74.0060 },
+      { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
+      { name: "Chicago", lat: 41.8781, lng: -87.6298 }
   ]
 };
+
+const GLOBAL_MAJOR_CITIES = [
+  { name: "London", lat: 51.5074, lng: -0.1278 },
+  { name: "New York", lat: 40.7128, lng: -74.0060 },
+  { name: "Tokyo", lat: 35.6762, lng: 139.6503 },
+  { name: "Paris", lat: 48.8566, lng: 2.3522 },
+  { name: "Sydney", lat: -33.8688, lng: 151.2093 }
+];
 
 export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const [language, setLanguage] = useState<Language>('en');
   const [unit, setUnit] = useState<Unit>('celsius');
-  // 'location' is the currently VIEWED location (e.g. searched city)
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
-  // 'userPosition' is the physical GPS location of the user
   const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null);
-  
-  const [cityName, setCityName] = useState('Loading...');
+  const [cityName, setCityName] = useState('Current Location');
+  const [currentCountry, setCurrentCountry] = useState<string>('');
   const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [loadingWeather, setLoadingWeather] = useState(true);
+  const [loadingWeather, setLoadingWeather] = useState(false);
   const [communityReports, setCommunityReports] = useState<CommunityReport[]>([]);
   const [majorCitiesWeather, setMajorCitiesWeather] = useState<any[]>([]);
   const [alertsCount, setAlertsCount] = useState(0);
+  const [dailyQuote, setDailyQuote] = useState<DailyQuote | null>(null);
 
   const t = (key: string) => TRANSLATIONS[language][key] || key;
 
-  // Initialize with geolocation
+  // --- Quote Generation ---
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          updateLocation(position.coords.latitude, position.coords.longitude, undefined, undefined, 'gps');
-        },
-        () => {
-          // Default to Paris if denied
-          updateLocation(48.8566, 2.3522, "Paris", "France", 'manual');
+    const generateQuote = async () => {
+      try {
+        const hour = new Date().getHours();
+        let theme = "";
+        
+        if (hour >= 5 && hour < 12) {
+          theme = "Wisdom & Presence (introspection, silence, trust, attention, peace). Authors: Lao Tzu, Buddha, Epictetus, Seneca, Marcus Aurelius, Eckhart Tolle, Jiddu Krishnamurti, Thich Nhat Hanh, Alan Watts, Rumi, Khalil Gibran, Sri Nisargadatta Maharaj, Ramana Maharshi.";
+        } else if (hour >= 12 && hour < 18) {
+          theme = "Creation, Courage & Transformation (action, dreaming, evolving, rising up). Authors: Nietzsche, Emerson, Thoreau, Walt Whitman, Carl Jung, Joseph Campbell, Anaïs Nin, Virginia Woolf, Albert Camus, Jean-Paul Sartre, Saint-Exupéry, Maya Angelou.";
+        } else {
+          theme = "Mysticism, Love & Transcendence (spirit, unity, light, mystery). Authors: Meister Eckhart, Teresa of Avila, Rumi, Hildegard of Bingen, Ibn Arabi, Simone Weil, Teilhard de Chardin, Sri Aurobindo, Osho, Thomas Merton.";
         }
-      );
-    } else {
-      updateLocation(48.8566, 2.3522, "Paris", "France", 'manual');
-    }
-  }, []);
 
-  const fetchMajorCitiesForCountry = async (countryName: string) => {
-    // Normalize country name: remove accents, lowercase, remove spaces to handle "Việt Nam" vs "Vietnam"
-    const normalize = (str: string) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
-    const target = normalize(countryName);
+        const prompt = `Generate a short, inspiring quote based on the theme: "${theme}". 
+        Return ONLY a JSON object with "text" and "author" keys. Do not use Markdown. 
+        Language: ${language === 'fr' ? 'French' : 'English'}.`;
 
-    let cities = COUNTRY_MAJOR_CITIES["Global"]; // Default
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+             responseMimeType: 'application/json',
+             responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  text: { type: Type.STRING },
+                  author: { type: Type.STRING }
+                }
+             }
+          }
+        });
+        
+        const data = JSON.parse(response.text);
+        setDailyQuote(data);
+      } catch (e) {
+        console.error("Failed to generate quote", e);
+        setDailyQuote({
+           text: "The future belongs to those who believe in the beauty of their dreams.",
+           author: "Eleanor Roosevelt"
+        });
+      }
+    };
+    generateQuote();
+  }, [language]);
+
+  const updateLocation = (lat: number, lng: number, name?: string, country?: string, source: 'gps' | 'manual' = 'manual') => {
+    setLocation({ lat, lng });
+    if (name) setCityName(name);
     
-    // Find matching country key
-    const matchKey = Object.keys(COUNTRY_MAJOR_CITIES).find(key => normalize(key) === target);
-    
-    if (matchKey) {
-        cities = COUNTRY_MAJOR_CITIES[matchKey];
-    } else {
-       // Check for partial matches (e.g. "United States" in "United States of America")
-       const partialKey = Object.keys(COUNTRY_MAJOR_CITIES).find(key => target.includes(normalize(key)) || normalize(key).includes(target));
-       if (partialKey) cities = COUNTRY_MAJOR_CITIES[partialKey];
-    }
-
-    try {
-      const weatherPromises = cities.map(async (city) => {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,weather_code,is_day`;
-        const res = await fetch(url);
-        const data = res.json();
-        return data.then((d: any) => ({
-            ...city,
-            code: d.current.weather_code,
-            temp: d.current.temperature_2m,
-            isDay: d.current.is_day,
-            isCurrent: false // Major cities are never "current" in this list
-        }));
-      });
-
-      const results = await Promise.all(weatherPromises);
-      setMajorCitiesWeather(results);
-    } catch (e) {
-      console.error("Failed to fetch major cities weather", e);
+    if (source === 'gps') {
+       setUserPosition({ lat, lng });
+       // Reverse geocode if name not provided
+       if (!name) {
+         fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+          .then(res => res.json())
+          .then(data => {
+            const city = data.address.city || data.address.town || data.address.village || "Unknown Location";
+            const ctry = data.address.country;
+            setCityName(city);
+            if (ctry) {
+                setCurrentCountry(ctry);
+                fetchMajorCitiesForCountry(ctry);
+            }
+          });
+       } else if (country) {
+           setCurrentCountry(country);
+           fetchMajorCitiesForCountry(country);
+       }
     }
   };
 
-  const updateLocation = async (lat: number, lng: number, name?: string, country?: string, source: 'gps' | 'manual' = 'manual') => {
-    setLoadingWeather(true);
-    setLocation({ lat, lng });
+  const fetchMajorCitiesForCountry = async (countryName: string) => {
+    // Normalize country name (remove accents, lowercase, remove spaces) to handle "Việt Nam" vs "Vietnam"
+    const normalizedInput = countryName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+    
+    let targetCities = GLOBAL_MAJOR_CITIES; // Default fallback
 
-    // Store physical position if source is GPS
-    if (source === 'gps') {
-        setUserPosition({ lat, lng });
-    }
-
-    try {
-      // 1. Get City Name if not provided (Reverse Geocoding)
-      let resolvedName = name;
-      let resolvedCountry = country;
-
-      if (!resolvedName || !resolvedCountry) {
-        try {
-            const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-            const geoData = await geoRes.json();
-            resolvedName = geoData.address.city || geoData.address.town || geoData.address.village || "Unknown Location";
-            resolvedCountry = geoData.address.country || "Unknown";
-        } catch (e) {
-            console.error("Reverse geocoding failed", e);
-            resolvedName = "Unknown Location";
+    // Find match in database
+    for (const key of Object.keys(COUNTRY_MAJOR_CITIES)) {
+        const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+        if (normalizedInput.includes(normalizedKey) || normalizedKey.includes(normalizedInput)) {
+            targetCities = COUNTRY_MAJOR_CITIES[key];
+            break;
         }
-      }
-      
-      setCityName(resolvedName || "Unknown");
-
-      // 2. Fetch Weather
-      const weatherRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto`
-      );
-      const weatherData = await weatherRes.json();
-
-      // Transform snake_case API to camelCase type
-      const formattedWeather: WeatherData = {
-          current: {
-              temperature: weatherData.current.temperature_2m,
-              weatherCode: weatherData.current.weather_code,
-              windSpeed: weatherData.current.wind_speed_10m,
-              isDay: weatherData.current.is_day,
-              relativeHumidity: weatherData.current.relative_humidity_2m
-          },
-          hourly: {
-              time: weatherData.hourly.time,
-              temperature_2m: weatherData.hourly.temperature_2m,
-              weather_code: weatherData.hourly.weather_code
-          },
-          daily: {
-              temperature_2m_max: weatherData.daily.temperature_2m_max,
-              temperature_2m_min: weatherData.daily.temperature_2m_min,
-              sunrise: weatherData.daily.sunrise,
-              sunset: weatherData.daily.sunset
-          }
-      };
-
-      setWeather(formattedWeather);
-
-      // 3. Fetch Major Cities - ONLY if source is GPS (User physically moved)
-      // If manual search, we keep the previous major cities (e.g. user in Bangkok searches Paris -> keeps Thailand cities)
-      if (source === 'gps' && resolvedCountry) {
-          fetchMajorCitiesForCountry(resolvedCountry);
-      } else if (majorCitiesWeather.length === 0 && resolvedCountry) {
-          // Fallback: if no major cities loaded yet (e.g. first load failed), try loading
-          fetchMajorCitiesForCountry(resolvedCountry);
-      }
-
-      // Check severe weather
-      if (weatherData.current.weather_code >= 95 || weatherData.current.wind_speed_10m > 80) {
-          setAlertsCount(1);
-      } else {
-          setAlertsCount(0);
-      }
-
-    } catch (error) {
-      console.error("Error updating location:", error);
-    } finally {
-      setLoadingWeather(false);
     }
+
+    const promises = targetCities.map(async (city) => {
+      try {
+        const res = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto`
+        );
+        const data = await res.json();
+        return {
+          ...city,
+          temp: data.current.temperature_2m,
+          code: data.current.weather_code,
+          isDay: data.current.is_day
+        };
+      } catch (e) {
+        return null;
+      }
+    });
+
+    const results = await Promise.all(promises);
+    setMajorCitiesWeather(results.filter(c => c !== null));
   };
 
   const searchCity = async (query: string): Promise<SearchResult[]> => {
-    if (!query) return [];
     try {
       const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`);
       const data = await res.json();
       if (!data.results) return [];
-      
       return data.results.map((r: any) => ({
         id: r.id,
         name: r.name,
@@ -278,34 +253,99 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     }
   };
 
+  const fetchWeather = async (lat: number, lng: number) => {
+    setLoadingWeather(true);
+    try {
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
+      );
+      const data = await res.json();
+      
+      // Transform snake_case API response to camelCase structure expected by WeatherData type
+      const mappedWeather: WeatherData = {
+          current: {
+              temperature: data.current.temperature_2m,
+              weatherCode: data.current.weather_code,
+              windSpeed: data.current.wind_speed_10m,
+              isDay: data.current.is_day,
+              relativeHumidity: data.current.relative_humidity_2m
+          },
+          hourly: {
+              time: data.hourly.time,
+              temperature_2m: data.hourly.temperature_2m,
+              weather_code: data.hourly.weather_code
+          },
+          daily: {
+              temperature_2m_max: data.daily.temperature_2m_max,
+              temperature_2m_min: data.daily.temperature_2m_min,
+              sunrise: data.daily.sunrise,
+              sunset: data.daily.sunset
+          }
+      };
+
+      setWeather(mappedWeather);
+
+      // Check for Severe Weather (Storm codes 95, 96, 99 or high wind > 80kmh)
+      if (data.current.weather_code >= 95 || data.current.wind_speed_10m > 80) {
+          setAlertsCount(prev => prev + 1);
+      } else {
+          setAlertsCount(0);
+      }
+
+    } catch (error) {
+      console.error("Weather fetch failed", error);
+    } finally {
+      setLoadingWeather(false);
+    }
+  };
+
   const addReport = (conditions: string[]) => {
-    if (!location || !weather) return;
+    if (!location) return;
+    // Capture current temp if available
+    const currentTemp = weather?.current?.temperature;
+
     const newReport: CommunityReport = {
-      id: Date.now().toString(),
+      id: Math.random().toString(36).substr(2, 9),
       timestamp: Date.now(),
       conditions,
       lat: location.lat,
       lng: location.lng,
-      userId: 'user-' + Math.random().toString(36).substr(2, 9),
-      temp: weather.current.temperature // Capture current official temp
+      userId: 'user-me', // In real app, auth user id
+      temp: currentTemp
     };
     setCommunityReports(prev => [newReport, ...prev]);
   };
+
+  useEffect(() => {
+    if (location) {
+      fetchWeather(location.lat, location.lng);
+    } else {
+      // Init with Geolocation
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            updateLocation(position.coords.latitude, position.coords.longitude, undefined, undefined, 'gps');
+          },
+          (err) => {
+            // Default to Paris
+            updateLocation(48.8566, 2.3522, "Paris", "France", 'manual');
+          }
+        );
+      }
+    }
+  }, [location]);
 
   return (
     <AppContext.Provider value={{
       language, setLanguage,
       unit, setUnit,
-      location, userPosition,
-      cityName,
-      updateLocation,
-      weather,
-      loadingWeather,
-      communityReports,
-      addReport,
+      location, userPosition, cityName, updateLocation,
+      weather, loadingWeather,
+      communityReports, addReport,
       searchCity,
       majorCitiesWeather,
       alertsCount,
+      dailyQuote,
       t
     }}>
       {children}

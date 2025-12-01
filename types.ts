@@ -46,3 +46,8 @@ export interface CommunityReport {
   userId: string;
   temp?: number; // Snapshot of temperature at report time
 }
+
+export interface DailyQuote {
+  text: string;
+  author: string;
+}
