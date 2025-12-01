@@ -360,7 +360,7 @@ const MapPage = () => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
-  const { location, weather, cityName, communityReports, searchCity, updateLocation, majorCitiesWeather } = useContext(AppContext)!;
+  const { location, userPosition, weather, cityName, communityReports, searchCity, updateLocation, majorCitiesWeather } = useContext(AppContext)!;
   const [viewMode, setViewMode] = useState<'official' | 'community'>('official');
   
   // Search State
@@ -384,7 +384,7 @@ const MapPage = () => {
   }, [searchQuery]);
 
   const selectCity = (result: SearchResult) => {
-    updateLocation(result.latitude, result.longitude, result.name, result.country);
+    updateLocation(result.latitude, result.longitude, result.name, result.country, 'manual');
     setSearchQuery('');
     setSearchResults([]);
   };
@@ -547,12 +547,11 @@ const MapPage = () => {
                 default: return '#F59E0B';
             }
         } else {
-             // On Purple Background
-             // Needs to be bright to contrast with Purple (#A855F7)
+             // On Purple Background - REQUESTED: NATURAL COLORS ON PURPLE (Same as official mostly but brighter if needed)
              switch(type) {
                 case 'sun': return '#FCD34D'; // Brighter Yellow
                 case 'rain': return '#60A5FA'; // Brighter Blue
-                case 'cloud': return '#FFFFFF'; // White Cloud
+                case 'cloud': return '#FFFFFF'; // White Cloud for contrast
                 case 'storm': return '#FDE047'; // Bright Yellow Lightning
                 case 'snow': return '#A5F3FC'; // Bright Cyan
                 case 'wind': return '#BFDBFE'; // Light Blue
@@ -566,18 +565,29 @@ const MapPage = () => {
     if (viewMode === 'official') {
       const markersToDisplay = [];
       if (location && weather) {
+        // Logic change: Green only if it matches User's GPS position
+        const isUserGPS = userPosition && 
+                          Math.abs(userPosition.lat - location.lat) < 0.0001 && 
+                          Math.abs(userPosition.lng - location.lng) < 0.0001;
+
         markersToDisplay.push({ 
            lat: location.lat, 
            lng: location.lng, 
            code: weather.current.weatherCode, 
            temp: weather.current.temperature,
            isDay: weather.current.isDay,
-           isCurrent: true 
+           isCurrent: isUserGPS // Green if GPS match
         });
       }
       
       if (majorCitiesWeather.length > 0) {
-        markersToDisplay.push(...majorCitiesWeather);
+        // Filter out any major city that is too close to the current location marker to avoid duplicates
+        const filteredMajorCities = majorCitiesWeather.filter(city => {
+            if (!location) return true;
+            const dist = Math.sqrt(Math.pow(city.lat - location.lat, 2) + Math.pow(city.lng - location.lng, 2));
+            return dist > 0.1; // Approx 10km buffer
+        });
+        markersToDisplay.push(...filteredMajorCities);
       }
 
       markersToDisplay.forEach(m => {
@@ -597,7 +607,8 @@ const MapPage = () => {
           
           const iconColor = getSpecificColor(type, 'official');
           const tempDisplay = m.temp !== undefined ? Math.round(m.temp) : '?';
-          // Icon Size 22px
+          
+          // Official: 22px icon, px-3 py-2 padding
           const iconHtml = getIconSvg(type, iconColor, 22); 
           
           const icon = L.divIcon({
@@ -649,14 +660,14 @@ const MapPage = () => {
               </div>
             `,
             iconSize: [80, 48],
-            iconAnchor: [40, -10]
+            iconAnchor: [40, -15] // Adjusted anchor: negative Y moves marker DOWN (so it sits below text)
           });
           const marker = L.marker([report.lat, report.lng], { icon }).addTo(mapInstance.current);
           markersRef.current.push(marker);
       });
     }
 
-  }, [viewMode, location, weather, cityName, communityReports, majorCitiesWeather]);
+  }, [viewMode, location, userPosition, weather, cityName, communityReports, majorCitiesWeather]);
 
   return (
     <div className="absolute inset-0 top-0 left-0 w-full h-full bg-gray-100 z-0">
@@ -704,7 +715,7 @@ const MapPage = () => {
                 ) : (
                   <Crosshair className="text-blue-500 cursor-pointer hover:scale-110 transition-transform" size={20} onClick={() => {
                      if (navigator.geolocation) {
-                         navigator.geolocation.getCurrentPosition(pos => updateLocation(pos.coords.latitude, pos.coords.longitude));
+                         navigator.geolocation.getCurrentPosition(pos => updateLocation(pos.coords.latitude, pos.coords.longitude, undefined, undefined, 'gps'));
                      }
                   }}/>
                 )}
