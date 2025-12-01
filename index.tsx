@@ -337,7 +337,7 @@ const CommunityCarousel = () => {
                      <div className="flex -space-x-2 mt-2">
                       {displayConditions.slice(0,3).map((condition, ci) => (
                         <div key={ci} className="bg-purple-100 p-1.5 rounded-full border-2 border-white z-10">
-                          {getWeatherIconFromLabel(condition, 14, "text-purple-600")}
+                          {getWeatherIconFromLabel(condition, 14)}
                         </div>
                       ))}
                     </div>
