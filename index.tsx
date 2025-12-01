@@ -851,7 +851,7 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <Card className="w-full max-w-sm p-6 relative">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X size={24} />
@@ -899,7 +899,7 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
     const { t } = useContext(AppContext)!;
     
     return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/20 backdrop-blur-[2px]" onClick={onClose}>
+        <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center p-4 bg-black/20 backdrop-blur-[2px]" onClick={onClose}>
             <div className="w-full max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 pb-10" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold">Feedback</h2>
@@ -1005,9 +1005,9 @@ const App = () => {
         <div className="relative -top-6">
             <button 
             onClick={() => setShowContribution(true)}
-            className="w-14 h-14 rounded-full bg-gradient-to-r from-amber-400 via-rose-500 via-blue-500 to-amber-400 animate-radiant bg-[length:200%_auto] flex items-center justify-center shadow-lg shadow-blue-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
+            className="w-20 h-20 rounded-full bg-gradient-to-r from-amber-400 via-rose-500 via-blue-500 to-amber-400 animate-radiant bg-[length:200%_auto] flex items-center justify-center shadow-lg shadow-blue-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
             >
-            <CloudSun className="text-white" size={28} />
+            <CloudSun className="text-white" size={40} />
             </button>
         </div>
 
