@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   Sun, Cloud, CloudRain, Wind, Droplets, ArrowUp, ArrowDown, 
-  Map as MapIcon, Bell, Menu, X, Heart, Thermometer,
-  CloudLightning, Snowflake, Navigation, Check, AlertTriangle, Bug, Wand2,
+  Map as MapIcon, Menu, X, Heart, Thermometer,
+  CloudLightning, Snowflake, Navigation, Check, Bug, Wand2,
   Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon
 } from 'lucide-react';
 import { AppProvider, AppContext } from './context/AppContext';
@@ -741,99 +740,6 @@ const MapPage = () => {
   );
 };
 
-const AlertsPage = () => {
-  const { t, alertsCount } = useContext(AppContext)!;
-  const [city, setCity] = useState('');
-  const [country, setCountry] = useState('');
-  const [hasAlert, setHasAlert] = useState(false);
-
-  // Severe weather simulation
-  const isSevere = alertsCount > 0;
-
-  const handleCreate = (e: any) => {
-    e.preventDefault();
-    if (city && country) setHasAlert(true);
-  };
-
-  return (
-    <div className="px-4 pb-24">
-      <div className="flex items-center gap-2 mb-6 mt-4">
-         <div className="p-2 bg-red-100 rounded-lg text-red-600">
-            <Bell size={24} />
-         </div>
-         <h1 className="text-2xl font-bold">{t('nav.alerts')}</h1>
-      </div>
-
-      {isSevere && (
-          <Card className="mb-6 p-4 bg-red-50 border-red-200">
-             <div className="flex gap-3">
-               <AlertTriangle className="text-red-600 shrink-0" />
-               <div>
-                  <h3 className="font-bold text-red-700">{t('alert.warning.title')}</h3>
-                  <p className="text-sm text-red-600 mt-1">
-                    {t('alert.warning.desc')}
-                  </p>
-               </div>
-             </div>
-          </Card>
-      )}
-
-      {!hasAlert ? (
-        <Card className="p-6">
-          <div className="flex items-center gap-3 mb-4">
-             <div className="p-2 bg-blue-100 rounded-full text-blue-600">
-               <CloudRain size={20}/>
-             </div>
-             <div>
-               <h3 className="font-bold text-lg">{t('alert.title')}</h3>
-               <p className="text-gray-500 text-sm">{t('alert.desc')}</p>
-             </div>
-          </div>
-          
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('alert.city')}</label>
-              <input 
-                type="text" 
-                placeholder="e.g. London, UK"
-                className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                value={city}
-                onChange={e => setCity(e.target.value)}
-                required
-              />
-            </div>
-            
-            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-               <Check size={18} className="text-green-500" />
-               <span className="text-sm font-medium text-gray-700">{t('alert.rain')}</span>
-            </div>
-
-            <Button variant="radiant" className="w-full h-12 text-lg">
-              {t('alert.create')}
-            </Button>
-          </form>
-        </Card>
-      ) : (
-        <Card className="p-6 border-l-4 border-l-green-500">
-           <div className="flex justify-between items-start">
-              <div>
-                 <h3 className="font-bold text-lg text-gray-900">{t('alert.existing')}</h3>
-                 <p className="text-gray-500">{city}</p>
-              </div>
-              <div className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded uppercase">
-                {t('alert.active')}
-              </div>
-           </div>
-           <div className="mt-4 flex gap-2">
-              <CloudRain size={16} className="text-blue-500"/>
-              <span className="text-sm text-gray-600">{t('alert.monitoring')}</span>
-           </div>
-        </Card>
-      )}
-    </div>
-  );
-};
-
 const ContributionModal = ({ onClose }: { onClose: () => void }) => {
   const { addReport, t } = useContext(AppContext)!;
   const [selected, setSelected] = useState<string[]>([]);
@@ -937,10 +843,10 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
 // --- App Layout ---
 
 const App = () => {
-  const [page, setPage] = useState<'home'|'map'|'alerts'>('home');
+  const [page, setPage] = useState<'home'|'map'>('home');
   const [showContribution, setShowContribution] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const { language, setLanguage, alertsCount, unit, setUnit, t } = useContext(AppContext)!;
+  const { language, setLanguage, unit, setUnit, t } = useContext(AppContext)!;
 
   // Auto-open contribution on first visit
   useEffect(() => {
@@ -975,6 +881,14 @@ const App = () => {
             >
             {language.toUpperCase()}
             </button>
+            
+            {/* Feedback Button moved to Header */}
+            <button 
+              onClick={() => setShowFeedback(true)}
+              className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-700 flex items-center justify-center hover:bg-gray-50"
+            >
+              <MessageSquare size={16} />
+            </button>
         </div>
       </header>
 
@@ -989,8 +903,6 @@ const App = () => {
         )}
         
         {page === 'map' && <MapPage />}
-        
-        {page === 'alerts' && <AlertsPage />}
       </main>
 
       {/* Bottom Navigation */}
@@ -1006,14 +918,6 @@ const App = () => {
           <span>{t('nav.home')}</span>
         </button>
 
-        <button 
-          onClick={() => setPage('map')}
-          className={`flex flex-col items-center gap-1 transition-colors ${page === 'map' ? 'text-primary' : 'hover:text-gray-600'}`}
-        >
-          <MapIcon size={24} strokeWidth={page === 'map' ? 2.5 : 2} />
-          <span>{t('nav.map')}</span>
-        </button>
-
         {/* Contribution FAB in Center */}
         <div className="relative -top-6">
             <button 
@@ -1024,25 +928,13 @@ const App = () => {
             </button>
         </div>
 
+        {/* Map Button moved to Right */}
         <button 
-          onClick={() => setPage('alerts')}
-          className={`flex flex-col items-center gap-1 transition-colors ${page === 'alerts' ? 'text-primary' : 'hover:text-gray-600'}`}
+          onClick={() => setPage('map')}
+          className={`flex flex-col items-center gap-1 transition-colors ${page === 'map' ? 'text-primary' : 'hover:text-gray-600'}`}
         >
-          <div className="relative">
-            <Bell size={24} strokeWidth={page === 'alerts' ? 2.5 : 2} />
-            {alertsCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>
-            )}
-          </div>
-          <span>{t('nav.alerts')}</span>
-        </button>
-
-        <button 
-          onClick={() => setShowFeedback(true)}
-          className={`flex flex-col items-center gap-1 transition-colors ${showFeedback ? 'text-primary' : 'hover:text-gray-600'}`}
-        >
-          <MessageSquare size={24} />
-          <span>{t('nav.feedback')}</span>
+          <MapIcon size={24} strokeWidth={page === 'map' ? 2.5 : 2} />
+          <span>{t('nav.map')}</span>
         </button>
       </nav>
 
