@@ -28,7 +28,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
     primary: "bg-primary text-white hover:bg-blue-600 focus:ring-blue-500 shadow-md hover:shadow-lg",
     secondary: "bg-white text-foreground border border-gray-200 hover:bg-gray-50 focus:ring-gray-200",
     ghost: "hover:bg-gray-100 text-gray-700",
-    radiant: "text-white font-bold bg-[linear-gradient(90deg,#FBBF24,#FB923C,#F43F5E,#3B82F6,#FBBF24)] animate-radiant bg-[length:200%_auto] hover:opacity-90 shadow-lg",
+    radiant: "text-white font-bold bg-[linear-gradient(90deg,#833AB4,#FD1D1D,#FCAF45,#833AB4)] animate-radiant bg-[length:200%_auto] hover:opacity-90 shadow-lg",
     destructive: "bg-red-500 text-white hover:bg-red-600 shadow-md"
   };
   const sizes = {
@@ -919,7 +919,7 @@ const App = () => {
         <div className="relative -top-6">
           <button
             onClick={() => setShowContribution(true)}
-            className="w-20 h-20 rounded-full bg-[linear-gradient(90deg,#FBBF24,#FB923C,#F43F5E,#3B82F6,#FBBF24)] animate-radiant bg-[length:200%_auto] flex items-center justify-center shadow-lg shadow-blue-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
+            className="w-20 h-20 rounded-full bg-[linear-gradient(90deg,#833AB4,#FD1D1D,#FCAF45,#833AB4)] animate-radiant bg-[length:200%_auto] flex items-center justify-center shadow-lg shadow-pink-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
           >
             <CloudSun className="text-white" size={40} />
           </button>
