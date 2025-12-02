@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { 
-  Sun, Cloud, CloudRain, Wind, Droplets, ArrowUp, ArrowDown, 
+import {
+  Sun, Cloud, CloudRain, Wind, Droplets, ArrowUp, ArrowDown,
   Map as MapIcon, Menu, X, Heart, Thermometer,
   CloudLightning, Snowflake, Navigation, Check, Bug, Wand2,
   Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon
@@ -28,7 +28,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
     primary: "bg-primary text-white hover:bg-blue-600 focus:ring-blue-500 shadow-md hover:shadow-lg",
     secondary: "bg-white text-foreground border border-gray-200 hover:bg-gray-50 focus:ring-gray-200",
     ghost: "hover:bg-gray-100 text-gray-700",
-    radiant: "text-white font-bold bg-gradient-to-r from-amber-400 via-orange-400 via-rose-500 via-blue-500 to-amber-400 animate-radiant bg-[length:200%_auto] hover:opacity-90 shadow-lg",
+    radiant: "text-white font-bold bg-[linear-gradient(90deg,#FBBF24,#FB923C,#F43F5E,#3B82F6,#FBBF24)] animate-radiant bg-[length:200%_auto] hover:opacity-90 shadow-lg",
     destructive: "bg-red-500 text-white hover:bg-red-600 shadow-md"
   };
   const sizes = {
@@ -38,10 +38,10 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
     xl: "h-16 px-8 text-xl",
     icon: "h-10 w-10"
   };
-  
+
   return (
-    <button 
-      onClick={onClick} 
+    <button
+      onClick={onClick}
       disabled={disabled}
       className={`${baseStyle} ${variants[variant as keyof typeof variants]} ${sizes[size as keyof typeof sizes]} ${className}`}
     >
@@ -77,11 +77,11 @@ const getWeatherIcon = (code: number, size = 24, className = "") => {
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return <CloudRain size={size} className={`text-blue-500 ${className}`} />;
   if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <Snowflake size={size} className={`text-cyan-400 ${className}`} />;
   if (code >= 95) return <CloudLightning size={size} className={`text-purple-500 ${className}`} />;
-  return <Sun size={size} className={`text-yellow-500 ${className}`} />; 
+  return <Sun size={size} className={`text-yellow-500 ${className}`} />;
 };
 
 const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
-  switch(label) {
+  switch (label) {
     case 'Sunny': return <Sun size={size} className={`text-yellow-500 ${className}`} />;
     case 'Cloudy': return <Cloud size={size} className={`text-gray-400 ${className}`} />;
     case 'Rain': return <CloudRain size={size} className={`text-blue-500 ${className}`} />;
@@ -96,14 +96,14 @@ const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
 
 const QuoteBlock = () => {
   const { dailyQuote, language } = useContext(AppContext)!;
-  
+
   if (!dailyQuote) {
-      return (
-        <Card className="mx-4 mt-4 mb-6 p-6 bg-gradient-to-br from-white to-blue-50 animate-pulse">
-           <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
-           <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-        </Card>
-      )
+    return (
+      <Card className="mx-4 mt-4 mb-6 p-6 bg-gradient-to-br from-white to-blue-50 animate-pulse">
+        <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+        <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+      </Card>
+    )
   }
 
   const quote = dailyQuote[language];
@@ -142,7 +142,7 @@ const WeatherDashboard = () => {
   const formatTime = (isoString: string) => {
     return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
-  
+
   // Format hourly time (Just hour)
   const formatHour = (isoString: string) => {
     return new Date(isoString).toLocaleTimeString([], { hour: 'numeric', hour12: true });
@@ -154,10 +154,10 @@ const WeatherDashboard = () => {
     // Simple current hour match
     return d.getHours() === now.getHours() && d.getDate() === now.getDate();
   });
-  
+
   // Fallback if not found (timezone issues), take last available or middle
   const safeIndex = currentHourIndex !== -1 ? currentHourIndex : Math.floor(weather.hourly.time.length / 2);
-  
+
   const nextHours = weather.hourly.time.slice(safeIndex, safeIndex + 6);
 
   const maxTemp = convertTemp(weather.daily.temperature_2m_max[0], unit);
@@ -173,15 +173,15 @@ const WeatherDashboard = () => {
           <p className="text-gray-500 font-medium mt-1">{t('weather.official_forecast')}</p>
         </div>
         <div className="text-right">
-           <div className="flex items-center justify-end gap-3">
+          <div className="flex items-center justify-end gap-3">
             {getWeatherIcon(weather.current.weatherCode, 48)}
             <span className="text-6xl font-bold text-foreground tracking-tighter">
               {currentTemp}°
             </span>
-           </div>
-           <p className="text-gray-500 font-medium mt-1">
-             H: {maxTemp}°  L: {minTemp}°
-           </p>
+          </div>
+          <p className="text-gray-500 font-medium mt-1">
+            H: {maxTemp}°  L: {minTemp}°
+          </p>
         </div>
       </div>
 
@@ -197,7 +197,7 @@ const WeatherDashboard = () => {
             <p className="font-semibold text-gray-700">{formatTime(weather.daily.sunrise[0])}</p>
           </div>
         </div>
-        
+
         {/* Sunset */}
         <div className="flex items-center gap-3">
           <div className="p-2 bg-orange-50 rounded-full text-orange-600">
@@ -237,19 +237,19 @@ const WeatherDashboard = () => {
         <h3 className="text-xs font-bold text-gray-400 uppercase mb-4 tracking-wider">{t('weather.hourly')}</h3>
         <div className="flex overflow-x-auto gap-8 pb-2 scrollbar-hide">
           {nextHours.map((time, i) => {
-             const index = safeIndex + i;
-             const temp = weather.hourly.temperature_2m[index];
-             const code = weather.hourly.weather_code[index];
-             
-             return (
-               <div key={time} className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[3rem]">
-                 <span className="text-sm font-medium text-gray-500">{formatHour(time)}</span>
-                 <div className="my-1">
-                   {getWeatherIcon(code, 24)}
-                 </div>
-                 <span className="text-lg font-bold text-foreground">{convertTemp(temp, unit)}°</span>
-               </div>
-             );
+            const index = safeIndex + i;
+            const temp = weather.hourly.temperature_2m[index];
+            const code = weather.hourly.weather_code[index];
+
+            return (
+              <div key={time} className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[3rem]">
+                <span className="text-sm font-medium text-gray-500">{formatHour(time)}</span>
+                <div className="my-1">
+                  {getWeatherIcon(code, 24)}
+                </div>
+                <span className="text-lg font-bold text-foreground">{convertTemp(temp, unit)}°</span>
+              </div>
+            );
           })}
         </div>
       </div>
@@ -264,74 +264,74 @@ const CommunityCarousel = () => {
 
   // Find current hour index
   const currentHourIndex = weather.hourly.time.findIndex(time => {
-     const d = new Date(time);
-     const now = new Date();
-     return d.getHours() === now.getHours() && d.getDate() === now.getDate();
+    const d = new Date(time);
+    const now = new Date();
+    return d.getHours() === now.getHours() && d.getDate() === now.getDate();
   });
 
   if (currentHourIndex === -1) return null;
 
   // We want past 6 hours including current
-  const pastIndices = Array.from({length: 6}, (_, i) => currentHourIndex - i).filter(i => i >= 0);
+  const pastIndices = Array.from({ length: 6 }, (_, i) => currentHourIndex - i).filter(i => i >= 0);
 
   return (
     <div className="mx-4 mb-24">
       <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-        <User size={20} className="text-primary"/>
+        <User size={20} className="text-primary" />
         {t('community.title')}
       </h3>
       {/* Recent on Left */}
       <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-hide">
         {pastIndices.map((index, i) => {
-           const time = weather.hourly.time[index];
-           const temp = weather.hourly.temperature_2m[index];
-           const code = weather.hourly.weather_code[index];
-           const date = new Date(time);
-           
-           // Filter community reports for this hour block (approx +/- 30 min around the hour mark to catch slots)
-           const hourTimestamp = date.getTime();
-           
-           const reportsForHour = communityReports.filter(r => {
-             return Math.abs(r.timestamp - hourTimestamp) < 3600000; 
-           });
+          const time = weather.hourly.time[index];
+          const temp = weather.hourly.temperature_2m[index];
+          const code = weather.hourly.weather_code[index];
+          const date = new Date(time);
 
-           let displayConditions: string[] = [];
-           let confidence = ConfidenceLevel.LOW;
-           let hasReports = false;
+          // Filter community reports for this hour block (approx +/- 30 min around the hour mark to catch slots)
+          const hourTimestamp = date.getTime();
 
-           if (reportsForHour.length > 0) {
-              reportsForHour.sort((a, b) => b.timestamp - a.timestamp);
-              const latestReportTime = reportsForHour[0].timestamp;
-              const FRESHNESS_WINDOW = 30 * 60 * 1000; 
-              const recentReports = reportsForHour.filter(r => (latestReportTime - r.timestamp) < FRESHNESS_WINDOW);
-              
-              if (recentReports.length > 0) {
-                 hasReports = true;
-                 
-                 const conditionCounts: Record<string, number> = {};
-                 recentReports.forEach(r => {
-                    r.conditions.forEach(c => {
-                       conditionCounts[c] = (conditionCounts[c] || 0) + 1;
-                    });
-                 });
+          const reportsForHour = communityReports.filter(r => {
+            return Math.abs(r.timestamp - hourTimestamp) < 3600000;
+          });
 
-                 displayConditions = Object.entries(conditionCounts)
-                    .sort(([, countA], [, countB]) => countB - countA)
-                    .map(([cond]) => cond);
+          let displayConditions: string[] = [];
+          let confidence = ConfidenceLevel.LOW;
+          let hasReports = false;
 
-                 const topConditionCount = displayConditions.length > 0 ? conditionCounts[displayConditions[0]] : 0;
-                 
-                 if (topConditionCount >= 5) {
-                    confidence = ConfidenceLevel.HIGH;
-                 } else if (topConditionCount >= 3) {
-                    confidence = ConfidenceLevel.MEDIUM;
-                 } else {
-                    confidence = ConfidenceLevel.LOW;
-                 }
+          if (reportsForHour.length > 0) {
+            reportsForHour.sort((a, b) => b.timestamp - a.timestamp);
+            const latestReportTime = reportsForHour[0].timestamp;
+            const FRESHNESS_WINDOW = 30 * 60 * 1000;
+            const recentReports = reportsForHour.filter(r => (latestReportTime - r.timestamp) < FRESHNESS_WINDOW);
+
+            if (recentReports.length > 0) {
+              hasReports = true;
+
+              const conditionCounts: Record<string, number> = {};
+              recentReports.forEach(r => {
+                r.conditions.forEach(c => {
+                  conditionCounts[c] = (conditionCounts[c] || 0) + 1;
+                });
+              });
+
+              displayConditions = Object.entries(conditionCounts)
+                .sort(([, countA], [, countB]) => countB - countA)
+                .map(([cond]) => cond);
+
+              const topConditionCount = displayConditions.length > 0 ? conditionCounts[displayConditions[0]] : 0;
+
+              if (topConditionCount >= 5) {
+                confidence = ConfidenceLevel.HIGH;
+              } else if (topConditionCount >= 3) {
+                confidence = ConfidenceLevel.MEDIUM;
+              } else {
+                confidence = ConfidenceLevel.LOW;
               }
-           }
+            }
+          }
 
-           return (
+          return (
             <Card key={time} className="min-w-[140px] flex flex-col items-center flex-shrink-0">
               {/* Top: Official */}
               <div className="w-full bg-blue-50 p-3 flex flex-col items-center border-b border-blue-100">
@@ -339,15 +339,15 @@ const CommunityCarousel = () => {
                 {getWeatherIcon(code, 24, "mb-1")}
                 <span className="font-bold text-lg">{convertTemp(temp, unit)}°</span>
               </div>
-              
+
               {/* Bottom: Community */}
               <div className="w-full p-3 flex flex-col items-center bg-white relative h-[88px] justify-center">
                 <span className="text-[10px] font-bold text-purple-400 mb-2 absolute top-2">{t('community.reports')}</span>
-                
+
                 {hasReports ? (
                   <>
-                     <div className="flex -space-x-2 mt-2">
-                      {displayConditions.slice(0,3).map((condition, ci) => (
+                    <div className="flex -space-x-2 mt-2">
+                      {displayConditions.slice(0, 3).map((condition, ci) => (
                         <div key={ci} className="bg-purple-100 p-1.5 rounded-full border-2 border-white z-10">
                           {getWeatherIconFromLabel(condition, 14)}
                         </div>
@@ -360,13 +360,13 @@ const CommunityCarousel = () => {
                 ) : (
                   <span className="text-gray-300 font-medium text-sm mt-2">N/A</span>
                 )}
-                
+
                 <span className="absolute top-2 right-2 text-[10px] text-gray-400">
-                   {date.getHours()}:00
+                  {date.getHours()}:00
                 </span>
               </div>
             </Card>
-           );
+          );
         })}
       </div>
     </div>
@@ -381,7 +381,7 @@ const MapPage = () => {
   const markersRef = useRef<any[]>([]);
   const { location, userPosition, weather, cityName, communityReports, searchCity, updateLocation, majorCitiesWeather, unit, t } = useContext(AppContext)!;
   const [viewMode, setViewMode] = useState<'official' | 'community'>('official');
-  
+
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -419,49 +419,49 @@ const MapPage = () => {
 
   useEffect(() => {
     if (!mapRef.current) return;
-    
+
     const L = (window as any).L;
     if (!L) {
-        setTimeout(() => {
-             const LRetry = (window as any).L;
-             if(LRetry && !mapInstance.current) {
-                 initMap(LRetry);
-             }
-        }, 500);
-        return;
+      setTimeout(() => {
+        const LRetry = (window as any).L;
+        if (LRetry && !mapInstance.current) {
+          initMap(LRetry);
+        }
+      }, 500);
+      return;
     }
 
     initMap(L);
-    
+
     function initMap(Leaflet: any) {
-        if (!mapInstance.current) {
-          const initialLat = location ? location.lat : 48.8566;
-          const initialLng = location ? location.lng : 2.3522;
+      if (!mapInstance.current) {
+        const initialLat = location ? location.lat : 48.8566;
+        const initialLng = location ? location.lng : 2.3522;
 
-          const map = Leaflet.map(mapRef.current, {
-            zoomControl: false,
-            attributionControl: false
-          }).setView([initialLat, initialLng], 13);
+        const map = Leaflet.map(mapRef.current, {
+          zoomControl: false,
+          attributionControl: false
+        }).setView([initialLat, initialLng], 13);
 
-          Leaflet.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
-            subdomains: 'abcd',
-            attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-          }).addTo(map);
+        Leaflet.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          maxZoom: 19,
+          subdomains: 'abcd',
+          attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+        }).addTo(map);
 
-          mapInstance.current = map;
-          
-          setTimeout(() => {
-            map.invalidateSize();
-          }, 100);
-        }
+        mapInstance.current = map;
+
+        setTimeout(() => {
+          map.invalidateSize();
+        }, 100);
+      }
     }
   }, []);
 
   useEffect(() => {
-      if(mapInstance.current && location) {
-          mapInstance.current.setView([location.lat, location.lng], 13);
-      }
+    if (mapInstance.current && location) {
+      mapInstance.current.setView([location.lat, location.lng], 13);
+    }
   }, [location]);
 
   useEffect(() => {
@@ -473,9 +473,9 @@ const MapPage = () => {
 
     const getIconSvg = (type: 'sun' | 'rain' | 'cloud' | 'storm' | 'snow' | 'wind' | 'moon', color: string, size: number = 24) => {
       let svgContent = '';
-      if(type === 'sun') {
-          // Lucide Sun
-          svgContent = `
+      if (type === 'sun') {
+        // Lucide Sun
+        svgContent = `
             <circle cx="12" cy="12" r="4" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M12 2v2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M12 20v2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -487,31 +487,31 @@ const MapPage = () => {
             <path d="m19.07 4.93-1.41 1.41" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           `;
       } else if (type === 'moon') {
-          // Lucide Moon
-          svgContent = `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+        // Lucide Moon
+        svgContent = `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
       } else if (type === 'rain') {
-          // Lucide CloudRain
-          svgContent = `
+        // Lucide CloudRain
+        svgContent = `
             <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M16 14v6" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M8 14v6" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M12 16v6" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           `;
       } else if (type === 'cloud') {
-          // Lucide Cloud
-          svgContent = `
-            <path d="M17.5 19c0-3.037-2.463-5.5-5.5-5.5S6.5 15.963 6.5 19" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        // Lucide Cloud
+        svgContent = `
+            <path d="M17.5 19c0-3.037-2.463-5.5-5.5-5.5S6.5 15.963 6.5 19 17.5 19z" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M17.5 19c3.037 0 5.5-2.463 5.5-5.5S20.537 8 17.5 8h-1.79A7.002 7.002 0 0 0 3.29 14.9" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           `;
       } else if (type === 'storm') {
-          // Lucide CloudLightning
-          svgContent = `
+        // Lucide CloudLightning
+        svgContent = `
             <path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="m13 12-3 5h4l-3 5" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           `;
       } else if (type === 'snow') {
-          // Lucide Snowflake
-          svgContent = `
+        // Lucide Snowflake
+        svgContent = `
             <line x1="2" x2="22" y1="12" y2="12" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <line x1="12" x2="12" y1="2" y2="22" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="m20 20-4-4" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -520,14 +520,14 @@ const MapPage = () => {
             <path d="m4 20 4-4" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           `;
       } else if (type === 'wind') {
-          // Lucide Wind
-           svgContent = `
+        // Lucide Wind
+        svgContent = `
             <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M9.6 4.6A2 2 0 1 1 11 8H2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M12.6 19.4A2 2 0 1 0 14 16H2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           `;
       }
-      
+
       // Return SVG with specified size and fill none for clean stroke rendering
       return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${svgContent}</svg>`;
     };
@@ -535,12 +535,12 @@ const MapPage = () => {
     if (viewMode === 'official') {
       // 1. Current Location Marker
       if (location && weather) {
-        const isCurrentGps = userPosition && 
-            Math.abs(userPosition.lat - location.lat) < 0.001 && 
-            Math.abs(userPosition.lng - location.lng) < 0.001;
+        const isCurrentGps = userPosition &&
+          Math.abs(userPosition.lat - location.lat) < 0.001 &&
+          Math.abs(userPosition.lng - location.lng) < 0.001;
 
         const code = weather.current.weatherCode;
-        let iconType: 'sun'|'moon'|'rain'|'cloud'|'storm'|'snow'|'wind' = 'sun';
+        let iconType: 'sun' | 'moon' | 'rain' | 'cloud' | 'storm' | 'snow' | 'wind' = 'sun';
         let iconColor = '#F59E0B'; // Yellow
 
         // Determine icon & color based on code & day/night
@@ -549,10 +549,10 @@ const MapPage = () => {
         else if (code >= 51 || code >= 80) { iconType = 'rain'; iconColor = '#3B82F6'; }
         else if (code >= 45) { iconType = 'cloud'; iconColor = '#64748B'; }
         else if (code >= 1) { iconType = 'cloud'; iconColor = '#64748B'; }
-        else { 
-            // Clear sky
-            if (weather.current.isDay === 0) { iconType = 'moon'; iconColor = '#64748B'; }
-            else { iconType = 'sun'; iconColor = '#F59E0B'; }
+        else {
+          // Clear sky
+          if (weather.current.isDay === 0) { iconType = 'moon'; iconColor = '#64748B'; }
+          else { iconType = 'sun'; iconColor = '#F59E0B'; }
         }
 
         const temp = convertTemp(weather.current.temperature, unit);
@@ -575,60 +575,60 @@ const MapPage = () => {
 
       // 2. Major Cities Markers
       majorCitiesWeather.forEach(city => {
-          // Don't duplicate current location
-          if (Math.abs(city.lat - location?.lat) < 0.1 && Math.abs(city.lng - location?.lng) < 0.1) return;
+        // Don't duplicate current location
+        if (Math.abs(city.lat - location?.lat) < 0.1 && Math.abs(city.lng - location?.lng) < 0.1) return;
 
-          let iconType: 'sun'|'moon'|'rain'|'cloud'|'storm'|'snow'|'wind' = 'sun';
-          let iconColor = '#F59E0B'; 
-          const code = city.code;
-          
-          if (code >= 95) { iconType = 'storm'; iconColor = '#7C3AED'; }
-          else if (code >= 71 || code === 85 || code === 86) { iconType = 'snow'; iconColor = '#06B6D4'; }
-          else if (code >= 51 || code >= 80) { iconType = 'rain'; iconColor = '#3B82F6'; }
-          else if (code >= 45) { iconType = 'cloud'; iconColor = '#64748B'; }
-          else if (code >= 1) { iconType = 'cloud'; iconColor = '#64748B'; }
-          else { 
-              if (city.isDay === 0) { iconType = 'moon'; iconColor = '#64748B'; }
-              else { iconType = 'sun'; iconColor = '#F59E0B'; }
-          }
-          
-          const temp = convertTemp(city.temp, unit);
+        let iconType: 'sun' | 'moon' | 'rain' | 'cloud' | 'storm' | 'snow' | 'wind' = 'sun';
+        let iconColor = '#F59E0B';
+        const code = city.code;
 
-          const el = L.divIcon({
-            className: 'bg-transparent',
-            html: `
+        if (code >= 95) { iconType = 'storm'; iconColor = '#7C3AED'; }
+        else if (code >= 71 || code === 85 || code === 86) { iconType = 'snow'; iconColor = '#06B6D4'; }
+        else if (code >= 51 || code >= 80) { iconType = 'rain'; iconColor = '#3B82F6'; }
+        else if (code >= 45) { iconType = 'cloud'; iconColor = '#64748B'; }
+        else if (code >= 1) { iconType = 'cloud'; iconColor = '#64748B'; }
+        else {
+          if (city.isDay === 0) { iconType = 'moon'; iconColor = '#64748B'; }
+          else { iconType = 'sun'; iconColor = '#F59E0B'; }
+        }
+
+        const temp = convertTemp(city.temp, unit);
+
+        const el = L.divIcon({
+          className: 'bg-transparent',
+          html: `
               <div class="bg-white rounded-full shadow-md border border-gray-100 px-3 py-2 flex items-center gap-2 transform hover:scale-110 transition-transform">
                 ${getIconSvg(iconType, iconColor, 22)}
                 <span class="font-bold text-gray-800 text-sm">${temp}°</span>
               </div>
             `,
-            iconSize: [80, 42],
-            iconAnchor: [40, -10]
-          });
-          markersRef.current.push(L.marker([city.lat, city.lng], { icon: el }).addTo(mapInstance.current));
+          iconSize: [80, 42],
+          iconAnchor: [40, -10]
+        });
+        markersRef.current.push(L.marker([city.lat, city.lng], { icon: el }).addTo(mapInstance.current));
       });
 
     } else {
       // Community View
       communityReports.forEach(report => {
         let iconsHtml = '';
-        
-        report.conditions.forEach(cond => {
-            let type: any = 'sun';
-            let color = '#F59E0B'; // Default yellow
 
-            // Requirement: Colored icons on community map as well
-            switch(cond) {
-                case 'Sunny': type = 'sun'; color = '#FCD34D'; break; // Amber
-                case 'Cloudy': type = 'cloud'; color = '#E2E8F0'; break; // Light Slate (Cloud)
-                case 'Rain': type = 'rain'; color = '#60A5FA'; break; // Blue
-                case 'Windy': type = 'wind'; color = '#93C5FD'; break; // Light Blue
-                case 'Snow': type = 'snow'; color = '#A5F3FC'; break; // Cyan
-                case 'Storm': type = 'storm'; color = '#FBBF24'; break; // Yellow Lightning
-                default: type = 'sun'; color = '#F59E0B';
-            }
-            
-            iconsHtml += getIconSvg(type, color, 16);
+        report.conditions.forEach(cond => {
+          let type: any = 'sun';
+          let color = '#F59E0B'; // Default yellow
+
+          // Requirement: Colored icons on community map as well
+          switch (cond) {
+            case 'Sunny': type = 'sun'; color = '#FCD34D'; break; // Amber
+            case 'Cloudy': type = 'cloud'; color = '#E2E8F0'; break; // Light Slate (Cloud)
+            case 'Rain': type = 'rain'; color = '#60A5FA'; break; // Blue
+            case 'Windy': type = 'wind'; color = '#93C5FD'; break; // Light Blue
+            case 'Snow': type = 'snow'; color = '#A5F3FC'; break; // Cyan
+            case 'Storm': type = 'storm'; color = '#FBBF24'; break; // Yellow Lightning
+            default: type = 'sun'; color = '#F59E0B';
+          }
+
+          iconsHtml += getIconSvg(type, color, 16);
         });
 
         const temp = report.temp ? convertTemp(report.temp, unit) : '--';
@@ -657,80 +657,78 @@ const MapPage = () => {
     <div className="relative w-full h-full">
       {/* Floating UI Controls - High Z-Index */}
       <div className="absolute top-24 left-0 right-0 z-[9999] px-4 flex flex-col items-center gap-4 pointer-events-none">
-         
-         {/* Toggle Switch */}
-         <div className="bg-gray-100 p-1 rounded-full shadow-sm flex pointer-events-auto">
-            <button 
-              onClick={() => setViewMode('official')}
-              className={`px-6 py-2 rounded-full text-sm font-semibold transition-all ${
-                viewMode === 'official' 
-                  ? 'bg-white text-blue-600 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t('map.toggle.official')}
-            </button>
-            <button 
-              onClick={() => setViewMode('community')}
-              className={`px-6 py-2 rounded-full text-sm font-semibold transition-all ${
-                viewMode === 'community' 
-                  ? 'bg-white text-purple-600 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t('map.toggle.community')}
-            </button>
-         </div>
 
-         {/* Search Bar */}
-         <div className="relative w-full max-w-md pointer-events-auto shadow-xl rounded-full">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              className="block w-full pl-11 pr-12 py-3.5 border-none rounded-full leading-5 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0 text-base"
-              placeholder={t('map.search.placeholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <div className="absolute inset-y-0 right-0 pr-2 flex items-center">
-               <button 
-                  onClick={() => {
-                     if (navigator.geolocation) {
-                        navigator.geolocation.getCurrentPosition(pos => {
-                           updateLocation(pos.coords.latitude, pos.coords.longitude, undefined, undefined, 'gps');
-                        });
-                     }
-                  }}
-                  className="p-2 text-gray-400 hover:text-primary transition-colors"
+        {/* Toggle Switch */}
+        <div className="bg-gray-100 p-1 rounded-full shadow-sm flex pointer-events-auto">
+          <button
+            onClick={() => setViewMode('official')}
+            className={`px-6 py-2 rounded-full text-sm font-semibold transition-all ${viewMode === 'official'
+              ? 'bg-white text-blue-600 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+              }`}
+          >
+            {t('map.toggle.official')}
+          </button>
+          <button
+            onClick={() => setViewMode('community')}
+            className={`px-6 py-2 rounded-full text-sm font-semibold transition-all ${viewMode === 'community'
+              ? 'bg-white text-purple-600 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+              }`}
+          >
+            {t('map.toggle.community')}
+          </button>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative w-full max-w-md pointer-events-auto shadow-xl rounded-full">
+          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+            <Search className="h-5 w-5 text-gray-400" />
+          </div>
+          <input
+            type="text"
+            className="block w-full pl-11 pr-12 py-3.5 border-none rounded-full leading-5 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0 text-base"
+            placeholder={t('map.search.placeholder')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <div className="absolute inset-y-0 right-0 pr-2 flex items-center">
+            <button
+              onClick={() => {
+                if (navigator.geolocation) {
+                  navigator.geolocation.getCurrentPosition(pos => {
+                    updateLocation(pos.coords.latitude, pos.coords.longitude, undefined, undefined, 'gps');
+                  });
+                }
+              }}
+              className="p-2 text-gray-400 hover:text-primary transition-colors"
+            >
+              <Crosshair size={20} />
+            </button>
+            <button className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-4 py-1.5 ml-2 text-sm font-medium">
+              {t('map.search.button')}
+            </button>
+          </div>
+
+          {/* Dropdown */}
+          {searchResults.length > 0 && (
+            <ul className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl py-2 z-50 max-h-60 overflow-auto border border-gray-100">
+              {searchResults.map((result) => (
+                <li
+                  key={result.id}
+                  onClick={() => selectCity(result)}
+                  className="px-6 py-3 hover:bg-blue-50 cursor-pointer flex items-center gap-3 transition-colors border-b border-gray-50 last:border-0"
                 >
-                  <Crosshair size={20} />
-               </button>
-               <button className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-4 py-1.5 ml-2 text-sm font-medium">
-                 {t('map.search.button')}
-               </button>
-            </div>
-
-            {/* Dropdown */}
-            {searchResults.length > 0 && (
-              <ul className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl py-2 z-50 max-h-60 overflow-auto border border-gray-100">
-                {searchResults.map((result) => (
-                  <li 
-                    key={result.id}
-                    onClick={() => selectCity(result)}
-                    className="px-6 py-3 hover:bg-blue-50 cursor-pointer flex items-center gap-3 transition-colors border-b border-gray-50 last:border-0"
-                  >
-                    <MapPin size={18} className="text-gray-400" />
-                    <div className="flex flex-col">
-                       <span className="text-gray-900 font-medium">{result.name}</span>
-                       <span className="text-gray-500 text-xs">{result.country}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-         </div>
+                  <MapPin size={18} className="text-gray-400" />
+                  <div className="flex flex-col">
+                    <span className="text-gray-900 font-medium">{result.name}</span>
+                    <span className="text-gray-500 text-xs">{result.country}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
       </div>
 
@@ -743,14 +741,14 @@ const MapPage = () => {
 const ContributionModal = ({ onClose }: { onClose: () => void }) => {
   const { addReport, t } = useContext(AppContext)!;
   const [selected, setSelected] = useState<string[]>([]);
-  
+
   const toggle = (label: string) => {
     if (selected.includes(label)) {
-        setSelected(s => s.filter(i => i !== label));
+      setSelected(s => s.filter(i => i !== label));
     } else {
-        if (selected.length < 3) {
-            setSelected(s => [...s, label]);
-        }
+      if (selected.length < 3) {
+        setSelected(s => [...s, label]);
+      }
     }
   };
 
@@ -775,7 +773,7 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X size={24} />
         </button>
-        
+
         <div className="text-center mb-6">
           <h2 className="text-2xl font-bold mb-2">{t('modal.title')}</h2>
           <p className="text-gray-500">{t('modal.desc')}</p>
@@ -787,11 +785,10 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
             <button
               key={opt.label}
               onClick={() => toggle(opt.label)}
-              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
-                selected.includes(opt.label)
-                  ? 'border-blue-500 bg-blue-50' 
-                  : 'border-transparent bg-gray-50 hover:bg-gray-100'
-              }`}
+              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${selected.includes(opt.label)
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-transparent bg-gray-50 hover:bg-gray-100'
+                }`}
             >
               <opt.icon size={32} className={`mb-2 ${opt.color}`} />
               <span className={`text-sm font-medium ${selected.includes(opt.label) ? 'text-blue-700' : 'text-gray-600'}`}>
@@ -801,8 +798,8 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
           ))}
         </div>
 
-        <Button 
-          variant="radiant" 
+        <Button
+          variant="radiant"
           className="w-full h-14 text-lg shadow-xl"
           onClick={submit}
           disabled={selected.length === 0}
@@ -815,35 +812,35 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
 };
 
 const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
-    const { t } = useContext(AppContext)!;
-    
-    return (
-        <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center p-4 bg-black/20 backdrop-blur-[2px]" onClick={onClose}>
-            <div className="w-full max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 pb-10" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold">{t('nav.feedback')}</h2>
-                    <button onClick={onClose}><X className="text-gray-400"/></button>
-                </div>
-                
-                <div className="space-y-3">
-                    <a href="mailto:hello@wiseweatherapp.xyz?subject=Bug Report - Wise Weather" className="flex items-center gap-4 p-4 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 transition-colors">
-                        <Bug size={24} />
-                        <span className="font-semibold">{t('feedback.bug')}</span>
-                    </a>
-                     <a href="mailto:hello@wiseweatherapp.xyz?subject=Feature Request - Wise Weather" className="flex items-center gap-4 p-4 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors">
-                        <Wand2 size={24} />
-                        <span className="font-semibold">{t('feedback.feature')}</span>
-                    </a>
-                </div>
-            </div>
+  const { t } = useContext(AppContext)!;
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center p-4 bg-black/20 backdrop-blur-[2px]" onClick={onClose}>
+      <div className="w-full max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 pb-10" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold">{t('nav.feedback')}</h2>
+          <button onClick={onClose}><X className="text-gray-400" /></button>
         </div>
-    )
+
+        <div className="space-y-3">
+          <a href="mailto:hello@wiseweatherapp.xyz?subject=Bug Report - Wise Weather" className="flex items-center gap-4 p-4 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 transition-colors">
+            <Bug size={24} />
+            <span className="font-semibold">{t('feedback.bug')}</span>
+          </a>
+          <a href="mailto:hello@wiseweatherapp.xyz?subject=Feature Request - Wise Weather" className="flex items-center gap-4 p-4 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors">
+            <Wand2 size={24} />
+            <span className="font-semibold">{t('feedback.feature')}</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // --- App Layout ---
 
 const App = () => {
-  const [page, setPage] = useState<'home'|'map'>('home');
+  const [page, setPage] = useState<'home' | 'map'>('home');
   const [showContribution, setShowContribution] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const { language, setLanguage, unit, setUnit, t } = useContext(AppContext)!;
@@ -859,36 +856,36 @@ const App = () => {
 
   return (
     <div className="min-h-screen pb-20 relative overflow-hidden font-sans">
-      
+
       {/* Header - Fixed & Glassy */}
       <header className="fixed top-0 w-full z-40 bg-white/80 backdrop-blur-md border-b border-gray-100/50 h-16 flex items-center justify-between px-4 transition-all duration-300">
         <div className="flex items-center gap-2">
-            <Sun className="text-yellow-400 animate-spin-slow" size={28} />
-            <span className="text-xl font-extrabold tracking-tight radiant-text">
+          <Sun className="text-yellow-400 animate-spin-slow" size={28} />
+          <span className="text-xl font-extrabold tracking-tight radiant-text">
             {t('app.name')}
-            </span>
+          </span>
         </div>
         <div className="flex gap-2">
-            <button 
+          <button
             onClick={() => setUnit(unit === 'celsius' ? 'fahrenheit' : 'celsius')}
             className="w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50"
-            >
+          >
             °{unit === 'celsius' ? 'C' : 'F'}
-            </button>
-            <button 
+          </button>
+          <button
             onClick={() => setLanguage(language === 'en' ? 'fr' : 'en')}
             className="w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50"
-            >
+          >
             {language.toUpperCase()}
-            </button>
-            
-            {/* Feedback Button moved to Header */}
-            <button 
-              onClick={() => setShowFeedback(true)}
-              className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-700 flex items-center justify-center hover:bg-gray-50"
-            >
-              <MessageSquare size={16} />
-            </button>
+          </button>
+
+          {/* Feedback Button moved to Header */}
+          <button
+            onClick={() => setShowFeedback(true)}
+            className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-700 flex items-center justify-center hover:bg-gray-50"
+          >
+            <MessageSquare size={16} />
+          </button>
         </div>
       </header>
 
@@ -901,35 +898,35 @@ const App = () => {
             <CommunityCarousel />
           </div>
         )}
-        
+
         {page === 'map' && <MapPage />}
       </main>
 
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 w-full bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center z-50 text-xs font-medium text-gray-400 pb-safe">
-        <button 
+        <button
           onClick={() => setPage('home')}
           className={`flex flex-col items-center gap-1 transition-colors ${page === 'home' ? 'text-primary' : 'hover:text-gray-600'}`}
         >
           <div className="relative">
-             <Sun size={24} strokeWidth={page === 'home' ? 2.5 : 2} />
-             {page === 'home' && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 bg-primary rounded-full"></span>}
+            <Sun size={24} strokeWidth={page === 'home' ? 2.5 : 2} />
+            {page === 'home' && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 bg-primary rounded-full"></span>}
           </div>
           <span>{t('nav.home')}</span>
         </button>
 
         {/* Contribution FAB in Center */}
         <div className="relative -top-6">
-            <button 
+          <button
             onClick={() => setShowContribution(true)}
-            className="w-20 h-20 rounded-full bg-gradient-to-r from-amber-400 via-rose-500 via-blue-500 to-amber-400 animate-radiant bg-[length:200%_auto] flex items-center justify-center shadow-lg shadow-blue-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
-            >
+            className="w-20 h-20 rounded-full bg-[linear-gradient(90deg,#FBBF24,#FB923C,#F43F5E,#3B82F6,#FBBF24)] animate-radiant bg-[length:200%_auto] flex items-center justify-center shadow-lg shadow-blue-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
+          >
             <CloudSun className="text-white" size={40} />
-            </button>
+          </button>
         </div>
 
         {/* Map Button moved to Right */}
-        <button 
+        <button
           onClick={() => setPage('map')}
           className={`flex flex-col items-center gap-1 transition-colors ${page === 'map' ? 'text-primary' : 'hover:text-gray-600'}`}
         >
