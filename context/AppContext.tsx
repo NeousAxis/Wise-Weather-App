@@ -26,11 +26,11 @@ interface AppContextType {
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
 
-// Initialize Gemini AI
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize Gemini AI lazily
+// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Database of major cities by country (Expanded)
-const COUNTRY_MAJOR_CITIES: Record<string, {name: string, lat: number, lng: number}[]> = {
+const COUNTRY_MAJOR_CITIES: Record<string, { name: string, lat: number, lng: number }[]> = {
   "France": [
     { name: "Paris", lat: 48.8566, lng: 2.3522 },
     { name: "Lyon", lat: 45.7640, lng: 4.8357 },
@@ -96,9 +96,9 @@ const COUNTRY_MAJOR_CITIES: Record<string, {name: string, lat: number, lng: numb
     { name: "Brisbane", lat: -27.4698, lng: 153.0251 }
   ],
   "USA": [
-      { name: "New York", lat: 40.7128, lng: -74.0060 },
-      { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
-      { name: "Chicago", lat: 41.8781, lng: -87.6298 }
+    { name: "New York", lat: 40.7128, lng: -74.0060 },
+    { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
+    { name: "Chicago", lat: 41.8781, lng: -87.6298 }
   ]
 };
 
@@ -132,7 +132,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       const now = new Date();
       const currentHour = now.getHours();
       const todayStr = now.toDateString(); // e.g. "Mon Jan 01 2024"
-      
+
       let theme = "";
       let slotKey = "";
 
@@ -140,7 +140,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       // Slot 1: 07:00 -> 11:00
       // Slot 2: 11:00 -> 16:00
       // Slot 3: 16:00 -> Next Day 07:00
-      
+
       if (currentHour >= 7 && currentHour < 11) {
         slotKey = `${todayStr}-slot-7am`;
         theme = "Wisdom & Presence (introspection, silence, trust, attention, peace). Authors: Lao Tzu, Buddha, Epictetus, Seneca, Marcus Aurelius, Eckhart Tolle, Jiddu Krishnamurti, Thich Nhat Hanh, Alan Watts, Rumi, Khalil Gibran, Sri Nisargadatta Maharaj, Ramana Maharshi.";
@@ -167,7 +167,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           // If we are in the same slot as the stored quote, use it.
           if (parsed.slotKey === slotKey && parsed.quote) {
             setDailyQuote(parsed.quote);
-            return; 
+            return;
           }
         } catch (e) {
           // Invalid cache, proceed to generate
@@ -186,33 +186,40 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         }
         3. Do NOT provide a long text. Do NOT provide an explanation. STRICTLY JSON.`;
 
+        const apiKey = process.env.API_KEY;
+        if (!apiKey) {
+          console.warn("Gemini API Key is missing");
+          throw new Error("Missing API Key");
+        }
+
+        const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-2.0-flash-exp',
           contents: prompt,
           config: {
-             responseMimeType: 'application/json'
+            responseMimeType: 'application/json'
           }
         });
-        
+
         const data = JSON.parse(response.text);
-        
+
         // Robust check to ensure structure is correct
         if (data.en && data.fr) {
-            setDailyQuote(data);
-            // Save to LocalStorage
-            localStorage.setItem('wise_weather_quote', JSON.stringify({
-              slotKey: slotKey,
-              quote: data
-            }));
+          setDailyQuote(data);
+          // Save to LocalStorage
+          localStorage.setItem('wise_weather_quote', JSON.stringify({
+            slotKey: slotKey,
+            quote: data
+          }));
         } else {
-            throw new Error("Invalid quote structure");
+          throw new Error("Invalid quote structure");
         }
 
       } catch (e) {
         console.error("Failed to generate quote", e);
         const fallback = {
-           en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
-           fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" }
+          en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
+          fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" }
         };
         setDailyQuote(fallback);
       }
@@ -223,42 +230,42 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const updateLocation = (lat: number, lng: number, name?: string, country?: string, source: 'gps' | 'manual' = 'manual') => {
     setLocation({ lat, lng });
     if (name) setCityName(name);
-    
+
     if (source === 'gps') {
-       setUserPosition({ lat, lng });
-       // Reverse geocode if name not provided
-       if (!name) {
-         fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+      setUserPosition({ lat, lng });
+      // Reverse geocode if name not provided
+      if (!name) {
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
           .then(res => res.json())
           .then(data => {
             const city = data.address.city || data.address.town || data.address.village || "Unknown Location";
             const ctry = data.address.country;
             setCityName(city);
             if (ctry) {
-                setCurrentCountry(ctry);
-                fetchMajorCitiesForCountry(ctry);
+              setCurrentCountry(ctry);
+              fetchMajorCitiesForCountry(ctry);
             }
           });
-       } else if (country) {
-           setCurrentCountry(country);
-           fetchMajorCitiesForCountry(country);
-       }
+      } else if (country) {
+        setCurrentCountry(country);
+        fetchMajorCitiesForCountry(country);
+      }
     }
   };
 
   const fetchMajorCitiesForCountry = async (countryName: string) => {
     // Normalize country name (remove accents, lowercase, remove spaces) to handle "Việt Nam" vs "Vietnam"
     const normalizedInput = countryName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
-    
+
     let targetCities = GLOBAL_MAJOR_CITIES; // Default fallback
 
     // Find match in database
     for (const key of Object.keys(COUNTRY_MAJOR_CITIES)) {
-        const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
-        if (normalizedInput.includes(normalizedKey) || normalizedKey.includes(normalizedInput)) {
-            targetCities = COUNTRY_MAJOR_CITIES[key];
-            break;
-        }
+      const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+      if (normalizedInput.includes(normalizedKey) || normalizedKey.includes(normalizedInput)) {
+        targetCities = COUNTRY_MAJOR_CITIES[key];
+        break;
+      }
     }
 
     const promises = targetCities.map(async (city) => {
@@ -307,36 +314,36 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
       );
       const data = await res.json();
-      
+
       // Transform snake_case API response to camelCase structure expected by WeatherData type
       const mappedWeather: WeatherData = {
-          current: {
-              temperature: data.current.temperature_2m,
-              weatherCode: data.current.weather_code,
-              windSpeed: data.current.wind_speed_10m,
-              isDay: data.current.is_day,
-              relativeHumidity: data.current.relative_humidity_2m
-          },
-          hourly: {
-              time: data.hourly.time,
-              temperature_2m: data.hourly.temperature_2m,
-              weather_code: data.hourly.weather_code
-          },
-          daily: {
-              temperature_2m_max: data.daily.temperature_2m_max,
-              temperature_2m_min: data.daily.temperature_2m_min,
-              sunrise: data.daily.sunrise,
-              sunset: data.daily.sunset
-          }
+        current: {
+          temperature: data.current.temperature_2m,
+          weatherCode: data.current.weather_code,
+          windSpeed: data.current.wind_speed_10m,
+          isDay: data.current.is_day,
+          relativeHumidity: data.current.relative_humidity_2m
+        },
+        hourly: {
+          time: data.hourly.time,
+          temperature_2m: data.hourly.temperature_2m,
+          weather_code: data.hourly.weather_code
+        },
+        daily: {
+          temperature_2m_max: data.daily.temperature_2m_max,
+          temperature_2m_min: data.daily.temperature_2m_min,
+          sunrise: data.daily.sunrise,
+          sunset: data.daily.sunset
+        }
       };
 
       setWeather(mappedWeather);
 
       // Check for Severe Weather (Storm codes 95, 96, 99 or high wind > 80kmh)
       if (data.current.weather_code >= 95 || data.current.wind_speed_10m > 80) {
-          setAlertsCount(prev => prev + 1);
+        setAlertsCount(prev => prev + 1);
       } else {
-          setAlertsCount(0);
+        setAlertsCount(0);
       }
 
     } catch (error) {
