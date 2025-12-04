@@ -473,58 +473,58 @@ const MapPage = () => {
 
     const getIconSvg = (type: 'sun' | 'rain' | 'cloud' | 'storm' | 'snow' | 'wind' | 'moon', color: string, size: number = 24) => {
       let svgContent = '';
+      const commonAttrs = `stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
+
       if (type === 'sun') {
-        // Lucide Sun
         svgContent = `
-            <circle cx="12" cy="12" r="4" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M12 2v2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M12 20v2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m4.93 4.93 1.41 1.41" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m17.66 17.66 1.41 1.41" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 12h2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M20 12h2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m6.34 17.66-1.41 1.41" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m19.07 4.93-1.41 1.41" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="12" cy="12" r="4" ${commonAttrs}/>
+            <path d="M12 2v2" ${commonAttrs}/>
+            <path d="M12 20v2" ${commonAttrs}/>
+            <path d="m4.93 4.93 1.41 1.41" ${commonAttrs}/>
+            <path d="m17.66 17.66 1.41 1.41" ${commonAttrs}/>
+            <path d="M2 12h2" ${commonAttrs}/>
+            <path d="M20 12h2" ${commonAttrs}/>
+            <path d="m6.34 17.66-1.41 1.41" ${commonAttrs}/>
+            <path d="m19.07 4.93-1.41 1.41" ${commonAttrs}/>
           `;
       } else if (type === 'moon') {
-        // Lucide Moon
-        svgContent = `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+        svgContent = `<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" ${commonAttrs}/>`;
       } else if (type === 'rain') {
-        // Lucide CloudRain
         svgContent = `
-            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M16 14v6" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M8 14v6" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M12 16v6" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" ${commonAttrs}/>
+            <path d="M16 14v6" ${commonAttrs}/>
+            <path d="M8 14v6" ${commonAttrs}/>
+            <path d="M12 16v6" ${commonAttrs}/>
           `;
       } else if (type === 'cloud') {
-        // Lucide Cloud
         svgContent = `
-            <path d="M17.5 19c0-3.037-2.463-5.5-5.5-5.5S6.5 15.963 6.5 19 17.5 19z" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M17.5 19c3.037 0 5.5-2.463 5.5-5.5S20.537 8 17.5 8h-1.79A7.002 7.002 0 0 0 3.29 14.9" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" ${commonAttrs}/>
           `;
       } else if (type === 'storm') {
-        // Lucide CloudLightning
         svgContent = `
-            <path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m13 12-3 5h4l-3 5" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" ${commonAttrs}/>
+            <path d="m13 12-3 5h4l-3 5" ${commonAttrs}/>
           `;
       } else if (type === 'snow') {
-        // Lucide Snowflake
         svgContent = `
-            <line x1="2" x2="22" y1="12" y2="12" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <line x1="12" x2="12" y1="2" y2="22" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m20 20-4-4" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m4 4 4 4" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m20 4-4 4" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="m4 20 4-4" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="m10 20-1.25-2.5L6 18" ${commonAttrs}/>
+            <path d="M10 4 8.75 6.5 6 6" ${commonAttrs}/>
+            <path d="m14 20 1.25-2.5L18 18" ${commonAttrs}/>
+            <path d="m14 4 1.25 2.5L18 6" ${commonAttrs}/>
+            <path d="m17 21-3-6h-4" ${commonAttrs}/>
+            <path d="m17 3-3 6 1.5 3" ${commonAttrs}/>
+            <path d="M2 12h6.5L10 9" ${commonAttrs}/>
+            <path d="m20 10-1.5 2 1.5 2" ${commonAttrs}/>
+            <path d="M22 12h-6.5L14 15" ${commonAttrs}/>
+            <path d="m4 10 1.5 2L4 14" ${commonAttrs}/>
+            <path d="m7 21 3-6-1.5-3" ${commonAttrs}/>
+            <path d="m7 3 3 6h4" ${commonAttrs}/>
           `;
       } else if (type === 'wind') {
-        // Lucide Wind
         svgContent = `
-            <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M9.6 4.6A2 2 0 1 1 11 8H2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M12.6 19.4A2 2 0 1 0 14 16H2" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12.8 19.6A2 2 0 1 0 14 16H2" ${commonAttrs}/>
+            <path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" ${commonAttrs}/>
+            <path d="M9.8 4.4A2 2 0 1 1 11 8H2" ${commonAttrs}/>
           `;
       }
 
@@ -545,7 +545,7 @@ const MapPage = () => {
 
         // Determine icon & color based on code & day/night
         if (code >= 95) { iconType = 'storm'; iconColor = '#7C3AED'; }
-        else if (code >= 71 || code === 85 || code === 86) { iconType = 'snow'; iconColor = '#06B6D4'; }
+        else if ((code >= 71 && code <= 77) || code === 85 || code === 86) { iconType = 'snow'; iconColor = '#06B6D4'; }
         else if (code >= 51 || code >= 80) { iconType = 'rain'; iconColor = '#3B82F6'; }
         else if (code >= 45) { iconType = 'cloud'; iconColor = '#64748B'; }
         else if (code >= 1) { iconType = 'cloud'; iconColor = '#64748B'; }
@@ -583,7 +583,7 @@ const MapPage = () => {
         const code = city.code;
 
         if (code >= 95) { iconType = 'storm'; iconColor = '#7C3AED'; }
-        else if (code >= 71 || code === 85 || code === 86) { iconType = 'snow'; iconColor = '#06B6D4'; }
+        else if ((code >= 71 && code <= 77) || code === 85 || code === 86) { iconType = 'snow'; iconColor = '#06B6D4'; }
         else if (code >= 51 || code >= 80) { iconType = 'rain'; iconColor = '#3B82F6'; }
         else if (code >= 45) { iconType = 'cloud'; iconColor = '#64748B'; }
         else if (code >= 1) { iconType = 'cloud'; iconColor = '#64748B'; }
