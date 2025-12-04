@@ -186,7 +186,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         }
         3. Do NOT provide a long text. Do NOT provide an explanation. STRICTLY JSON.`;
 
-        const apiKey = process.env.API_KEY;
+        const apiKey = import.meta.env.VITE_API_KEY;
         if (!apiKey) {
           console.warn("Gemini API Key is missing");
           throw new Error("Missing API Key");
