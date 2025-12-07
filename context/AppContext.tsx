@@ -372,9 +372,21 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     setLoadingWeather(true);
     try {
       const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
       );
       const data = await res.json();
+
+      // Fetch Air Quality from WAQI
+      let aqiValue = undefined;
+      try {
+        const aqiRes = await fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`);
+        const aqiData = await aqiRes.json();
+        if (aqiData.status === 'ok') {
+          aqiValue = aqiData.data.aqi;
+        }
+      } catch (e) {
+        console.error("AQI fetch failed", e);
+      }
 
       const mappedWeather: WeatherData = {
         current: {
@@ -382,7 +394,9 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           weatherCode: data.current.weather_code,
           windSpeed: data.current.wind_speed_10m,
           isDay: data.current.is_day,
-          relativeHumidity: data.current.relative_humidity_2m
+          relativeHumidity: data.current.relative_humidity_2m,
+          visibility: data.current.visibility,
+          aqi: aqiValue
         },
         hourly: {
           time: data.hourly.time,

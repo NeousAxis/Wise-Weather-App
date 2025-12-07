@@ -9,6 +9,8 @@ export interface WeatherData {
     windSpeed: number;
     isDay: number;
     relativeHumidity: number;
+    visibility?: number; // meters
+    aqi?: number; // WAQI index
   };
   hourly: {
     time: string[];

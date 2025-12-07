@@ -4,7 +4,7 @@ import {
   Sun, Cloud, CloudRain, Wind, Droplets, ArrowUp, ArrowDown,
   Map as MapIcon, Menu, X, Heart, Thermometer,
   CloudLightning, Snowflake, Navigation, Check, Bug, Wand2,
-  Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon, Bell
+  Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon, Bell, Eye
 } from 'lucide-react';
 import { AppProvider, AppContext } from './context/AppContext';
 import { TRANSLATIONS } from './constants';
@@ -237,6 +237,36 @@ const WeatherDashboard = () => {
             <p className="font-semibold text-gray-700">{weather.current.relativeHumidity}%</p>
           </div>
         </div>
+
+        {/* Quality Air (Pollution) */}
+        {weather.current.aqi !== undefined && (
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-full ${weather.current.aqi <= 50 ? 'bg-green-50 text-green-600' :
+                weather.current.aqi <= 100 ? 'bg-yellow-50 text-yellow-600' :
+                  weather.current.aqi <= 150 ? 'bg-orange-50 text-orange-600' :
+                    'bg-red-50 text-red-600'
+              }`}>
+              <CloudFog size={20} />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.pollution')}</p>
+              <p className="font-semibold text-gray-700">{weather.current.aqi}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Visibility */}
+        {weather.current.visibility !== undefined && (
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 rounded-full text-indigo-600">
+              <Eye size={20} />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.visibility')}</p>
+              <p className="font-semibold text-gray-700">{(weather.current.visibility / 1000).toFixed(1)} km</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Hourly Forecast */}
