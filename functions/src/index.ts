@@ -68,36 +68,48 @@ async function fetchQuoteData(apiKey: string, hour: number) {
   const cleanJson = responseText.replace(/```json/g, "")
     .replace(/```/g, "").trim();
 
-  return JSON.parse(cleanJson);
+  const parsed = JSON.parse(cleanJson);
+
+  // Validate Author to prevent "Anonymous"
+  const authorCheck = (parsed.en?.author || "").toLowerCase();
+  if (authorCheck.includes("anonymous") ||
+    authorCheck.includes("unknown") ||
+    !authorCheck) {
+    throw new Error("AI returned Anonymous author - Rejected.");
+  }
+
+  return parsed;
 }
 
 // Public Callable for Frontend to get instant quote
-export const generateQuote = onCall({secrets: [geminiApiKey]}, async () => {
-  try {
-    const apiKey = geminiApiKey.value();
-    const now = new Date();
-    const hour = now.getHours();
-    const data = await fetchQuoteData(apiKey, hour);
-    return {success: true, data: data};
-  } catch (error) {
-    console.error("Error generating quote:", error);
-    return {
-      success: false,
-      data: {
-        en: {
-          text: "The future belongs to those who believe in the beauty" +
-            " of their dreams.",
-          author: "Eleanor Roosevelt",
+export const generateQuote = onCall(
+  {secrets: [geminiApiKey]},
+  async () => {
+    try {
+      const apiKey = geminiApiKey.value();
+      const now = new Date();
+      const hour = now.getHours();
+      const data = await fetchQuoteData(apiKey, hour);
+      return {success: true, data: data};
+    } catch (error) {
+      console.error("Error generating quote:", error);
+      return {
+        success: false,
+        data: {
+          en: {
+            text: "The future belongs to those who believe in the beauty" +
+              " of their dreams.",
+            author: "Eleanor Roosevelt",
+          },
+          fr: {
+            text: "L'avenir appartient à ceux qui croient à la beauté" +
+              " de leurs rêves.",
+            author: "Eleanor Roosevelt",
+          },
         },
-        fr: {
-          text: "L'avenir appartient à ceux qui croient à la beauté" +
-            " de leurs rêves.",
-          author: "Eleanor Roosevelt",
-        },
-      },
-    };
-  }
-});
+      };
+    }
+  });
 
 // Subscribe with Timezone
 export const subscribeToNotifications = onCall(async (request) => {
