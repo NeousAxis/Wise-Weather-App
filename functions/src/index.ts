@@ -19,23 +19,24 @@ const geminiApiKey = defineSecret("VITE_API_KEY");
 async function fetchQuoteData(apiKey: string, hour: number) {
   let theme = "";
 
-  // Logic based on target hour
-  if (hour === 7) {
-    theme = "Wisdom & Presence (introspection, silence, trust, attention," +
-      " peace).";
-  } else if (hour === 11) {
-    theme = "Creation, Courage & Transformation (action, dreaming," +
-      " evolving).";
-  } else if (hour === 16) {
-    theme = "Mysticism, Love & Transcendence (spirit, unity, light," +
-      " mystery).";
+  // Logic based on target hour (or current hour range)
+  if (hour >= 5 && hour < 11) {
+    // Morning Slot (target 7h)
+    theme = "Wisdom & Presence (introspection, silence, trust, attention, " +
+      "peace).";
+  } else if (hour >= 11 && hour < 16) {
+    // Midday Slot (target 11h)
+    theme = "Creation, Courage & Transformation (action, dreaming, evolving).";
   } else {
-    // Fallback
-    theme = "Wisdom & Nature";
+    // Evening Slot (target 16h and beyond)
+    theme = "Mysticism, Love & Transcendence (spirit, unity, light, mystery).";
   }
 
-  const prompt = "Generate a SINGLE, SHORT inspiring quote (MAX 20 WORDS)" +
+  const prompt = "Generate a SINGLE, SHORT inspiring quote (MAX 25 WORDS)" +
     ` based on the theme: "${theme}".\n` +
+    "CRITICAL: The 'author' field MUST be a real, specific famous person " +
+    "(e.g. Rumi, Einstein, Plato). " +
+    "NEVER return 'Anonymous', 'Unknown', or an empty string for the author. " +
     "Return the response as a valid JSON object with 'en' and 'fr' keys," +
     " each containing 'text' and 'author'. DO NOT include markdown formatting" +
     " like ```json ... ```. Just the raw JSON object.";
@@ -114,6 +115,7 @@ export const subscribeToNotifications = onCall(async (request) => {
 
   return {success: true};
 });
+
 
 // Hourly Cron to check timezones
 export const sendHourlyNotifications = onSchedule({

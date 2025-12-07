@@ -4,7 +4,7 @@ import {
   Sun, Cloud, CloudRain, Wind, Droplets, ArrowUp, ArrowDown,
   Map as MapIcon, Menu, X, Heart, Thermometer,
   CloudLightning, Snowflake, Navigation, Check, Bug, Wand2,
-  Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon
+  Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon, Bell
 } from 'lucide-react';
 import { AppProvider, AppContext } from './context/AppContext';
 import { TRANSLATIONS } from './constants';
@@ -69,7 +69,12 @@ const Badge = ({ label, level }: { label: string, level: ConfidenceLevel }) => {
   );
 };
 
-const getWeatherIcon = (code: number, size = 24, className = "") => {
+const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
+  // If it's night (isDay === 0) and Clear sky (0) or mainly clear (1), show Moon
+  if (isDay === 0 && (code === 0 || code === 1)) {
+    return <Moon size={size} className={`text-blue-200 ${className}`} />;
+  }
+
   // Detailed mapping for WMO codes
   if (code === 0) return <Sun size={size} className={`text-yellow-500 ${className}`} />;
   if (code >= 1 && code <= 3) return <Cloud size={size} className={`text-gray-400 ${className}`} />;
@@ -79,6 +84,8 @@ const getWeatherIcon = (code: number, size = 24, className = "") => {
   if (code >= 95) return <CloudLightning size={size} className={`text-purple-500 ${className}`} />;
   return <Sun size={size} className={`text-yellow-500 ${className}`} />;
 };
+
+
 
 const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
   switch (label) {
@@ -174,7 +181,7 @@ const WeatherDashboard = () => {
         </div>
         <div className="text-right">
           <div className="flex items-center justify-end gap-3">
-            {getWeatherIcon(weather.current.weatherCode, 48)}
+            {getWeatherIcon(weather.current.weatherCode, 48, "", weather.current.isDay)}
             <span className="text-6xl font-bold text-foreground tracking-tighter">
               {currentTemp}°
             </span>
@@ -739,8 +746,9 @@ const MapPage = () => {
 };
 
 const ContributionModal = ({ onClose }: { onClose: () => void }) => {
-  const { addReport, t } = useContext(AppContext)!;
+  const { addReport, t, notificationsEnabled, requestNotifications } = useContext(AppContext)!;
   const [selected, setSelected] = useState<string[]>([]);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
 
   const toggle = (label: string) => {
     if (selected.includes(label)) {
@@ -752,9 +760,21 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (selected.length === 0) return;
-    addReport(selected);
+    await addReport(selected);
+
+    // Only show permission modal if the user hasn't made a choice yet (state is 'default')
+    // If they already Granted OR Denied, we don't pester them.
+    if ("Notification" in window && Notification.permission === "default") {
+      setShowPermissionModal(true);
+    } else {
+      onClose();
+    }
+  };
+
+  const handleAcceptNotifications = async () => {
+    await requestNotifications();
     onClose();
   };
 
@@ -766,6 +786,30 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
     { label: 'Snow', icon: Snowflake, color: 'text-cyan-400' },
     { label: 'Storm', icon: CloudLightning, color: 'text-purple-500' },
   ];
+
+  if (showPermissionModal) {
+    return (
+      <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <Card className="w-full max-w-sm p-6 relative">
+          <div className="text-center mb-6">
+            <div className="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+              <Bell className="text-yellow-600" size={24} />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">{t('modal.notifications.title')}</h2>
+            <p className="text-gray-500">{t('modal.notifications.desc')}</p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <Button variant="primary" onClick={handleAcceptNotifications} className="w-full">
+              {t('modal.notifications.accept')}
+            </Button>
+            <Button variant="ghost" onClick={onClose} className="w-full">
+              {t('modal.notifications.cancel')}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -843,7 +887,7 @@ const App = () => {
   const [page, setPage] = useState<'home' | 'map'>('home');
   const [showContribution, setShowContribution] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const { language, setLanguage, unit, setUnit, t } = useContext(AppContext)!;
+  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush } = useContext(AppContext)!;
 
   // Auto-open contribution on EVERY visit (as requested)
   useEffect(() => {
@@ -878,6 +922,10 @@ const App = () => {
           >
             {language.toUpperCase()}
           </button>
+
+
+
+
 
           {/* Feedback Button moved to Header */}
           <button

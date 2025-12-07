@@ -40,6 +40,10 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "alert.warning.desc": "Storm conditions detected in your area. Please stay safe.",
     "feedback.bug": "Report a bug",
     "feedback.feature": "Request a feature",
+    "modal.notifications.title": "Notifications",
+    "modal.notifications.desc": "Please confirm you accept notifications to be part of the community.",
+    "modal.notifications.accept": "Accept Notifications",
+    "modal.notifications.cancel": "No thanks"
   },
   fr: {
     "app.name": "Wise Weather",
@@ -79,5 +83,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "alert.warning.desc": "Conditions orageuses détectées. Soyez prudent.",
     "feedback.bug": "Signaler un bug",
     "feedback.feature": "Demander une fonction",
+    "modal.notifications.title": "Notifications",
+    "modal.notifications.desc": "Veuillez confirmer accepter les notifications pour faire partie de la communauté.",
+    "modal.notifications.accept": "Accepter les notifications",
+    "modal.notifications.cancel": "Non merci"
   }
 };

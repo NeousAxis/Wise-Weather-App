@@ -26,6 +26,7 @@ interface AppContextType {
   dailyQuote: DailyQuote | null;
   t: (key: string) => string;
   requestNotifications: () => Promise<void>;
+  notificationsEnabled: boolean;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -125,6 +126,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const [alertsCount, setAlertsCount] = useState(0);
   const [dailyQuote, setDailyQuote] = useState<DailyQuote | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   const t = (key: string) => TRANSLATIONS[language][key] || key;
 
@@ -139,6 +141,13 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  // Check notification permission on load
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === 'granted') {
+      setNotificationsEnabled(true);
+    }
   }, []);
 
   // 2. Real-time Reports Sync
@@ -172,34 +181,52 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       const permission = await Notification.requestPermission();
       if (permission === 'granted') {
         console.log("Notification permission granted.");
+        setNotificationsEnabled(true);
+
+        const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+        if (!vapidKey) {
+          alert("CONFIGURATION ERROR: VITE_FIREBASE_VAPID_KEY is missing in your .env file! Push notifications will not work.");
+          return;
+        }
+
         const messaging = getMessaging();
-        const token = await getToken(messaging, {
-          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY // Ensure this env var exists or hardcode if needed
-        });
+        let token;
+        try {
+          token = await getToken(messaging, { vapidKey });
+        } catch (tokenError) {
+          console.error("FCM Token Error", tokenError);
+          alert(`Failed to get FCM Token: ${tokenError}. Check your VAPID Key configuration.`);
+          return;
+        }
 
         if (token) {
-          console.log("FCM Token:", token);
           // Subscribe via Cloud Function
-          const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
-          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          await subscribeFn({ token, timezone: timeZone });
+          try {
+            const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            await subscribeFn({ token, timezone: timeZone });
+          } catch (subError) {
+            console.error("Subscription Error", subError);
+            // Silent fail for user, but log it
+          }
 
           // Also save to user doc for good measure
           if (user) {
             await setDoc(doc(db, 'users', user.uid), {
               fcmToken: token,
-              timeZone: timeZone,
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
               notificationsEnabled: true
             }, { merge: true });
           }
         } else {
-          console.log("No registration token available. Request permission to generate one.");
+          console.log("No registration token available.");
         }
       }
     } catch (e) {
       console.error("Error asking for notification permission", e);
     }
   };
+
 
   // 4. Quote Generation (Cloud Function)
   useEffect(() => {
@@ -250,10 +277,17 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       } catch (e) {
         console.error("Quote generation failed (UI):", e);
         // Fallback
-        setDailyQuote({
+        const fallbackQuote = {
           en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
           fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" }
-        });
+        };
+        setDailyQuote(fallbackQuote);
+
+        // Cache fallback to prevent rapid flickering on error
+        localStorage.setItem('wise_weather_quote', JSON.stringify({
+          slotKey: slotKey,
+          quote: fallbackQuote
+        }));
       }
     };
     generateQuote();
@@ -396,6 +430,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         temp: currentTemp || null
       });
       console.log("Report added successfully!");
+
     } catch (e) {
       console.error("Error adding report", e);
       alert("Failed to send report. Please try again.");
@@ -431,7 +466,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       alertsCount,
       dailyQuote,
       t,
-      requestNotifications
+      requestNotifications,
+      notificationsEnabled
     }}>
       {children}
     </AppContext.Provider>
