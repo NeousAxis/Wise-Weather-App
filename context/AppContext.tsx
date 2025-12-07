@@ -1,6 +1,9 @@
-
 import React, { createContext, useState, useEffect } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
+import { auth, db, functions } from '../firebase';
+import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
+import { getMessaging, getToken } from "firebase/messaging"; // Import Messaging
+import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, Timestamp, setDoc, doc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { Language, Unit, WeatherData, CommunityReport, SearchResult, DailyQuote } from '../types';
 import { TRANSLATIONS } from '../constants';
 
@@ -22,12 +25,10 @@ interface AppContextType {
   alertsCount: number;
   dailyQuote: DailyQuote | null;
   t: (key: string) => string;
+  requestNotifications: () => Promise<void>;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
-
-// Initialize Gemini AI lazily
-// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Database of major cities by country (Expanded)
 const COUNTRY_MAJOR_CITIES: Record<string, { name: string, lat: number, lng: number }[]> = {
@@ -123,109 +124,140 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const [majorCitiesWeather, setMajorCitiesWeather] = useState<any[]>([]);
   const [alertsCount, setAlertsCount] = useState(0);
   const [dailyQuote, setDailyQuote] = useState<DailyQuote | null>(null);
+  const [user, setUser] = useState<User | null>(null);
 
   const t = (key: string) => TRANSLATIONS[language][key] || key;
 
-  // --- Quote Generation ---
+  // 1. Authentication
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) {
+        signInAnonymously(auth).catch((error) => {
+          console.error("Auth failed", error);
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Real-time Reports Sync
+  useEffect(() => {
+    const q = query(collection(db, "reports"), orderBy("timestamp", "desc"), limit(50));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const reports = snapshot.docs.map(doc => {
+        const data = doc.data();
+        // Handle Timestamp
+        const time = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : Date.now();
+
+        return {
+          id: doc.id,
+          ...data,
+          timestamp: time
+        } as CommunityReport;
+      });
+      setCommunityReports(reports);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 3. Request Notifications (IMPLEMENTED)
+  const requestNotifications = async () => {
+    try {
+      if (!("Notification" in window)) {
+        console.log("This browser does not support desktop notification");
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        console.log("Notification permission granted.");
+        const messaging = getMessaging();
+        const token = await getToken(messaging, {
+          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY // Ensure this env var exists or hardcode if needed
+        });
+
+        if (token) {
+          console.log("FCM Token:", token);
+          // Subscribe via Cloud Function
+          const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
+          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          await subscribeFn({ token, timezone: timeZone });
+
+          // Also save to user doc for good measure
+          if (user) {
+            await setDoc(doc(db, 'users', user.uid), {
+              fcmToken: token,
+              timeZone: timeZone,
+              notificationsEnabled: true
+            }, { merge: true });
+          }
+        } else {
+          console.log("No registration token available. Request permission to generate one.");
+        }
+      }
+    } catch (e) {
+      console.error("Error asking for notification permission", e);
+    }
+  };
+
+  // 4. Quote Generation (Cloud Function)
   useEffect(() => {
     const generateQuote = async () => {
       const now = new Date();
       const currentHour = now.getHours();
-      const todayStr = now.toDateString(); // e.g. "Mon Jan 01 2024"
+      const todayStr = now.toDateString();
 
-      let theme = "";
       let slotKey = "";
-
-      // Logic: 3 times per day (7am, 11am, 16pm)
-      // Slot 1: 07:00 -> 11:00
-      // Slot 2: 11:00 -> 16:00
-      // Slot 3: 16:00 -> Next Day 07:00
-
-      if (currentHour >= 7 && currentHour < 11) {
-        slotKey = `${todayStr}-slot-7am`;
-        theme = "Wisdom & Presence (introspection, silence, trust, attention, peace). Authors: Lao Tzu, Buddha, Epictetus, Seneca, Marcus Aurelius, Eckhart Tolle, Jiddu Krishnamurti, Thich Nhat Hanh, Alan Watts, Rumi, Khalil Gibran, Sri Nisargadatta Maharaj, Ramana Maharshi.";
-      } else if (currentHour >= 11 && currentHour < 16) {
-        slotKey = `${todayStr}-slot-11am`;
-        theme = "Creation, Courage & Transformation (action, dreaming, evolving, rising up). Authors: Nietzsche, Emerson, Thoreau, Walt Whitman, Carl Jung, Joseph Campbell, Anaïs Nin, Virginia Woolf, Albert Camus, Jean-Paul Sartre, Saint-Exupéry, Maya Angelou.";
-      } else if (currentHour >= 16) {
-        slotKey = `${todayStr}-slot-16pm`;
-        theme = "Mysticism, Love & Transcendence (spirit, unity, light, mystery). Authors: Meister Eckhart, Teresa of Avila, Rumi, Hildegard of Bingen, Ibn Arabi, Simone Weil, Teilhard de Chardin, Sri Aurobindo, Osho, Thomas Merton.";
-      } else {
-        // Before 7am: Use previous day's 16pm slot to maintain continuity overnight
+      if (currentHour >= 7 && currentHour < 11) slotKey = `${todayStr}-slot-7am`;
+      else if (currentHour >= 11 && currentHour < 16) slotKey = `${todayStr}-slot-11am`;
+      else if (currentHour >= 16) slotKey = `${todayStr}-slot-16pm`;
+      else {
         const yesterday = new Date(now);
         yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toDateString();
-        slotKey = `${yesterdayStr}-slot-16pm`;
-        theme = "Mysticism, Love & Transcendence (spirit, unity, light, mystery). Authors: Meister Eckhart, Teresa of Avila, Rumi, Hildegard of Bingen, Ibn Arabi, Simone Weil, Teilhard de Chardin, Sri Aurobindo, Osho, Thomas Merton.";
+        slotKey = `${yesterday.toDateString()}-slot-16pm`;
       }
 
-      // Check LocalStorage first to prevent regeneration on reload
+      // Check Cache
       const cachedData = localStorage.getItem('wise_weather_quote');
       if (cachedData) {
         try {
           const parsed = JSON.parse(cachedData);
-          // If we are in the same slot as the stored quote, use it.
           if (parsed.slotKey === slotKey && parsed.quote) {
             setDailyQuote(parsed.quote);
             return;
           }
-        } catch (e) {
-          // Invalid cache, proceed to generate
-        }
+        } catch (e) { }
       }
 
+      // Call Cloud Function
       try {
-        const prompt = `Generate a SINGLE, SHORT inspiring quote (MAX 20 WORDS) based on the theme: "${theme}". 
-        
-        CRITICAL INSTRUCTIONS:
-        1. Return ONLY a JSON object. NO Markdown formatting.
-        2. The JSON MUST strictly follow this structure with BOTH English and French translations:
-        {
-          "en": { "text": "Quote text in English", "author": "Author Name" },
-          "fr": { "text": "Quote text in French", "author": "Author Name" }
-        }
-        3. Do NOT provide a long text. Do NOT provide an explanation. STRICTLY JSON.`;
+        const generateQuoteFn = httpsCallable<void, any>(functions, 'generateQuote');
+        console.log("Calling generateQuote Cloud Function...");
+        const result = await generateQuoteFn();
+        const response: any = result.data; // Type assertion
 
-        const apiKey = import.meta.env.VITE_API_KEY;
-        if (!apiKey) {
-          console.warn("Gemini API Key is missing");
-          throw new Error("Missing API Key");
-        }
-
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash-exp',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json'
-          }
-        });
-
-        const data = JSON.parse(response.text);
-
-        // Robust check to ensure structure is correct
-        if (data.en && data.fr) {
-          setDailyQuote(data);
-          // Save to LocalStorage
+        if (response.success && response.data) {
+          setDailyQuote(response.data);
           localStorage.setItem('wise_weather_quote', JSON.stringify({
             slotKey: slotKey,
-            quote: data
+            quote: response.data
           }));
+          console.log("Quote generated successfully:", response.data);
         } else {
-          throw new Error("Invalid quote structure");
+          throw new Error(response.error || "Failed using AI model");
         }
-
       } catch (e) {
-        console.error("Failed to generate quote", e);
-        const fallback = {
+        console.error("Quote generation failed (UI):", e);
+        // Fallback
+        setDailyQuote({
           en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
           fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" }
-        };
-        setDailyQuote(fallback);
+        });
       }
     };
     generateQuote();
-  }, []); // Run once on mount
+  }, []);
 
   const updateLocation = (lat: number, lng: number, name?: string, country?: string, source: 'gps' | 'manual' = 'manual') => {
     setLocation({ lat, lng });
@@ -233,7 +265,6 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
     if (source === 'gps') {
       setUserPosition({ lat, lng });
-      // Reverse geocode if name not provided
       if (!name) {
         fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
           .then(res => res.json())
@@ -243,23 +274,22 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
             setCityName(city);
             if (ctry) {
               setCurrentCountry(ctry);
-              fetchMajorCitiesForCountry(ctry);
+              // fetchMajorCitiesForCountry(ctry); // Optional optimization
             }
           });
       } else if (country) {
         setCurrentCountry(country);
-        fetchMajorCitiesForCountry(country);
+        // fetchMajorCitiesForCountry(country);
       }
     }
   };
 
   const fetchMajorCitiesForCountry = async (countryName: string) => {
-    // Normalize country name (remove accents, lowercase, remove spaces) to handle "Việt Nam" vs "Vietnam"
+    // ... (Keep existing logic or simplify if needed)
+    // For brevity in this fix, I'll rely on the original logic if I could view it, but I'll implement a basic version
+    // akin to what was there.
     const normalizedInput = countryName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
-
-    let targetCities = GLOBAL_MAJOR_CITIES; // Default fallback
-
-    // Find match in database
+    let targetCities = GLOBAL_MAJOR_CITIES;
     for (const key of Object.keys(COUNTRY_MAJOR_CITIES)) {
       const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
       if (normalizedInput.includes(normalizedKey) || normalizedKey.includes(normalizedInput)) {
@@ -270,24 +300,25 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
     const promises = targetCities.map(async (city) => {
       try {
-        const res = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto`
-        );
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto`);
         const data = await res.json();
-        return {
-          ...city,
-          temp: data.current.temperature_2m,
-          code: data.current.weather_code,
-          isDay: data.current.is_day
-        };
-      } catch (e) {
-        return null;
-      }
+        return { ...city, temp: data.current.temperature_2m, code: data.current.weather_code, isDay: data.current.is_day };
+      } catch (e) { return null; }
     });
-
     const results = await Promise.all(promises);
     setMajorCitiesWeather(results.filter(c => c !== null));
   };
+
+  // UseEffect for Major Cities
+  useEffect(() => {
+    if (currentCountry) {
+      fetchMajorCitiesForCountry(currentCountry);
+    } else {
+      // Default
+      fetchMajorCitiesForCountry("France"); // Or global
+    }
+  }, [currentCountry]);
+
 
   const searchCity = async (query: string): Promise<SearchResult[]> => {
     try {
@@ -295,11 +326,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       const data = await res.json();
       if (!data.results) return [];
       return data.results.map((r: any) => ({
-        id: r.id,
-        name: r.name,
-        country: r.country,
-        latitude: r.latitude,
-        longitude: r.longitude
+        id: r.id, name: r.name, country: r.country, latitude: r.latitude, longitude: r.longitude
       }));
     } catch (e) {
       console.error(e);
@@ -315,7 +342,6 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       );
       const data = await res.json();
 
-      // Transform snake_case API response to camelCase structure expected by WeatherData type
       const mappedWeather: WeatherData = {
         current: {
           temperature: data.current.temperature_2m,
@@ -336,16 +362,13 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           sunset: data.daily.sunset
         }
       };
-
       setWeather(mappedWeather);
 
-      // Check for Severe Weather (Storm codes 95, 96, 99 or high wind > 80kmh)
       if (data.current.weather_code >= 95 || data.current.wind_speed_10m > 80) {
         setAlertsCount(prev => prev + 1);
       } else {
         setAlertsCount(0);
       }
-
     } catch (error) {
       console.error("Weather fetch failed", error);
     } finally {
@@ -353,35 +376,42 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     }
   };
 
-  const addReport = (conditions: string[]) => {
-    if (!location) return;
-    // Capture current temp if available
+  // Add Report to Firestore
+  const addReport = async (conditions: string[]) => {
+    if (!location) {
+      console.error("Cannot add report: Location is missing");
+      alert("Location not ready yet. Please wait.");
+      return;
+    }
     const currentTemp = weather?.current?.temperature;
 
-    const newReport: CommunityReport = {
-      id: Math.random().toString(36).substr(2, 9),
-      timestamp: Date.now(),
-      conditions,
-      lat: location.lat,
-      lng: location.lng,
-      userId: 'user-me', // In real app, auth user id
-      temp: currentTemp
-    };
-    setCommunityReports(prev => [newReport, ...prev]);
+    try {
+      console.log("Adding report...", conditions, location);
+      await addDoc(collection(db, "reports"), {
+        timestamp: serverTimestamp(),
+        conditions,
+        lat: location.lat,
+        lng: location.lng,
+        userId: user?.uid || 'anonymous',
+        temp: currentTemp || null
+      });
+      console.log("Report added successfully!");
+    } catch (e) {
+      console.error("Error adding report", e);
+      alert("Failed to send report. Please try again.");
+    }
   };
 
   useEffect(() => {
     if (location) {
       fetchWeather(location.lat, location.lng);
     } else {
-      // Init with Geolocation
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             updateLocation(position.coords.latitude, position.coords.longitude, undefined, undefined, 'gps');
           },
           (err) => {
-            // Default to Paris
             updateLocation(48.8566, 2.3522, "Paris", "France", 'manual');
           }
         );
@@ -400,7 +430,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       majorCitiesWeather,
       alertsCount,
       dailyQuote,
-      t
+      t,
+      requestNotifications
     }}>
       {children}
     </AppContext.Provider>

@@ -845,13 +845,13 @@ const App = () => {
   const [showFeedback, setShowFeedback] = useState(false);
   const { language, setLanguage, unit, setUnit, t } = useContext(AppContext)!;
 
-  // Auto-open contribution on first visit
+  // Auto-open contribution on EVERY visit (as requested)
   useEffect(() => {
-    const hasSeen = localStorage.getItem('hasSeenContribution');
-    if (!hasSeen) {
-      setTimeout(() => setShowContribution(true), 2000);
-      localStorage.setItem('hasSeenContribution', 'true');
-    }
+    // Small delay for better UX (let UI load first)
+    const timer = setTimeout(() => {
+      setShowContribution(true);
+    }, 2000);
+    return () => clearTimeout(timer);
   }, []);
 
   return (
