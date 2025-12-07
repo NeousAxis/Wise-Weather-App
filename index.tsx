@@ -957,7 +957,7 @@ const App = () => {
           className={`flex flex-col items-center gap-1 transition-colors ${page === 'home' ? 'text-primary' : 'hover:text-gray-600'}`}
         >
           <div className="relative">
-            <Sun size={24} strokeWidth={page === 'home' ? 2.5 : 2} />
+            <Sun size={28} strokeWidth={page === 'home' ? 2.5 : 2} />
             {page === 'home' && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 bg-primary rounded-full"></span>}
           </div>
           <span>{t('nav.home')}</span>
@@ -978,7 +978,7 @@ const App = () => {
           onClick={() => setPage('map')}
           className={`flex flex-col items-center gap-1 transition-colors ${page === 'map' ? 'text-primary' : 'hover:text-gray-600'}`}
         >
-          <MapIcon size={24} strokeWidth={page === 'map' ? 2.5 : 2} />
+          <MapIcon size={28} strokeWidth={page === 'map' ? 2.5 : 2} />
           <span>{t('nav.map')}</span>
         </button>
       </nav>
