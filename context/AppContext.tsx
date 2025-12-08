@@ -144,7 +144,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   }, []);
 
   // Helper to register token with server
-  const registerForPushNotifications = async () => {
+  const registerForPushNotifications = async (loc?: { lat: number, lng: number }) => {
     const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
     if (!vapidKey) {
       console.warn("VITE_FIREBASE_VAPID_KEY is missing. Push notifications disabled.");
@@ -155,14 +155,14 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       const messaging = getMessaging();
       const token = await getToken(messaging, { vapidKey });
 
-      if (token) {
-        console.log("FCM Token retrieved:", token);
+      if (token && loc) {
+        console.log("FCM Token retrieved, updating with location:", token, loc);
         // Subscribe via Cloud Function
         try {
           const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
           const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          await subscribeFn({ token, timezone: timeZone });
-          console.log("Subscribed to notifications on server.");
+          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng });
+          console.log("Subscribed/Updated notifications on server.");
         } catch (subError) {
           console.error("Subscription Cloud Function Error", subError);
         }
@@ -176,7 +176,16 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           }, { merge: true });
         }
       } else {
-        console.log("No registration token available.");
+        // If no location yet, we might skip sending to server until we have it?
+        // Or send without location (just timezone)?
+        // The new logic REQUIRES location for weather alerts.
+        // But works for Quotes without it.
+        if (token && !loc) {
+          // Register just for quotes
+          const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
+          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          await subscribeFn({ token, timezone: timeZone });
+        }
       }
     } catch (error) {
       console.error("Error registering for push notifications:", error);
@@ -185,12 +194,12 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
   // Check notification permission on load & sync token
   useEffect(() => {
-    if ("Notification" in window && Notification.permission === 'granted') {
-      console.log("Notification permission already granted. Syncing token...");
+    if ("Notification" in window && Notification.permission === 'granted' && location) {
+      console.log("Notification permission granted. Syncing token with location...");
       setNotificationsEnabled(true);
-      registerForPushNotifications();
+      registerForPushNotifications(location);
     }
-  }, []);
+  }, [location]); // Re-run when location is ready to ensure we capture it for weather alerts
 
   // 2. Real-time Reports Sync
   useEffect(() => {
@@ -234,7 +243,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       if (permission === 'granted') {
         console.log("Notification permission granted.");
         setNotificationsEnabled(true);
-        await registerForPushNotifications();
+        await registerForPushNotifications(location || undefined);
       }
     } catch (e) {
       console.error("Error asking for notification permission", e);
@@ -454,22 +463,37 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       return Math.abs(r.lat - location.lat) < 0.1 && Math.abs(r.lng - location.lng) < 0.1;
     });
 
-    let agreementCount = 0;
-    conditions.forEach(c => {
-      // If any nearby report shares this condition
-      if (nearbyReports.some(r => r.conditions.includes(c))) {
-        agreementCount++;
-      }
-    });
+    // Dynamic Precision Calculation
+    let precisionIncrease = 0;
 
-    // Heuristic: Base 12% + 5% per existing agreement
-    let precisionIncrease = 12;
-    if (agreementCount > 0) {
-      precisionIncrease += (agreementCount * 5);
+    if (nearbyReports.length === 0) {
+      // High value for pioneer report (filling a data void)
+      precisionIncrease = 28;
+    } else {
+      // Analyze consensus with existing data
+      let matches = 0;
+      let nuances = 0;
+      conditions.forEach(c => {
+        // Check how many nearby reports agree with this condition
+        const agreement = nearbyReports.filter(r => r.conditions.includes(c)).length;
+        if (agreement > 0) matches += 1; // Confirmed
+        else nuances += 1; // New info
+      });
+
+      // Base participation score
+      precisionIncrease = 8;
+      // Confirmation bonus
+      precisionIncrease += (matches * 6);
+      // Nuance bonus
+      precisionIncrease += (nuances * 3);
     }
 
-    // Cap at 38% to prevent unrealistic single-contribution claims
-    if (precisionIncrease > 38) precisionIncrease = 38;
+    // Add slight organic variance (0-3%) to reflect atmospheric chaos
+    precisionIncrease += Math.floor(Math.random() * 4);
+
+    // Hard caps to keep it realistic
+    if (precisionIncrease > 42) precisionIncrease = 42;
+    if (precisionIncrease < 5) precisionIncrease = 5;
 
     try {
       console.log("Adding report...", conditions, location);
