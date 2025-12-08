@@ -143,10 +143,52 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  // Check notification permission on load
+  // Helper to register token with server
+  const registerForPushNotifications = async () => {
+    const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+    if (!vapidKey) {
+      console.warn("VITE_FIREBASE_VAPID_KEY is missing. Push notifications disabled.");
+      return;
+    }
+
+    try {
+      const messaging = getMessaging();
+      const token = await getToken(messaging, { vapidKey });
+
+      if (token) {
+        console.log("FCM Token retrieved:", token);
+        // Subscribe via Cloud Function
+        try {
+          const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
+          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          await subscribeFn({ token, timezone: timeZone });
+          console.log("Subscribed to notifications on server.");
+        } catch (subError) {
+          console.error("Subscription Cloud Function Error", subError);
+        }
+
+        // Also save to user doc for good measure (if logged in)
+        if (auth.currentUser) {
+          await setDoc(doc(db, 'users', auth.currentUser.uid), {
+            fcmToken: token,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            notificationsEnabled: true
+          }, { merge: true });
+        }
+      } else {
+        console.log("No registration token available.");
+      }
+    } catch (error) {
+      console.error("Error registering for push notifications:", error);
+    }
+  };
+
+  // Check notification permission on load & sync token
   useEffect(() => {
     if ("Notification" in window && Notification.permission === 'granted') {
+      console.log("Notification permission already granted. Syncing token...");
       setNotificationsEnabled(true);
+      registerForPushNotifications();
     }
   }, []);
 
@@ -182,45 +224,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       if (permission === 'granted') {
         console.log("Notification permission granted.");
         setNotificationsEnabled(true);
-
-        const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
-        if (!vapidKey) {
-          alert("CONFIGURATION ERROR: VITE_FIREBASE_VAPID_KEY is missing in your .env file! Push notifications will not work.");
-          return;
-        }
-
-        const messaging = getMessaging();
-        let token;
-        try {
-          token = await getToken(messaging, { vapidKey });
-        } catch (tokenError) {
-          console.error("FCM Token Error", tokenError);
-          alert(`Failed to get FCM Token: ${tokenError}. Check your VAPID Key configuration.`);
-          return;
-        }
-
-        if (token) {
-          // Subscribe via Cloud Function
-          try {
-            const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
-            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            await subscribeFn({ token, timezone: timeZone });
-          } catch (subError) {
-            console.error("Subscription Error", subError);
-            // Silent fail for user, but log it
-          }
-
-          // Also save to user doc for good measure
-          if (user) {
-            await setDoc(doc(db, 'users', user.uid), {
-              fcmToken: token,
-              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              notificationsEnabled: true
-            }, { merge: true });
-          }
-        } else {
-          console.log("No registration token available.");
-        }
+        await registerForPushNotifications();
       }
     } catch (e) {
       console.error("Error asking for notification permission", e);
