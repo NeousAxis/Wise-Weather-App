@@ -95,7 +95,9 @@ const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
     case 'Windy': return <Wind size={size} className={`text-blue-400 ${className}`} />;
     case 'Snow': return <Snowflake size={size} className={`text-cyan-400 ${className}`} />;
     case 'Storm': return <CloudLightning size={size} className={`text-purple-500 ${className}`} />;
-    default: return <Sun size={size} className={`text-yellow-500 ${className}`} />;
+    case 'Fog': return <CloudFog size={size} className={`text-gray-400 ${className}`} />;
+    case 'Hail': return <CloudRain size={size} className={`text-indigo-400 ${className}`} />;
+    default: return <Cloud size={size} className={`text-gray-400 ${className}`} />;
   }
 };
 
@@ -241,12 +243,16 @@ const WeatherDashboard = () => {
         {/* Quality Air (Pollution) */}
         {weather.current.aqi !== undefined && (
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-full ${weather.current.aqi <= 50 ? 'bg-green-50 text-green-600' :
-                weather.current.aqi <= 100 ? 'bg-yellow-50 text-yellow-600' :
-                  weather.current.aqi <= 150 ? 'bg-orange-50 text-orange-600' :
-                    'bg-red-50 text-red-600'
+            <div className={`relative p-2 rounded-full ${weather.current.aqi <= 50 ? 'bg-green-50 text-green-600' :
+              weather.current.aqi <= 100 ? 'bg-yellow-50 text-yellow-600' :
+                weather.current.aqi <= 150 ? 'bg-orange-50 text-orange-600' :
+                  'bg-red-50 text-red-600'
               }`}>
-              <CloudFog size={20} />
+              {weather.current.aqi > 100 && (
+                <span className={`absolute inset-0 rounded-full animate-ping opacity-75 ${weather.current.aqi <= 150 ? 'bg-orange-400' : 'bg-red-400'
+                  }`}></span>
+              )}
+              <CloudFog size={20} className="relative z-10" />
             </div>
             <div>
               <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.pollution')}</p>
@@ -648,6 +654,12 @@ const MapPage = () => {
     } else {
       // Community View
       communityReports.forEach(report => {
+        // FILTER: Only show reports from last 1 HOUR on the map
+        // (The context now provides 6 hours for the table)
+        const age = Date.now() - report.timestamp;
+        const ONE_HOUR = 60 * 60 * 1000;
+        if (age > ONE_HOUR) return;
+
         let iconsHtml = '';
 
         report.conditions.forEach(cond => {
@@ -779,6 +791,9 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
   const { addReport, t, notificationsEnabled, requestNotifications } = useContext(AppContext)!;
   const [selected, setSelected] = useState<string[]>([]);
   const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [precisionGain, setPrecisionGain] = useState(0);
 
   const toggle = (label: string) => {
     if (selected.includes(label)) {
@@ -792,10 +807,15 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
 
   const submit = async () => {
     if (selected.length === 0) return;
-    await addReport(selected);
+    setIsSubmitting(true);
+    // Call API and get calculated gain
+    const gain = await addReport(selected);
+    setIsSubmitting(false);
+    setPrecisionGain(gain);
+    setShowSuccess(true);
+  };
 
-    // Only show permission modal if the user hasn't made a choice yet (state is 'default')
-    // If they already Granted OR Denied, we don't pester them.
+  const handleFinish = () => {
     if ("Notification" in window && Notification.permission === "default") {
       setShowPermissionModal(true);
     } else {
@@ -803,36 +823,21 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
-  const handleAcceptNotifications = async () => {
-    await requestNotifications();
-    onClose();
-  };
-
-  const options = [
-    { label: 'Sunny', icon: Sun, color: 'text-yellow-500' },
-    { label: 'Cloudy', icon: Cloud, color: 'text-gray-400' },
-    { label: 'Rain', icon: CloudRain, color: 'text-blue-500' },
-    { label: 'Windy', icon: Wind, color: 'text-blue-300' },
-    { label: 'Snow', icon: Snowflake, color: 'text-cyan-400' },
-    { label: 'Storm', icon: CloudLightning, color: 'text-purple-500' },
-  ];
-
   if (showPermissionModal) {
     return (
-      <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-        <Card className="w-full max-w-sm p-6 relative">
-          <div className="text-center mb-6">
-            <div className="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
-              <Bell className="text-yellow-600" size={24} />
-            </div>
-            <h2 className="text-2xl font-bold mb-2">{t('modal.notifications.title')}</h2>
-            <p className="text-gray-500">{t('modal.notifications.desc')}</p>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <Card className="w-full max-w-sm p-6 bg-white relative text-center">
+          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Bell className="text-blue-600" size={32} />
           </div>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">{t('modal.notifications.title')}</h3>
+          <p className="text-gray-500 mb-6">{t('modal.notifications.desc')}</p>
+
           <div className="flex flex-col gap-3">
-            <Button variant="primary" onClick={handleAcceptNotifications} className="w-full">
+            <Button onClick={() => { requestNotifications(); onClose(); }} variant="primary" className="w-full">
               {t('modal.notifications.accept')}
             </Button>
-            <Button variant="ghost" onClick={onClose} className="w-full">
+            <Button onClick={onClose} variant="ghost" className="w-full text-gray-400">
               {t('modal.notifications.cancel')}
             </Button>
           </div>
@@ -841,45 +846,79 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
     );
   }
 
+  // Success View
+  if (showSuccess) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <Card className="w-full max-w-sm p-8 bg-white relative text-center">
+          <div className="mb-6 flex justify-center">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+              <Check size={40} strokeWidth={3} />
+            </div>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 mb-4">
+            {t('gamification.feedback').replace('{{val}}', precisionGain.toString())}
+          </h3>
+
+          <Button onClick={handleFinish} variant="radiant" className="w-full text-lg shadow-xl">
+            Continue
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <Card className="w-full max-w-sm p-6 relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+      <Card className="w-full max-w-sm bg-white relative flex flex-col max-h-[90vh]">
+        <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 z-10">
           <X size={24} />
         </button>
 
-        <div className="text-center mb-6">
-          <h2 className="text-2xl font-bold mb-2">{t('modal.title')}</h2>
-          <p className="text-gray-500">{t('modal.desc')}</p>
-          <p className="text-xs font-bold text-primary mt-2 uppercase tracking-wide">{t('modal.select_hint')}</p>
+        <div className="p-6 pb-2 text-center">
+          <h3 className="text-2xl font-bold text-gray-900 mb-1">{t('modal.title')}</h3>
+          <p className="text-sm text-gray-500">{t('modal.desc')}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          {options.map((opt) => (
-            <button
-              key={opt.label}
-              onClick={() => toggle(opt.label)}
-              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${selected.includes(opt.label)
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-transparent bg-gray-50 hover:bg-gray-100'
-                }`}
-            >
-              <opt.icon size={32} className={`mb-2 ${opt.color}`} />
-              <span className={`text-sm font-medium ${selected.includes(opt.label) ? 'text-blue-700' : 'text-gray-600'}`}>
-                {opt.label}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <p className="text-xs font-bold text-gray-400 mb-4 tracking-wider text-center">
+            {t('modal.select_hint')}
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            {['Sunny', 'Cloudy', 'Rain', 'Storm', 'Windy', 'Snow'].map((cond) => (
+              <button
+                key={cond}
+                onClick={() => toggle(cond)}
+                className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${selected.includes(cond)
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
+                  : 'border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  }`}
+              >
+                <div className="mb-2">
+                  {getWeatherIconFromLabel(cond, 32)}
+                </div>
+                <span className="font-medium">{cond}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="p-6 pt-2 border-t border-gray-100">
+          <Button
+            onClick={submit}
+            disabled={selected.length === 0 || isSubmitting}
+            variant={selected.length > 0 ? 'radiant' : 'secondary'}
+            className="w-full text-lg h-14 shadow-xl"
+          >
+            {isSubmitting ? (
+              <span className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Sending...
               </span>
-            </button>
-          ))}
+            ) : t('modal.submit')}
+          </Button>
         </div>
-
-        <Button
-          variant="radiant"
-          className="w-full h-14 text-lg shadow-xl"
-          onClick={submit}
-          disabled={selected.length === 0}
-        >
-          {t('modal.submit')}
-        </Button>
       </Card>
     </div>
   );

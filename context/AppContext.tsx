@@ -19,7 +19,7 @@ interface AppContextType {
   weather: WeatherData | null;
   loadingWeather: boolean;
   communityReports: CommunityReport[];
-  addReport: (conditions: string[]) => void;
+  addReport: (conditions: string[]) => Promise<number>;
   searchCity: (query: string) => Promise<SearchResult[]>;
   majorCitiesWeather: any[];
   alertsCount: number;
@@ -194,8 +194,13 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
   // 2. Real-time Reports Sync
   useEffect(() => {
-    const q = query(collection(db, "reports"), orderBy("timestamp", "desc"), limit(50));
+    // We fetch a bit more history to be safe, but we will filter strictest client-side
+    const q = query(collection(db, "reports"), orderBy("timestamp", "desc"), limit(100));
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      const now = Date.now();
+      // FIX: Increase retention to 6 Hours for the Community Table
+      const SIX_HOURS = 6 * 60 * 60 * 1000;
+
       const reports = snapshot.docs.map(doc => {
         const data = doc.data();
         // Handle Timestamp
@@ -206,7 +211,12 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           ...data,
           timestamp: time
         } as CommunityReport;
+      }).filter(report => {
+        // FILTER: Keep reports from the last 6 HOURS (for Table)
+        // The Map will do its own stricter 1-hour filtering
+        return (now - report.timestamp) < SIX_HOURS;
       });
+
       setCommunityReports(reports);
     });
     return () => unsubscribe();
@@ -429,13 +439,37 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   };
 
   // Add Report to Firestore
-  const addReport = async (conditions: string[]) => {
+  const addReport = async (conditions: string[]): Promise<number> => {
     if (!location) {
       console.error("Cannot add report: Location is missing");
-      alert("Location not ready yet. Please wait.");
-      return;
+      return 0;
     }
     const currentTemp = weather?.current?.temperature;
+
+    // Calculate Precision Gain Logic
+    // 1. Filter recent reports nearby (already in state 'communityReports' which is filtered to 1h)
+    // We assume 'communityReports' contains relevant reports. We should filter by distance roughly here.
+    const nearbyReports = communityReports.filter(r => {
+      // Simple distance check (approx 0.1 deg ~ 11km). 
+      return Math.abs(r.lat - location.lat) < 0.1 && Math.abs(r.lng - location.lng) < 0.1;
+    });
+
+    let agreementCount = 0;
+    conditions.forEach(c => {
+      // If any nearby report shares this condition
+      if (nearbyReports.some(r => r.conditions.includes(c))) {
+        agreementCount++;
+      }
+    });
+
+    // Heuristic: Base 12% + 5% per existing agreement
+    let precisionIncrease = 12;
+    if (agreementCount > 0) {
+      precisionIncrease += (agreementCount * 5);
+    }
+
+    // Cap at 38% to prevent unrealistic single-contribution claims
+    if (precisionIncrease > 38) precisionIncrease = 38;
 
     try {
       console.log("Adding report...", conditions, location);
@@ -447,11 +481,12 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         userId: user?.uid || 'anonymous',
         temp: currentTemp || null
       });
-      console.log("Report added successfully!");
+      console.log("Report added successfully! Precision Gain:", precisionIncrease);
+      return precisionIncrease;
 
     } catch (e) {
       console.error("Error adding report", e);
-      alert("Failed to send report. Please try again.");
+      return 0; // Failure
     }
   };
 
