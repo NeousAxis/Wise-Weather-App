@@ -807,6 +807,8 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [precisionGain, setPrecisionGain] = useState(0);
 
+  const [contributionRank, setContributionRank] = useState(0);
+
   const toggle = (label: string) => {
     if (selected.includes(label)) {
       setSelected(s => s.filter(i => i !== label));
@@ -820,10 +822,11 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
   const submit = async () => {
     if (selected.length === 0) return;
     setIsSubmitting(true);
-    // Call API and get calculated gain
-    const gain = await addReport(selected);
+    // Call API and get calculated gain and rank
+    const result = await addReport(selected);
     setIsSubmitting(false);
-    setPrecisionGain(gain);
+    setPrecisionGain(result.gain);
+    setContributionRank(result.rank);
     setShowSuccess(true);
   };
 
@@ -860,6 +863,15 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
 
   // Success View
   if (showSuccess) {
+    let successMessage = t('gamification.feedback').replace('{{val}}', precisionGain.toString());
+
+    // Special messages for Rank 1 and Rank 5+
+    if (contributionRank === 1) {
+      successMessage = t('gamification.first'); // Already translated in constants
+    } else if (contributionRank === 5) {
+      successMessage = t('gamification.fifth');
+    }
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
         <Card className="w-full max-w-sm p-8 bg-white relative text-center">
@@ -868,8 +880,8 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
               <Check size={40} strokeWidth={3} />
             </div>
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-4">
-            {t('gamification.feedback').replace('{{val}}', precisionGain.toString())}
+          <h3 className="text-xl font-bold text-gray-900 mb-4 whitespace-pre-line">
+            {successMessage}
           </h3>
 
           <Button onClick={handleFinish} variant="secondary" className="w-full text-lg shadow-xl">

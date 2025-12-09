@@ -19,7 +19,7 @@ interface AppContextType {
   weather: WeatherData | null;
   loadingWeather: boolean;
   communityReports: CommunityReport[];
-  addReport: (conditions: string[]) => Promise<number>;
+  addReport: (conditions: string[]) => Promise<{ gain: number, rank: number }>;
   searchCity: (query: string) => Promise<SearchResult[]>;
   majorCitiesWeather: any[];
   alertsCount: number;
@@ -450,43 +450,41 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   };
 
   // Add Report to Firestore
-  const addReport = async (conditions: string[]): Promise<number> => {
+  const addReport = async (conditions: string[]): Promise<{ gain: number, rank: number }> => {
     if (!location) {
       console.error("Cannot add report: Location is missing");
-      return 0;
+      return { gain: 0, rank: 0 };
     }
     const currentTemp = weather?.current?.temperature;
 
     // Calculate Precision Gain Logic
-    // 1. Filter recent reports nearby (already in state 'communityReports' which is filtered to 1h)
-    // We assume 'communityReports' contains relevant reports. We should filter by distance roughly here.
-    const nearbyReports = communityReports.filter(r => {
-      // Simple distance check (approx 0.1 deg ~ 11km). 
-      return Math.abs(r.lat - location.lat) < 0.1 && Math.abs(r.lng - location.lng) < 0.1;
-    });
+    // Calculate Rank (1st, 2nd, etc. for this hour/location)
+    // "Redémarre à chaque heure" -> Align with clock hour
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentDateStr = now.toDateString();
 
-    // Fixed Progression Calculation (User Request)
-    let precisionIncrease = 12; // Default 1st
+    const recentNearbyReports = communityReports.filter(r => {
+      const rDate = new Date(r.timestamp);
+      const isSameHour = rDate.getHours() === currentHour && rDate.toDateString() === currentDateStr;
+      const isNearby = Math.abs(r.lat - location.lat) < 0.1 && Math.abs(r.lng - location.lng) < 0.1;
+      return isNearby && isSameHour;
+    });
+    // Rank is existing + 1 (since we are about to add ours)
+    const rank = recentNearbyReports.length + 1;
+
+    // Fixed Progression Calculation (User Contribution Count)
+    let precisionIncrease = 12;
     const storedCount = localStorage.getItem('user_contribution_count');
     let count = storedCount ? parseInt(storedCount, 10) : 0;
-
-    // Increment for this new report
     count += 1;
     localStorage.setItem('user_contribution_count', count.toString());
 
-    // 1 contribution = 12%
-    // 2 contributions = 25%
-    // 3 contributions = 75%
-    // 4 contributions = 85%
-    // 5 contributions = 100%
     if (count === 1) precisionIncrease = 12;
     else if (count === 2) precisionIncrease = 25;
     else if (count === 3) precisionIncrease = 75;
     else if (count === 4) precisionIncrease = 85;
     else if (count >= 5) precisionIncrease = 100;
-
-    // Legacy: Clean up old logic vars strictly to avoid unused errors if checking nearby
-    // (We don't use 'nearbyReports' for calculation anymore, but might for validation later)
 
     try {
       console.log("Adding report...", conditions, location);
@@ -498,12 +496,12 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         userId: user?.uid || 'anonymous',
         temp: currentTemp || null
       });
-      console.log("Report added successfully! Precision Gain:", precisionIncrease);
-      return precisionIncrease;
+      console.log("Report added successfully! Rank:", rank, "Precision Gain:", precisionIncrease);
+      return { gain: precisionIncrease, rank: rank };
 
     } catch (e) {
       console.error("Error adding report", e);
-      return 0; // Failure
+      return { gain: 0, rank: 0 };
     }
   };
 

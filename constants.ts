@@ -46,7 +46,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "modal.notifications.desc": "Please confirm you accept notifications to be part of the community.",
     "modal.notifications.accept": "Accept Notifications",
     "modal.notifications.cancel": "No thanks",
-    "gamification.feedback": "Observation integrated. Local precision: +{{val}}% for the next hour."
+    "gamification.feedback": "Observation integrated. Local precision: +{{val}}% for the next hour.",
+    "gamification.first": "🌟 BRAVO, you were the fastest to provide weather info for the community 👏",
+    "gamification.fifth": "💫 BRAVO, your contribution validates local weather to 100% 👏"
   },
   fr: {
     "app.name": "Wise Weather",
@@ -56,6 +58,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "modal.notifications.desc": "Veuillez confirmer accepter les notifications pour faire partie de la communauté.",
     "modal.notifications.accept": "Accepter les notifications",
     "modal.notifications.cancel": "Non merci",
-    "gamification.feedback": "Observation intégrée. Précision locale : +{{val}}% pour la prochaine heure."
+    "gamification.feedback": "Observation intégrée. Précision locale : +{{val}}% pour la prochaine heure.",
+    "gamification.first": "🌟 BRAVO, tu as été le plus rapide à donner une information météo pour la communauté 👏",
+    "gamification.fifth": "💫 BRAVO, ta contribution valide à 100% la météo locale 👏"
   }
 };
