@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import './index.css';
 import {
   Sun, Cloud, CloudRain, Wind, Droplets, ArrowUp, ArrowDown,
   Map as MapIcon, Menu, X, Heart, Thermometer,
@@ -28,7 +29,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
     primary: "bg-primary text-white hover:bg-blue-600 focus:ring-blue-500 shadow-md hover:shadow-lg",
     secondary: "bg-white text-foreground border border-gray-200 hover:bg-gray-50 focus:ring-gray-200",
     ghost: "hover:bg-gray-100 text-gray-700",
-    radiant: "text-white font-bold bg-[linear-gradient(90deg,#833AB4,#FD1D1D,#FCAF45,#833AB4)] animate-radiant bg-[length:200%_auto] hover:opacity-90 shadow-lg",
+    radiant: "text-white font-bold bg-[linear-gradient(0deg,#FCAF45,#FF0080,#FF8C00,#FD1D1D,#FCAF45)] animate-radiant bg-[length:100%_200%] hover:opacity-90 shadow-lg",
     destructive: "bg-red-500 text-white hover:bg-red-600 shadow-md"
   };
   const sizes = {
@@ -70,9 +71,12 @@ const Badge = ({ label, level }: { label: string, level: ConfidenceLevel }) => {
 };
 
 const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
-  // If it's night (isDay === 0) and Clear sky (0) or mainly clear (1), show Moon
-  if (isDay === 0 && (code === 0 || code === 1)) {
-    return <Moon size={size} className={`text-blue-200 ${className}`} />;
+  // If it's night (isDay === 0)
+  if (isDay === 0) {
+    // Clear (0), Mainly Clear (1), or Default Fallback -> Moon
+    if (code === 0 || code === 1) {
+      return <Moon size={size} className={`text-blue-200 ${className}`} />;
+    }
   }
 
   // Detailed mapping for WMO codes
@@ -82,6 +86,11 @@ const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return <CloudRain size={size} className={`text-blue-500 ${className}`} />;
   if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <Snowflake size={size} className={`text-cyan-400 ${className}`} />;
   if (code >= 95) return <CloudLightning size={size} className={`text-purple-500 ${className}`} />;
+
+  // Fallback: Sun for Day, Moon for Night
+  if (isDay === 0) {
+    return <Moon size={size} className={`text-blue-200 ${className}`} />;
+  }
   return <Sun size={size} className={`text-yellow-500 ${className}`} />;
 };
 
@@ -115,16 +124,19 @@ const QuoteBlock = () => {
     )
   }
 
-  const quote = dailyQuote[language];
+  const quoteData = dailyQuote[language];
+  // Safety check: if quoteData is undefined (malformed response), fallback to defaults
+  const text = quoteData?.text || (language === 'fr' ? "L'avenir appartient à ceux qui croient à la beauté de leurs rêves." : "The future belongs to those who believe in the beauty of their dreams.");
+  const author = quoteData?.author || "Eleanor Roosevelt";
 
   return (
     <Card className="mx-4 mt-4 mb-6 p-6 bg-gradient-to-br from-white to-blue-50">
       <div className="flex flex-col gap-3">
         <p className="text-lg italic text-gray-700 leading-relaxed">
-          "{quote.text}"
+          "{text}"
         </p>
         <p className="text-sm font-semibold text-primary self-end">
-          — {quote.author}
+          — {author}
         </p>
       </div>
     </Card>
@@ -860,7 +872,7 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
             {t('gamification.feedback').replace('{{val}}', precisionGain.toString())}
           </h3>
 
-          <Button onClick={handleFinish} variant="radiant" className="w-full text-lg shadow-xl">
+          <Button onClick={handleFinish} variant="secondary" className="w-full text-lg shadow-xl">
             Continue
           </Button>
         </Card>
@@ -908,7 +920,7 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
           <Button
             onClick={submit}
             disabled={selected.length === 0 || isSubmitting}
-            variant={selected.length > 0 ? 'radiant' : 'secondary'}
+            variant="secondary"
             className="w-full text-lg h-14 shadow-xl"
           >
             {isSubmitting ? (
@@ -1036,7 +1048,7 @@ const App = () => {
         <div className="relative -top-6">
           <button
             onClick={() => setShowContribution(true)}
-            className="w-20 h-20 rounded-full bg-[linear-gradient(90deg,#833AB4,#FD1D1D,#FCAF45,#833AB4)] animate-radiant bg-[length:200%_auto] flex items-center justify-center shadow-lg shadow-pink-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
+            className="w-20 h-20 rounded-full bg-[linear-gradient(0deg,#FCAF45,#FF0080,#FF8C00,#FD1D1D,#FCAF45)] animate-radiant bg-[length:100%_200%] flex items-center justify-center shadow-lg shadow-pink-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
           >
             <CloudSun className="text-white" size={40} />
           </button>

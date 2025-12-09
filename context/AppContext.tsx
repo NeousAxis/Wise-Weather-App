@@ -268,28 +268,30 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         slotKey = `${yesterday.toDateString()}-slot-16pm`;
       }
 
-      // Check Cache
-      const cachedData = localStorage.getItem('wise_weather_quote');
+      // Check Cache (Updated to v2 to ensure Mistral API usage and clear old caches)
+      const cachedData = localStorage.getItem('wise_weather_quote_mistral');
       if (cachedData) {
         try {
           const parsed = JSON.parse(cachedData);
-          if (parsed.slotKey === slotKey && parsed.quote) {
+          const isFallback = parsed.quote?.en?.author === "Eleanor Roosevelt";
+          // Only use cache if it matches the slot AND is not the fallback
+          if (parsed.slotKey === slotKey && parsed.quote && !isFallback) {
             setDailyQuote(parsed.quote);
             return;
           }
         } catch (e) { }
       }
 
-      // Call Cloud Function
+      // Call Cloud Function (Uses Mistral AI)
       try {
         const generateQuoteFn = httpsCallable<void, any>(functions, 'generateQuote');
-        console.log("Calling generateQuote Cloud Function...");
+        console.log("Calling generateQuote Cloud Function (Mistral)...");
         const result = await generateQuoteFn();
         const response: any = result.data; // Type assertion
 
         if (response.success && response.data) {
           setDailyQuote(response.data);
-          localStorage.setItem('wise_weather_quote', JSON.stringify({
+          localStorage.setItem('wise_weather_quote_mistral', JSON.stringify({
             slotKey: slotKey,
             quote: response.data
           }));
@@ -301,13 +303,13 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         console.error("Quote generation failed (UI):", e);
         // Fallback
         const fallbackQuote = {
-          en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
-          fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" }
+          en: { text: "Difficulties strengthen the mind, as labor does the body.", author: "Seneca" },
+          fr: { text: "Les difficultés renforcent l'esprit, comme le travail renforce le corps.", author: "Sénèque" }
         };
         setDailyQuote(fallbackQuote);
 
         // Cache fallback to prevent rapid flickering on error
-        localStorage.setItem('wise_weather_quote', JSON.stringify({
+        localStorage.setItem('wise_weather_quote_mistral', JSON.stringify({
           slotKey: slotKey,
           quote: fallbackQuote
         }));
@@ -463,37 +465,28 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       return Math.abs(r.lat - location.lat) < 0.1 && Math.abs(r.lng - location.lng) < 0.1;
     });
 
-    // Dynamic Precision Calculation
-    let precisionIncrease = 0;
+    // Fixed Progression Calculation (User Request)
+    let precisionIncrease = 12; // Default 1st
+    const storedCount = localStorage.getItem('user_contribution_count');
+    let count = storedCount ? parseInt(storedCount, 10) : 0;
 
-    if (nearbyReports.length === 0) {
-      // High value for pioneer report (filling a data void)
-      precisionIncrease = 28;
-    } else {
-      // Analyze consensus with existing data
-      let matches = 0;
-      let nuances = 0;
-      conditions.forEach(c => {
-        // Check how many nearby reports agree with this condition
-        const agreement = nearbyReports.filter(r => r.conditions.includes(c)).length;
-        if (agreement > 0) matches += 1; // Confirmed
-        else nuances += 1; // New info
-      });
+    // Increment for this new report
+    count += 1;
+    localStorage.setItem('user_contribution_count', count.toString());
 
-      // Base participation score
-      precisionIncrease = 8;
-      // Confirmation bonus
-      precisionIncrease += (matches * 6);
-      // Nuance bonus
-      precisionIncrease += (nuances * 3);
-    }
+    // 1 contribution = 12%
+    // 2 contributions = 25%
+    // 3 contributions = 75%
+    // 4 contributions = 85%
+    // 5 contributions = 100%
+    if (count === 1) precisionIncrease = 12;
+    else if (count === 2) precisionIncrease = 25;
+    else if (count === 3) precisionIncrease = 75;
+    else if (count === 4) precisionIncrease = 85;
+    else if (count >= 5) precisionIncrease = 100;
 
-    // Add slight organic variance (0-3%) to reflect atmospheric chaos
-    precisionIncrease += Math.floor(Math.random() * 4);
-
-    // Hard caps to keep it realistic
-    if (precisionIncrease > 42) precisionIncrease = 42;
-    if (precisionIncrease < 5) precisionIncrease = 5;
+    // Legacy: Clean up old logic vars strictly to avoid unused errors if checking nearby
+    // (We don't use 'nearbyReports' for calculation anymore, but might for validation later)
 
     try {
       console.log("Adding report...", conditions, location);

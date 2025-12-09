@@ -4,11 +4,11 @@ import {defineSecret} from "firebase-functions/params";
 import {initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import {getMessaging} from "firebase-admin/messaging";
-import {GoogleGenerativeAI} from "@google/generative-ai";
+import {Mistral} from "@mistralai/mistralai";
 
 initializeApp();
 
-const geminiApiKey = defineSecret("VITE_API_KEY");
+const mistralApiKey = defineSecret("MISTRAL_API_KEY");
 
 /**
  * Helper to get the theme for the day of the week.
@@ -33,7 +33,7 @@ function getThemeForDay(day: number): string {
 }
 
 /**
- * Helper to fetch quote data using Google Gemini.
+ * Helper to fetch quote data using Mistral AI.
  * @param {string} apiKey
  * @param {number} dayOfWeek
  * @return {Promise<any>}
@@ -41,32 +41,51 @@ function getThemeForDay(day: number): string {
 async function fetchQuoteData(apiKey: string, dayOfWeek: number) {
   const theme = getThemeForDay(dayOfWeek);
 
+  const authors = [
+    "Rumi", "Lao Tzu", "Thich Nhat Hanh", "Marcus Aurelius", "Seneca",
+    "Confucius", "Khalil Gibran", "Ralph Waldo Emerson", "Walt Whitman",
+    "Rabindranath Tagore", "Albert Einstein", "Marie Curie", "Dalai Lama",
+    "Mother Teresa", "Gandhi", "Martin Luther King Jr.", "Nelson Mandela",
+    "Maya Angelou", "Antoine de Saint-Exupéry", "Victor Hugo", "Voltaire",
+    "René Descartes", "Socrates", "Plato", "Aristotle",
+  ];
+
   const prompt = "Generate a SINGLE, SHORT inspiring quote (MAX 25 WORDS) " +
     `based on the theme: "${theme}". ` +
-    "CRITICAL: The 'author' field MUST be a real, specific famous person. " +
-    "NEVER return 'Anonymous'. Return ONLY raw JSON with 'en' and 'fr' keys.";
+    "CRITICAL INSTRUCTIONS:\n" +
+    `1. The 'author' MUST be one of these: ${authors.join(", ")}.\n` +
+    "2. Provide the quote in both English ('en') and French ('fr').\n" +
+    "3. Return ONLY valid JSON. No markdown, no backticks.\n" +
+    "4. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
+    "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({model: "gemini-pro"});
+  const client = new Mistral({apiKey: apiKey});
 
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  const text = response.text();
+  const chatResponse = await client.chat.complete({
+    model: "mistral-small-latest",
+    messages: [{role: "user", content: prompt}],
+  });
 
-  if (!text) throw new Error("No response from AI");
+  const content = chatResponse.choices?.[0].message.content;
 
-  // Cleanup markdown code blocks if any
-  const cleanJson = text.replace(/```json/g, "")
-    .replace(/```/g, "").trim();
-  return JSON.parse(cleanJson);
+  if (!content) throw new Error("No response from Mistral AI");
+
+  // Attempt to parse JSON
+  if (typeof content === "string") {
+    // Mistral might return markdown json block even with json_mode
+    const cleanJson = content.replace(/```json/g, "")
+      .replace(/```/g, "").trim();
+    return JSON.parse(cleanJson);
+  }
+  return content;
 }
 
 // Public Callable for Frontend (Updated for daily logic)
 export const generateQuote = onCall(
-  {secrets: [geminiApiKey]},
+  {secrets: [mistralApiKey]},
   async () => {
     try {
-      const apiKey = geminiApiKey.value();
+      const apiKey = mistralApiKey.value();
       const now = new Date();
       // Use Day of Week for consistency
       const data = await fetchQuoteData(apiKey, now.getDay());
@@ -77,14 +96,13 @@ export const generateQuote = onCall(
         success: false,
         data: {
           en: {
-            text: "The future belongs to those who believe in the beauty of " +
-              "their dreams.",
-            author: "Eleanor Roosevelt",
+            text: "Difficulties strengthen the mind, as labor does the body.",
+            author: "Seneca",
           },
           fr: {
-            text: "L'avenir appartient à ceux qui croient à la beauté de " +
-              "leurs rêves.",
-            author: "Eleanor Roosevelt",
+            text: "Les difficultés renforcent l'esprit, " +
+              "comme le travail renforce le corps.",
+            author: "Sénèque",
           },
         },
       };
@@ -115,10 +133,10 @@ export const subscribeToNotifications = onCall(async (request) => {
 // Hourly Cron for Smart Notifications
 export const sendHourlyNotifications = onSchedule({
   schedule: "every 1 hours",
-  secrets: [geminiApiKey],
+  secrets: [mistralApiKey],
   timeoutSeconds: 540,
 }, async () => {
-  const apiKey = geminiApiKey.value();
+  const apiKey = mistralApiKey.value();
   const db = getFirestore();
   const messaging = getMessaging();
   const now = new Date();
