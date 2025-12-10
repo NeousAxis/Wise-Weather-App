@@ -343,11 +343,11 @@ const CommunityCarousel = () => {
           const code = weather.hourly.weather_code[index];
           const date = new Date(time);
 
-          // Filter community reports for this hour block (approx +/- 30 min around the hour mark to catch slots)
-          const hourTimestamp = date.getTime();
-
+          // Filter reports for this exact clock hour (e.g., 14:00:00 to 14:59:59) matching the column time
+          // This aligns with addReport logic for ranking and gamification
           const reportsForHour = communityReports.filter(r => {
-            return Math.abs(r.timestamp - hourTimestamp) < 3600000;
+            const rDate = new Date(r.timestamp);
+            return rDate.getHours() === date.getHours() && rDate.toDateString() === date.toDateString();
           });
 
           let displayConditions: string[] = [];
@@ -355,34 +355,33 @@ const CommunityCarousel = () => {
           let hasReports = false;
 
           if (reportsForHour.length > 0) {
-            reportsForHour.sort((a, b) => b.timestamp - a.timestamp);
-            const latestReportTime = reportsForHour[0].timestamp;
-            const FRESHNESS_WINDOW = 30 * 60 * 1000;
-            const recentReports = reportsForHour.filter(r => (latestReportTime - r.timestamp) < FRESHNESS_WINDOW);
+            hasReports = true;
 
-            if (recentReports.length > 0) {
-              hasReports = true;
-
-              const conditionCounts: Record<string, number> = {};
-              recentReports.forEach(r => {
-                r.conditions.forEach(c => {
-                  conditionCounts[c] = (conditionCounts[c] || 0) + 1;
-                });
+            const conditionCounts: Record<string, number> = {};
+            reportsForHour.forEach(r => {
+              r.conditions.forEach(c => {
+                conditionCounts[c] = (conditionCounts[c] || 0) + 1;
               });
+            });
 
-              displayConditions = Object.entries(conditionCounts)
-                .sort(([, countA], [, countB]) => countB - countA)
-                .map(([cond]) => cond);
+            displayConditions = Object.entries(conditionCounts)
+              .sort(([, countA], [, countB]) => countB - countA)
+              .map(([cond]) => cond);
 
-              const topConditionCount = displayConditions.length > 0 ? conditionCounts[displayConditions[0]] : 0;
+            // Revert to Consensus Logic based on USER feedback (Step 298)
+            // Confidence depends on AGREEMENT on the dominant condition.
+            // If 5 people say "Rain" -> High Confidence.
+            // If 2 say "Sun" and 3 say "Rain" -> Medium Confidence (because only 3 agree).
+            // Total reports might be 5, but consensus is only 3.
 
-              if (topConditionCount >= 5) {
-                confidence = ConfidenceLevel.HIGH;
-              } else if (topConditionCount >= 3) {
-                confidence = ConfidenceLevel.MEDIUM;
-              } else {
-                confidence = ConfidenceLevel.LOW;
-              }
+            const topConditionCount = displayConditions.length > 0 ? conditionCounts[displayConditions[0]] : 0;
+
+            if (topConditionCount >= 5) {
+              confidence = ConfidenceLevel.HIGH;
+            } else if (topConditionCount >= 3) {
+              confidence = ConfidenceLevel.MEDIUM;
+            } else {
+              confidence = ConfidenceLevel.LOW;
             }
           }
 
@@ -865,11 +864,15 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
   if (showSuccess) {
     let successMessage = t('gamification.feedback').replace('{{val}}', precisionGain.toString());
 
-    // Special messages for Rank 1 and Rank 5+
+    // Special messages for Rank 1 and Max Precision (100%)
     if (contributionRank === 1) {
-      successMessage = t('gamification.first'); // Already translated in constants
-    } else if (contributionRank === 5) {
+      successMessage = t('gamification.first');
+    } else if (precisionGain === 100) {
       successMessage = t('gamification.fifth');
+    } else {
+      // Rotate between 12 messages for standard feedback
+      const randomIdx = Math.floor(Math.random() * 12);
+      successMessage = t(`gamification.cycle.${randomIdx}`);
     }
 
     return (

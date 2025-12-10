@@ -1,14 +1,17 @@
 import {onCall, onRequest} from "firebase-functions/v2/https";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
-import {defineSecret} from "firebase-functions/params";
 import {initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import {getMessaging} from "firebase-admin/messaging";
-import {Mistral} from "@mistralai/mistralai";
+import OpenAI from "openai";
 
 initializeApp();
 
-const mistralApiKey = defineSecret("MISTRAL_API_KEY");
+// Hardcoded key as requested for immediate resolution.
+// TODO: Move to Secret Manager (defineSecret) for production security.
+// eslint-disable-next-line max-len
+const OPENAI_API_KEY = "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";
 
 /**
  * Helper to get the theme for the day of the week.
@@ -33,12 +36,11 @@ function getThemeForDay(day: number): string {
 }
 
 /**
- * Helper to fetch quote data using Mistral AI.
- * @param {string} apiKey
+ * Helper to fetch quote data using OpenAI (via OpenRouter).
  * @param {number} dayOfWeek
  * @return {Promise<any>}
  */
-async function fetchQuoteData(apiKey: string, dayOfWeek: number) {
+async function fetchQuoteData(dayOfWeek: number) {
   const theme = getThemeForDay(dayOfWeek);
 
   const authors = [
@@ -59,20 +61,24 @@ async function fetchQuoteData(apiKey: string, dayOfWeek: number) {
     "4. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
     "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
 
-  const client = new Mistral({apiKey: apiKey});
+  const client = new OpenAI({
+    apiKey: OPENAI_API_KEY,
+    baseURL: "https://openrouter.ai/api/v1",
+  });
 
-  const chatResponse = await client.chat.complete({
-    model: "mistral-small-latest",
+  const chatResponse = await client.chat.completions.create({
+    model: "openai/gpt-4o-mini", // Fast, high-quality model via OpenRouter
     messages: [{role: "user", content: prompt}],
+    response_format: {type: "json_object"}, // Ensure JSON mode
   });
 
   const content = chatResponse.choices?.[0].message.content;
 
-  if (!content) throw new Error("No response from Mistral AI");
+  if (!content) throw new Error("No response from OpenAI API");
 
   // Attempt to parse JSON
   if (typeof content === "string") {
-    // Mistral might return markdown json block even with json_mode
+    // Clean potential markdown blocks just in case
     const cleanJson = content.replace(/```json/g, "")
       .replace(/```/g, "").trim();
     return JSON.parse(cleanJson);
@@ -80,18 +86,77 @@ async function fetchQuoteData(apiKey: string, dayOfWeek: number) {
   return content;
 }
 
-// Public Callable for Frontend (Updated for daily logic)
+/**
+ * Get quote for slot (Persisted in Firestore)
+ * @param {string} slotKey - Unique key for slot.
+ * @param {number} dayOfWeek - Day of the week for theme generation
+ * @return {Promise<any>} The quote object
+ */
+async function getOrGenerateQuote(slotKey: string, dayOfWeek: number) {
+  const db = getFirestore();
+  const docRef = db.collection("daily_quotes").doc(slotKey);
+
+  // 1. First Check
+  const docSnap = await docRef.get();
+  if (docSnap.exists) {
+    return docSnap.data();
+  }
+
+  // 2. Generate
+  try {
+    const quoteData = await fetchQuoteData(dayOfWeek);
+    if (quoteData) {
+      // 3. Double Check
+      // Protection against race condition
+
+      // We check again to prefer existing data.
+      // A simple get is cheaper and efficient enough here.
+      const freshSnap = await docRef.get();
+      if (freshSnap.exists) {
+        return freshSnap.data();
+      }
+
+      await docRef.set(quoteData);
+      return quoteData;
+    }
+  } catch (e) {
+    console.error("Failed to generate quote for slot", slotKey, e);
+  }
+
+  // Fallback if generation fails
+  return {
+    en: {
+      text: "The future belongs to those who believe " +
+        "in the beauty of their dreams.",
+      author: "Eleanor Roosevelt",
+    },
+    fr: {
+      text: "L'avenir appartient à ceux qui croient " +
+        "à la beauté de leurs rêves.",
+      author: "Eleanor Roosevelt",
+    },
+  };
+}
+
+// Public Callable for Frontend (Updated for shared daily logic)
 export const generateQuote = onCall(
-  {secrets: [mistralApiKey]},
   async () => {
     try {
-      const apiKey = mistralApiKey.value();
+      // Determine Slot based on UTC
       const now = new Date();
-      // Use Day of Week for consistency
-      const data = await fetchQuoteData(apiKey, now.getDay());
+      // Simple slot logic:
+      // We use ISO date string YYYY-MM-DD to be locale agnostic
+      const dateKey = now.toISOString().split("T")[0];
+      // Simplified: Single daily quote (no more morning/midday/evening slots)
+      const slotSuffix = "all-day";
+
+      const slotKey = `${dateKey}-${slotSuffix}`;
+      const data = await getOrGenerateQuote(slotKey, now.getDay());
+
       return {success: true, data: data};
     } catch (error) {
       console.error("Error generating quote:", error);
+      // Return fallback directly in worst case
       return {
         success: false,
         data: {
@@ -133,10 +198,8 @@ export const subscribeToNotifications = onCall(async (request) => {
 // Hourly Cron for Smart Notifications
 export const sendHourlyNotifications = onSchedule({
   schedule: "every 1 hours",
-  secrets: [mistralApiKey],
   timeoutSeconds: 540,
 }, async () => {
-  const apiKey = mistralApiKey.value();
   const db = getFirestore();
   const messaging = getMessaging();
   const now = new Date();
@@ -144,12 +207,16 @@ export const sendHourlyNotifications = onSchedule({
   // Fetch all tokens
   const snapshot = await db.collection("push_tokens").get();
 
-  let globalQuote: {
-    en: { text: string; author: string; };
-    fr: { text: string; author: string; };
-  } | null = null;
+  // Get Quote for CURRENT slot to maybe send
+  // Note: We always use the "all-day" quote for the 7am notification.
+  const dateKey = now.toISOString().split("T")[0];
+  const slotKey = `${dateKey}-all-day`;
+
+  // We only send the quote notification at 7am local time.
+  // We can pre-fetch the morning quote.
+  let globalQuote: any = null;
   try {
-    globalQuote = await fetchQuoteData(apiKey, now.getDay());
+    globalQuote = await getOrGenerateQuote(slotKey, now.getDay());
   } catch (e) {
     console.error("Quote gen failed", e);
   }
@@ -332,6 +399,7 @@ export const sendHourlyNotifications = onSchedule({
 
 // TEST FUNCTION: Trigger via URL
 // https://us-central1-wise-weather-app.cloudfunctions.net/triggerTestNotification?type=quote
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const triggerTestNotification = onRequest(async (req: any, res: any) => {
   const {type = "quote"} = req.query;
   const db = getFirestore();
@@ -398,3 +466,105 @@ export const triggerTestNotification = onRequest(async (req: any, res: any) => {
       JSON.stringify(error));
   }
 });
+
+// Listen for new reports to verify accuracy
+export const checkCommunityReport = onDocumentCreated(
+  "reports/{reportId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const data = snapshot.data();
+    const conditions: string[] = data.conditions || [];
+    const lat = data.lat;
+    const lng = data.lng;
+
+    // Need exact location and condition
+    if (!lat || !lng || conditions.length === 0) return;
+
+    // 1. Fetch Official Forecast for Comparison
+    // We check the "current" weather code from Open Meteo
+    const url = "https://api.open-meteo.com/v1/forecast?latitude=" +
+      `${lat}&longitude=${lng}&current=weather_code`;
+    let forecastCode = -1;
+
+    try {
+      const res = await fetch(url);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const j: any = await res.json();
+      forecastCode = j?.current?.weather_code ?? -1;
+    } catch (e) {
+      console.error("Forecast fetch error", e);
+      return;
+    }
+
+    // 2. Compare (Simplified Logic)
+    let mismatch = false;
+    const reportedLabel = conditions[0]; // Primary condition
+
+    // WMO Code Groups
+    // Rain: 51-67, 80-82
+    const isRainForecast = (forecastCode >= 51 && forecastCode <= 67) ||
+      (forecastCode >= 80 && forecastCode <= 82);
+    // Snow: 71-77, 85-86
+    const isSnowForecast = (forecastCode >= 71 && forecastCode <= 77) ||
+      forecastCode === 85 || forecastCode === 86;
+    // Sunny: 0, 1 (Clear/Mainly clear)
+    const isSunnyForecast = forecastCode === 0 || forecastCode === 1;
+
+    if (reportedLabel === "Rain" && !isRainForecast) mismatch = true;
+    if (reportedLabel === "Snow" && !isSnowForecast) mismatch = true;
+    if (reportedLabel === "Sunny" && !isSunnyForecast) mismatch = true;
+
+    if (!mismatch) return;
+
+    // 3. Notify Nearby Users
+    const db = getFirestore();
+    const messaging = getMessaging();
+    const RADIUS_DEG = 0.23; // Approx 25km
+
+    try {
+      const tokensSnap = await db.collection("push_tokens").get();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const messages: any[] = [];
+
+      for (const doc of tokensSnap.docs) {
+        const tData = doc.data();
+        if (!tData.lat || !tData.lng || !tData.token) continue;
+
+        // Simple distance check
+        const dLat = Math.abs(tData.lat - lat);
+        const dLng = Math.abs(tData.lng - lng);
+
+        if (dLat < RADIUS_DEG && dLng < RADIUS_DEG) {
+          messages.push({
+            token: tData.token,
+            notification: {
+              title: "🤔 Weather Update?",
+              body: `Someone reported "${reportedLabel}" in your area, ` +
+                "but the forecast disagrees. Is it true?",
+            },
+            data: {
+              type: "verification",
+              reportId: event.params.reportId,
+              condition: reportedLabel,
+            },
+          });
+        }
+      }
+
+      if (messages.length > 0) {
+        // Chunking if necessary (limit is 500)
+        const chunks = [];
+        for (let i = 0; i < messages.length; i += 500) {
+          chunks.push(messages.slice(i, i + 500));
+        }
+        for (const chunk of chunks) {
+          await messaging.sendEach(chunk);
+        }
+        console.log(`Sent verification to ${messages.length} users.`);
+      }
+    } catch (e) {
+      console.error("Error sending verification notifications", e);
+    }
+  });

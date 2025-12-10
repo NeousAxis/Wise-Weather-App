@@ -113,7 +113,19 @@ const GLOBAL_MAJOR_CITIES = [
 ];
 
 export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
-  const [language, setLanguage] = useState<Language>('en');
+  const [language, setLanguageState] = useState<Language>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('wise_weather_language');
+      if (saved === 'en' || saved === 'fr') return saved;
+      return navigator.language.startsWith('fr') ? 'fr' : 'en';
+    }
+    return 'en';
+  });
+
+  const setLanguage = (lang: Language) => {
+    setLanguageState(lang);
+    localStorage.setItem('wise_weather_language', lang);
+  };
   const [unit, setUnit] = useState<Unit>('celsius');
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null);
@@ -268,8 +280,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         slotKey = `${yesterday.toDateString()}-slot-16pm`;
       }
 
-      // Check Cache (Updated to v2 to ensure Mistral API usage and clear old caches)
-      const cachedData = localStorage.getItem('wise_weather_quote_mistral');
+      // Check Cache (Updated to synced_v2 to force refresh from server)
+      const cachedData = localStorage.getItem('wise_weather_quote_synced_v2');
       if (cachedData) {
         try {
           const parsed = JSON.parse(cachedData);
@@ -282,16 +294,16 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         } catch (e) { }
       }
 
-      // Call Cloud Function (Uses Mistral AI)
+      // Call Cloud Function
       try {
         const generateQuoteFn = httpsCallable<void, any>(functions, 'generateQuote');
-        console.log("Calling generateQuote Cloud Function (Mistral)...");
+        console.log("Calling generateQuote Cloud Function...");
         const result = await generateQuoteFn();
         const response: any = result.data; // Type assertion
 
         if (response.success && response.data) {
           setDailyQuote(response.data);
-          localStorage.setItem('wise_weather_quote_mistral', JSON.stringify({
+          localStorage.setItem('wise_weather_quote_synced_v2', JSON.stringify({
             slotKey: slotKey,
             quote: response.data
           }));
