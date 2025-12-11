@@ -4,12 +4,12 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 import {initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import {getMessaging} from "firebase-admin/messaging";
+import {defineSecret} from "firebase-functions/params";
 import OpenAI from "openai";
 
 initializeApp();
 
-// Use OPENROUTER_API_KEY from environment variables
-const API_KEY = process.env.OPENROUTER_API_KEY;
+const openRouterApiKey = defineSecret("OPENROUTER_API_KEY_SECURE");
 
 /**
  * Helper to get the theme for the day of the week.
@@ -36,9 +36,10 @@ function getThemeForDay(day: number): string {
 /**
  * Helper to fetch quote data using OpenRouter.
  * @param {number} dayOfWeek
+ * @param {string} apiKey
  * @return {Promise<any>}
  */
-async function fetchQuoteData(dayOfWeek: number) {
+async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
   const theme = getThemeForDay(dayOfWeek);
 
   const authors = [
@@ -59,12 +60,12 @@ async function fetchQuoteData(dayOfWeek: number) {
     "4. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
     "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
 
-  if (!API_KEY) {
+  if (!apiKey) {
     throw new Error("Missing OPENROUTER_API_KEY");
   }
 
   const client = new OpenAI({
-    apiKey: API_KEY,
+    apiKey: apiKey,
     baseURL: "https://openrouter.ai/api/v1",
   });
 
@@ -91,9 +92,14 @@ async function fetchQuoteData(dayOfWeek: number) {
  * Get quote for slot (Persisted in Firestore)
  * @param {string} slotKey - Unique key for slot.
  * @param {number} dayOfWeek - Day of the week for theme generation
+ * @param {string} apiKey - API Key for OpenRouter
  * @return {Promise<any>} The quote object
  */
-async function getOrGenerateQuote(slotKey: string, dayOfWeek: number) {
+async function getOrGenerateQuote(
+  slotKey: string,
+  dayOfWeek: number,
+  apiKey: string
+) {
   const db = getFirestore();
   const docRef = db.collection("daily_quotes").doc(slotKey);
 
@@ -105,13 +111,10 @@ async function getOrGenerateQuote(slotKey: string, dayOfWeek: number) {
 
   // 2. Generate
   try {
-    const quoteData = await fetchQuoteData(dayOfWeek);
+    const quoteData = await fetchQuoteData(dayOfWeek, apiKey);
     if (quoteData) {
       // 3. Double Check
       // Protection against race condition
-
-      // We check again to prefer existing data.
-      // A simple get is cheaper and efficient enough here.
       const freshSnap = await docRef.get();
       if (freshSnap.exists) {
         return freshSnap.data();
@@ -144,7 +147,7 @@ async function getOrGenerateQuote(slotKey: string, dayOfWeek: number) {
 }
 
 // Public Callable for Frontend (Updated for shared daily logic)
-export const generateQuote = onCall(
+export const generateQuote = onCall({secrets: [openRouterApiKey]},
   async () => {
     try {
       // Determine Slot based on UTC
@@ -156,7 +159,11 @@ export const generateQuote = onCall(
       const slotSuffix = "all-day-v6";
 
       const slotKey = `${dateKey}-${slotSuffix}`;
-      const data = await getOrGenerateQuote(slotKey, now.getDay());
+      const data = await getOrGenerateQuote(
+        slotKey,
+        now.getDay(),
+        openRouterApiKey.value()
+      );
 
       return {success: true, data: data};
     } catch (error) {
@@ -206,6 +213,7 @@ export const subscribeToNotifications = onCall(async (request) => {
 export const sendHourlyNotifications = onSchedule({
   schedule: "every 1 hours",
   timeoutSeconds: 540,
+  secrets: [openRouterApiKey],
 }, async () => {
   const db = getFirestore();
   const messaging = getMessaging();
@@ -223,7 +231,11 @@ export const sendHourlyNotifications = onSchedule({
   // We can pre-fetch the morning quote.
   let globalQuote: any = null;
   try {
-    globalQuote = await getOrGenerateQuote(slotKey, now.getDay());
+    globalQuote = await getOrGenerateQuote(
+      slotKey,
+      now.getDay(),
+      openRouterApiKey.value()
+    );
   } catch (e) {
     console.error("Quote gen failed", e);
   }
