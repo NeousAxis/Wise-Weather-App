@@ -8,10 +8,8 @@ import OpenAI from "openai";
 
 initializeApp();
 
-// Hardcoded key as requested for immediate resolution.
-// TODO: Move to Secret Manager (defineSecret) for production security.
-// eslint-disable-next-line max-len
-const OPENAI_API_KEY = "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";
+// Use OPENROUTER_API_KEY from environment variables
+const API_KEY = process.env.OPENROUTER_API_KEY;
 
 /**
  * Helper to get the theme for the day of the week.
@@ -36,7 +34,7 @@ function getThemeForDay(day: number): string {
 }
 
 /**
- * Helper to fetch quote data using OpenAI (via OpenRouter).
+ * Helper to fetch quote data using OpenRouter.
  * @param {number} dayOfWeek
  * @return {Promise<any>}
  */
@@ -61,29 +59,32 @@ async function fetchQuoteData(dayOfWeek: number) {
     "4. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
     "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
 
+  if (!API_KEY) {
+    throw new Error("Missing OPENROUTER_API_KEY");
+  }
+
   const client = new OpenAI({
-    apiKey: OPENAI_API_KEY,
+    apiKey: API_KEY,
     baseURL: "https://openrouter.ai/api/v1",
   });
 
-  const chatResponse = await client.chat.completions.create({
-    model: "openai/gpt-4o-mini", // Fast, high-quality model via OpenRouter
-    messages: [{role: "user", content: prompt}],
-    response_format: {type: "json_object"}, // Ensure JSON mode
-  });
+  try {
+    const chatResponse = await client.chat.completions.create({
+      model: "openai/gpt-oss-20b:free",
+      messages: [{role: "user", content: prompt}],
+    });
 
-  const content = chatResponse.choices?.[0].message.content;
+    const content = chatResponse.choices[0]?.message?.content;
+    if (!content) throw new Error("No response from OpenRouter API");
 
-  if (!content) throw new Error("No response from OpenAI API");
-
-  // Attempt to parse JSON
-  if (typeof content === "string") {
-    // Clean potential markdown blocks just in case
+    // Clean potential markdown blocks
     const cleanJson = content.replace(/```json/g, "")
       .replace(/```/g, "").trim();
     return JSON.parse(cleanJson);
+  } catch (error) {
+    console.error("OpenRouter API Error:", error);
+    throw error;
   }
-  return content;
 }
 
 /**
@@ -121,10 +122,14 @@ async function getOrGenerateQuote(slotKey: string, dayOfWeek: number) {
     }
   } catch (e) {
     console.error("Failed to generate quote for slot", slotKey, e);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).lastQuoteError = e; // Hack to pass error to return
   }
 
   // Fallback if generation fails
   return {
+    // eslint-disable-next-line max-len
+    error_debug: (global as any).lastQuoteError ? String((global as any).lastQuoteError) : "Unknown Error",
     en: {
       text: "The future belongs to those who believe " +
         "in the beauty of their dreams.",
@@ -148,7 +153,7 @@ export const generateQuote = onCall(
       // We use ISO date string YYYY-MM-DD to be locale agnostic
       const dateKey = now.toISOString().split("T")[0];
       // Simplified: Single daily quote (no more morning/midday/evening slots)
-      const slotSuffix = "all-day";
+      const slotSuffix = "all-day-v6";
 
       const slotKey = `${dateKey}-${slotSuffix}`;
       const data = await getOrGenerateQuote(slotKey, now.getDay());
@@ -160,14 +165,16 @@ export const generateQuote = onCall(
       return {
         success: false,
         data: {
+          error_debug: error instanceof Error ? error.message : String(error),
           en: {
-            text: "Difficulties strengthen the mind, as labor does the body.",
-            author: "Seneca",
+            text: "The future belongs to those who believe " +
+              "in the beauty of their dreams.",
+            author: "Eleanor Roosevelt",
           },
           fr: {
-            text: "Les difficultés renforcent l'esprit, " +
-              "comme le travail renforce le corps.",
-            author: "Sénèque",
+            text: "L'avenir appartient à ceux qui croient " +
+              "à la beauté de leurs rêves.",
+            author: "Eleanor Roosevelt",
           },
         },
       };
@@ -316,8 +323,10 @@ export const sendHourlyNotifications = onSchedule({
               if ((oldCode <= 1) && (newCode >= 3 && newCode <= 48)) {
                 ruptureDetected = true;
                 msgBody = "Clouds are rolling in. Do you confirm?";
-              } else if ((oldCode < 51) && (newCode >= 51 && newCode <= 67)) {
-                // 2. Cloud -> Rain (51+)
+              } else if ((oldCode < 51) && (newCode >= 51)) {
+                // 2. Dry -> Any Rain/Snow/Storm (51+)
+                // FIX: Now catches direct jumps to Heavy Rain (80+)
+                // or Storm (95+)
                 ruptureDetected = true;
                 msgBody = "Rain detected nearby. Is it raining for you?";
               } else if ((oldCode >= 51 && oldCode <= 67) && (newCode >= 80)) {
@@ -340,7 +349,12 @@ export const sendHourlyNotifications = onSchedule({
                 msgBody = "Strong winds detected. Confirm?";
               }
             } else {
-              // First run, just save state, no notif
+              // First run: If it's already raining/storming, ASK!
+              const newCode = current.weather_code;
+              if (newCode >= 51) {
+                ruptureDetected = true;
+                msgBody = "Forecast says bad weather. Confirm?";
+              }
             }
 
             // Save new state
@@ -361,6 +375,11 @@ export const sendHourlyNotifications = onSchedule({
                 token: data.token,
                 notification: {title: "Weather Update", body: msgBody},
                 data: {type: "weather_alert"},
+                webpush: {
+                  fcm_options: {
+                    link: "/?action=contribution",
+                  },
+                },
               });
               // Update notification trackers
               updates.push({
@@ -398,27 +417,31 @@ export const sendHourlyNotifications = onSchedule({
 });
 
 // TEST FUNCTION: Trigger via URL
-// https://us-central1-wise-weather-app.cloudfunctions.net/triggerTestNotification?type=quote
+// https://us-central1-wise-weather-app.cloudfunctions.net/triggerTestNotification?type=quote&token=...
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const triggerTestNotification = onRequest(async (req: any, res: any) => {
-  const {type = "quote"} = req.query;
+  const {type = "quote", token: queryToken} = req.query;
   const db = getFirestore();
   const messaging = getMessaging();
 
   try {
-    // Get the most recent token
-    const snapshot = await db.collection("push_tokens")
-      .orderBy("updatedAt", "desc")
-      .limit(1)
-      .get();
+    let token = queryToken;
 
-    if (snapshot.empty) {
-      res.status(404).send("No tokens found in DB.");
-      return;
+    // If no token provided in URL, get the most recent one from DB
+    if (!token) {
+      const snapshot = await db.collection("push_tokens")
+        .orderBy("updatedAt", "desc")
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        res.status(404).send("No tokens found in DB.");
+        return;
+      }
+
+      const tokenData = snapshot.docs[0].data();
+      token = tokenData.token;
     }
-
-    const tokenData = snapshot.docs[0].data();
-    const token = tokenData.token;
 
     let message: any = {};
 

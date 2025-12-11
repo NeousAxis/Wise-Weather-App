@@ -129,6 +129,15 @@ const QuoteBlock = () => {
   const text = quoteData?.text || (language === 'fr' ? "L'avenir appartient à ceux qui croient à la beauté de leurs rêves." : "The future belongs to those who believe in the beauty of their dreams.");
   const author = quoteData?.author || "Eleanor Roosevelt";
 
+  // Debug Alert for User if generation failed
+  React.useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((dailyQuote as any).error_debug) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      alert("DEBUG: Quote Generation Failed!\n" + (dailyQuote as any).error_debug);
+    }
+  }, [dailyQuote]);
+
   return (
     <Card className="mx-4 mt-4 mb-6 p-6 bg-gradient-to-br from-white to-blue-50">
       <div className="flex flex-col gap-3">
@@ -144,7 +153,7 @@ const QuoteBlock = () => {
 };
 
 const WeatherDashboard = () => {
-  const { weather, loadingWeather, unit, t, cityName } = useContext(AppContext)!;
+  const { weather, loadingWeather, unit, t, cityName, language } = useContext(AppContext)!;
 
   if (loadingWeather || !weather) {
     return (
@@ -159,14 +168,28 @@ const WeatherDashboard = () => {
     );
   }
 
-  // Helper to format time
+  // Helper to format time (Sunrise/Sunset)
   const formatTime = (isoString: string) => {
-    return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const d = new Date(isoString);
+    if (language === 'fr') {
+      return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    } else {
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
   };
 
-  // Format hourly time (Just hour)
+  // Format hourly time (Forecast Headers) - Manual to ensure consistency
   const formatHour = (isoString: string) => {
-    return new Date(isoString).toLocaleTimeString([], { hour: 'numeric', hour12: true });
+    const d = new Date(isoString);
+    const hours = d.getHours();
+
+    if (language === 'fr') {
+      return `${hours} h`;
+    } else {
+      const h = hours % 12 || 12;
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      return `${h} ${ampm}`;
+    }
   };
 
   const currentHourIndex = weather.hourly.time.findIndex(t => {
@@ -313,7 +336,7 @@ const WeatherDashboard = () => {
 };
 
 const CommunityCarousel = () => {
-  const { t, weather, communityReports, unit } = useContext(AppContext)!;
+  const { t, weather, communityReports, unit, language } = useContext(AppContext)!;
 
   if (!weather) return null;
 
@@ -342,6 +365,14 @@ const CommunityCarousel = () => {
           const temp = weather.hourly.temperature_2m[index];
           const code = weather.hourly.weather_code[index];
           const date = new Date(time);
+
+          // Format time manually based on language
+          let timeDisplay = `${date.getHours()}:00`;
+          if (language !== 'fr') {
+            const h = date.getHours() % 12 || 12;
+            const ampm = date.getHours() >= 12 ? 'PM' : 'AM';
+            timeDisplay = `${h}:00 ${ampm}`;
+          }
 
           // Filter reports for this exact clock hour (e.g., 14:00:00 to 14:59:59) matching the column time
           // This aligns with addReport logic for ranking and gamification
@@ -388,36 +419,37 @@ const CommunityCarousel = () => {
           return (
             <Card key={time} className="min-w-[140px] flex flex-col items-center flex-shrink-0">
               {/* Top: Official */}
+              {/* Top: Official */}
               <div className="w-full bg-blue-50 p-3 flex flex-col items-center border-b border-blue-100">
-                <span className="text-[10px] font-bold text-blue-400 mb-1">{t('community.official')}</span>
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">{t('community.label_official')}</span>
+                  <span className="text-[8px] text-blue-300">●</span>
+                  <span className="text-[10px] font-bold text-blue-400 font-mono">{timeDisplay}</span>
+                </div>
                 {getWeatherIcon(code, 24, "mb-1")}
                 <span className="font-bold text-lg">{convertTemp(temp, unit)}°</span>
               </div>
 
               {/* Bottom: Community */}
-              <div className="w-full p-3 flex flex-col items-center bg-white relative h-[88px] justify-center">
-                <span className="text-[10px] font-bold text-purple-400 mb-2 absolute top-2">{t('community.reports')}</span>
+              <div className="w-full p-4 flex flex-col items-center bg-white relative min-h-[110px] justify-between flex-1">
+                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">{t('community.reports')}</span>
 
                 {hasReports ? (
                   <>
-                    <div className="flex -space-x-2 mt-2">
+                    <div className="flex -space-x-2 my-2">
                       {displayConditions.slice(0, 3).map((condition, ci) => (
                         <div key={ci} className="bg-purple-100 p-1.5 rounded-full border-2 border-white z-10">
                           {getWeatherIconFromLabel(condition, 14)}
                         </div>
                       ))}
                     </div>
-                    <div className="mt-2">
-                      <Badge label={confidence} level={confidence} />
+                    <div className="mt-auto">
+                      <Badge label={t(`confidence.${confidence.toLowerCase()}`)} level={confidence} />
                     </div>
                   </>
                 ) : (
-                  <span className="text-gray-300 font-medium text-sm mt-2">N/A</span>
+                  <span className="text-gray-300 font-medium text-sm my-auto">N/A</span>
                 )}
-
-                <span className="absolute top-2 right-2 text-[10px] text-gray-400">
-                  {date.getHours()}:00
-                </span>
               </div>
             </Card>
           );
@@ -526,64 +558,73 @@ const MapPage = () => {
     markersRef.current = [];
 
     const getIconSvg = (type: 'sun' | 'rain' | 'cloud' | 'storm' | 'snow' | 'wind' | 'moon', color: string, size: number = 24) => {
-      let svgContent = '';
-      const commonAttrs = `stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
+      const common = `stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
 
+      let path = '';
       if (type === 'sun') {
-        svgContent = `
-            <circle cx="12" cy="12" r="4" ${commonAttrs}/>
-            <path d="M12 2v2" ${commonAttrs}/>
-            <path d="M12 20v2" ${commonAttrs}/>
-            <path d="m4.93 4.93 1.41 1.41" ${commonAttrs}/>
-            <path d="m17.66 17.66 1.41 1.41" ${commonAttrs}/>
-            <path d="M2 12h2" ${commonAttrs}/>
-            <path d="M20 12h2" ${commonAttrs}/>
-            <path d="m6.34 17.66-1.41 1.41" ${commonAttrs}/>
-            <path d="m19.07 4.93-1.41 1.41" ${commonAttrs}/>
-          `;
+        path = `
+          <circle cx="12" cy="12" r="4" ${common} />
+          <path d="M12 2v2" ${common} />
+          <path d="M12 20v2" ${common} />
+          <path d="m4.93 4.93 1.41 1.41" ${common} />
+          <path d="m17.66 17.66 1.41 1.41" ${common} />
+          <path d="M2 12h2" ${common} />
+          <path d="M20 12h2" ${common} />
+          <path d="m6.34 17.66-1.41 1.41" ${common} />
+          <path d="m19.07 4.93-1.41 1.41" ${common} />
+        `;
       } else if (type === 'moon') {
-        svgContent = `<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" ${commonAttrs}/>`;
-      } else if (type === 'rain') {
-        svgContent = `
-            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" ${commonAttrs}/>
-            <path d="M16 14v6" ${commonAttrs}/>
-            <path d="M8 14v6" ${commonAttrs}/>
-            <path d="M12 16v6" ${commonAttrs}/>
-          `;
+        path = `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" ${common} />`;
       } else if (type === 'cloud') {
-        svgContent = `
-            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" ${commonAttrs}/>
-          `;
+        path = `<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" ${common} />`;
+      } else if (type === 'rain') {
+        path = `
+          <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" ${common} />
+          <path d="M16 14v6" ${common} />
+          <path d="M8 14v6" ${common} />
+          <path d="M12 16v6" ${common} />
+        `;
       } else if (type === 'storm') {
-        svgContent = `
-            <path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" ${commonAttrs}/>
-            <path d="m13 12-3 5h4l-3 5" ${commonAttrs}/>
-          `;
+        path = `
+          <path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" ${common} />
+          <path d="m13 12-3 5h4l-3 5" ${common} />
+        `;
       } else if (type === 'snow') {
-        svgContent = `
-            <path d="m10 20-1.25-2.5L6 18" ${commonAttrs}/>
-            <path d="M10 4 8.75 6.5 6 6" ${commonAttrs}/>
-            <path d="m14 20 1.25-2.5L18 18" ${commonAttrs}/>
-            <path d="m14 4 1.25 2.5L18 6" ${commonAttrs}/>
-            <path d="m17 21-3-6h-4" ${commonAttrs}/>
-            <path d="m17 3-3 6 1.5 3" ${commonAttrs}/>
-            <path d="M2 12h6.5L10 9" ${commonAttrs}/>
-            <path d="m20 10-1.5 2 1.5 2" ${commonAttrs}/>
-            <path d="M22 12h-6.5L14 15" ${commonAttrs}/>
-            <path d="m4 10 1.5 2L4 14" ${commonAttrs}/>
-            <path d="m7 21 3-6-1.5-3" ${commonAttrs}/>
-            <path d="m7 3 3 6h4" ${commonAttrs}/>
-          `;
+        path = `
+          <path d="m10 20-1.25-2.5L6 18" ${common} />
+          <path d="M10 4 8.75 6.5 6 6" ${common} />
+          <path d="m14 20 1.25-2.5L18 18" ${common} />
+          <path d="m14 4 1.25 2.5L18 6" ${common} />
+          <path d="m17 21-3-6h-4" ${common} />
+          <path d="m17 3-3 6 1.5 3" ${common} />
+          <path d="M2 12h6.5L10 9" ${common} />
+          <path d="m20 10-1.5 2 1.5 2" ${common} />
+          <path d="M22 12h-6.5L14 15" ${common} />
+          <path d="m4 10 1.5 2L4 14" ${common} />
+          <path d="m7 21 3-6-1.5-3" ${common} />
+          <path d="m7 3 3 6h4" ${common} />
+        `;
       } else if (type === 'wind') {
-        svgContent = `
-            <path d="M12.8 19.6A2 2 0 1 0 14 16H2" ${commonAttrs}/>
-            <path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" ${commonAttrs}/>
-            <path d="M9.8 4.4A2 2 0 1 1 11 8H2" ${commonAttrs}/>
-          `;
+        path = `
+          <path d="M12.8 19.6A2 2 0 1 0 14 16H2" ${common} />
+          <path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" ${common} />
+          <path d="M9.8 4.4A2 2 0 1 1 11 8H2" ${common} />
+        `;
+      } else {
+        // Fallback Sun
+        path = `
+          <circle cx="12" cy="12" r="4" ${common} />
+          <path d="M12 2v2" ${common} />
+          <path d="M12 20v2" ${common} />
+          <path d="m4.93 4.93 1.41 1.41" ${common} />
+          <path d="m17.66 17.66 1.41 1.41" ${common} />
+          <path d="M2 12h2" ${common} />
+          <path d="M20 12h2" ${common} />
+          <path d="m6.34 17.66-1.41 1.41" ${common} />
+          <path d="m19.07 4.93-1.41 1.41" ${common} />
+        `;
       }
-
-      // Return SVG with specified size and fill none for clean stroke rendering
-      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${svgContent}</svg>`;
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${path}</svg>`;
     };
 
     if (viewMode === 'official') {
@@ -638,26 +679,41 @@ const MapPage = () => {
 
         if (code >= 95) { iconType = 'storm'; iconColor = '#7C3AED'; }
         else if ((code >= 71 && code <= 77) || code === 85 || code === 86) { iconType = 'snow'; iconColor = '#06B6D4'; }
-        else if (code >= 51 || code >= 80) { iconType = 'rain'; iconColor = '#3B82F6'; }
-        else if (code >= 45) { iconType = 'cloud'; iconColor = '#64748B'; }
-        else if (code >= 1) { iconType = 'cloud'; iconColor = '#64748B'; }
+        else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) { iconType = 'rain'; iconColor = '#3B82F6'; }
         else {
-          if (city.isDay === 0) { iconType = 'moon'; iconColor = '#64748B'; }
-          else { iconType = 'sun'; iconColor = '#F59E0B'; }
+          // Non-precipitating weather (Clear, Cloudy, Fog)
+          if (city.isDay === 0) {
+            // NIGHT -> Always MOON (unless precipitating) as per request
+            iconType = 'moon';
+            iconColor = '#64748B';
+          } else {
+            // DAY
+            // 0=Clear, 1=Mainly Clear, 2=Partly Cloudy -> SUN
+            if (code <= 2) {
+              iconType = 'sun';
+              iconColor = '#F59E0B';
+            } else {
+              // 3=Overcast, 45/48=Fog -> CLOUD
+              iconType = 'cloud';
+              iconColor = '#64748B';
+            }
+          }
         }
 
         const temp = convertTemp(city.temp, unit);
 
         const el = L.divIcon({
-          className: 'bg-transparent',
+          className: 'bg-transparent overflow-visible',
           html: `
-              <div class="bg-white rounded-full shadow-md border border-gray-100 px-3 py-2 flex items-center gap-2 transform hover:scale-110 transition-transform">
-                ${getIconSvg(iconType, iconColor, 22)}
-                <span class="font-bold text-gray-800 text-sm">${temp}°</span>
+              <div class="absolute bottom-3 left-0 -translate-x-1/2">
+                <div class="bg-white rounded-full shadow-lg border border-gray-100 px-3 py-2 flex items-center gap-2 whitespace-nowrap transform hover:scale-110 transition-transform duration-200 origin-bottom">
+                  ${getIconSvg(iconType, iconColor, 26)}
+                  <span class="font-bold text-gray-800 text-base">${temp}°</span>
+                </div>
               </div>
             `,
-          iconSize: [80, 42],
-          iconAnchor: [40, -10]
+          iconSize: [0, 0],
+          iconAnchor: [0, 0]
         });
         markersRef.current.push(L.marker([city.lat, city.lng], { icon: el }).addTo(mapInstance.current));
       });
@@ -864,13 +920,15 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
   if (showSuccess) {
     let successMessage = t('gamification.feedback').replace('{{val}}', precisionGain.toString());
 
-    // Special messages for Rank 1 and Max Precision (100%)
-    if (contributionRank === 1) {
-      successMessage = t('gamification.first');
+    // Special messages logic
+    // Rank 1: Only show ~33% of the time to avoid feeling "alone" in the region
+    if (contributionRank === 1 && Math.random() < 0.33) {
+      successMessage = t('gamification.first'); // "Faster than light"
     } else if (precisionGain === 100) {
-      successMessage = t('gamification.fifth');
+      // Priority 2: 100% Reliability
+      successMessage = t('gamification.fifth'); // "Expert Reliability"
     } else {
-      // Rotate between 12 messages for standard feedback
+      // Default: Random encouragement
       const randomIdx = Math.floor(Math.random() * 12);
       successMessage = t(`gamification.cycle.${randomIdx}`);
     }
@@ -952,7 +1010,7 @@ const ContributionModal = ({ onClose }: { onClose: () => void }) => {
 };
 
 const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
-  const { t } = useContext(AppContext)!;
+  const { t, testPush } = useContext(AppContext)!;
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center p-4 bg-black/20 backdrop-blur-[2px]" onClick={onClose}>
@@ -971,8 +1029,13 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
             <Wand2 size={24} />
             <span className="font-semibold">{t('feedback.feature')}</span>
           </a>
+          <button onClick={() => { testPush(); onClose(); }} className="w-full flex items-center gap-4 p-4 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-left">
+            <Bell size={24} />
+            <span className="font-semibold">{t('feedback.push_notification')}</span>
+          </button>
         </div>
       </div>
+
     </div>
   )
 }
@@ -983,15 +1046,23 @@ const App = () => {
   const [page, setPage] = useState<'home' | 'map'>('home');
   const [showContribution, setShowContribution] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush } = useContext(AppContext)!;
+  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification } = useContext(AppContext)!;
 
-  // Auto-open contribution on EVERY visit (as requested)
+  // Handle Notification Clicks & Auto-Open
   useEffect(() => {
-    // Small delay for better UX (let UI load first)
-    const timer = setTimeout(() => {
+    // Check if opened via Notification Click
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('action') === 'contribution') {
       setShowContribution(true);
-    }, 2000);
-    return () => clearTimeout(timer);
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+    } else {
+      // Regular open: Small delay for better UX
+      const timer = setTimeout(() => {
+        setShowContribution(true);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   return (
@@ -999,12 +1070,15 @@ const App = () => {
 
       {/* Header - Fixed & Glassy */}
       <header className="fixed top-0 w-full z-40 bg-white/80 backdrop-blur-md border-b border-gray-100/50 h-16 flex items-center justify-between px-4 transition-all duration-300">
-        <div className="flex items-center gap-2">
+        <button
+          onClick={() => setPage('home')}
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+        >
           <Sun className="text-yellow-400 animate-spin-slow" size={28} />
           <span className="text-xl font-extrabold tracking-tight radiant-text">
             {t('app.name')}
           </span>
-        </div>
+        </button>
         <div className="flex gap-2">
           <button
             onClick={() => setUnit(unit === 'celsius' ? 'fahrenheit' : 'celsius')}
@@ -1033,10 +1107,25 @@ const App = () => {
         </div>
       </header>
 
+      {/* Notification Banner */}
+      {lastNotification && (
+        <div className="fixed top-20 left-4 right-4 z-[9999] animate-in slide-in-from-top-4 duration-500 pointer-events-none">
+          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl p-4 border border-blue-100 flex items-start gap-4 ring-1 ring-black/5 pointer-events-auto">
+            <div className="bg-blue-100 p-2 rounded-full text-blue-600 flex-shrink-0">
+              <Bell size={24} className="animate-pulse" />
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-900">{lastNotification.title}</h4>
+              <p className="text-sm text-gray-600 leading-snug mt-1">{lastNotification.body}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className={`transition-all duration-300 ${page === 'map' ? 'h-screen pt-0' : 'pt-20'}`}>
         {page === 'home' && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div key={language} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <QuoteBlock />
             <WeatherDashboard />
             <CommunityCarousel />

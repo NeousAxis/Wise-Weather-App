@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { auth, db, functions } from '../firebase';
 import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
-import { getMessaging, getToken } from "firebase/messaging"; // Import Messaging
+import { getMessaging, getToken, onMessage } from "firebase/messaging"; // Import Messaging
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, Timestamp, setDoc, doc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { Language, Unit, WeatherData, CommunityReport, SearchResult, DailyQuote } from '../types';
@@ -27,6 +27,8 @@ interface AppContextType {
   t: (key: string) => string;
   requestNotifications: () => Promise<void>;
   notificationsEnabled: boolean;
+  testPush: () => Promise<void>;
+  lastNotification: { title: string, body: string, data?: any } | null;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -109,7 +111,9 @@ const GLOBAL_MAJOR_CITIES = [
   { name: "New York", lat: 40.7128, lng: -74.0060 },
   { name: "Tokyo", lat: 35.6762, lng: 139.6503 },
   { name: "Paris", lat: 48.8566, lng: 2.3522 },
-  { name: "Sydney", lat: -33.8688, lng: 151.2093 }
+  { name: "Sydney", lat: -33.8688, lng: 151.2093 },
+  { name: "Darjeeling", lat: 27.0360, lng: 88.2627 },
+  { name: "Genève", lat: 46.2044, lng: 6.1432 }
 ];
 
 export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
@@ -139,6 +143,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const [dailyQuote, setDailyQuote] = useState<DailyQuote | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [lastNotification, setLastNotification] = useState<{ title: string, body: string, data?: any } | null>(null);
 
   const t = (key: string) => TRANSLATIONS[language][key] || key;
 
@@ -262,6 +267,60 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     }
   };
 
+  const testPush = async () => {
+    try {
+      if (!("Notification" in window)) {
+        alert(t('alert.push_error_ios'));
+        return;
+      }
+
+      if (!("serviceWorker" in navigator)) {
+        alert("Erreur: Service Workers non supportés par ce navigateur.");
+        return;
+      }
+
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      const messaging = getMessaging();
+
+      // Explicitly wait for SW ready to ensure context is safe
+      const registration = await navigator.serviceWorker.ready;
+      const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
+
+      console.log("Triggering test push for token:", token);
+
+      alert("Test Push: Envoi en cours... (Patientez 5s)");
+
+      // Trigger quote notification for testing with SPECIFIC token
+      await fetch(`https://triggertestnotification-pbcynnoobq-uc.a.run.app?type=quote&token=${token}`);
+      console.log("Test notification trigger sent.");
+      alert("Test Push: Envoyé ! Vérifiez vos notifications.");
+    } catch (e) {
+      console.error("Failed to trigger test notification", e);
+      alert("Test Push Error: " + e);
+    }
+  };
+
+  // Foreground Listener
+  useEffect(() => {
+    try {
+      const messaging = getMessaging();
+      const unsubscribe = onMessage(messaging, (payload) => {
+        console.log('Foreground Message:', payload);
+        setLastNotification({
+          title: payload.notification?.title || "New Message",
+          body: payload.notification?.body || "",
+          data: payload.data
+        });
+        // Auto-dismiss after 6 seconds
+        setTimeout(() => setLastNotification(null), 6000);
+      });
+      return () => unsubscribe && unsubscribe(); // unsubscribe might be void or function
+    } catch (e) {
+      // May fail if not supported or blocked
+      console.log("Foreground messaging not supported/ready");
+    }
+  }, []);
+
 
   // 4. Quote Generation (Cloud Function)
   useEffect(() => {
@@ -280,19 +339,29 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         slotKey = `${yesterday.toDateString()}-slot-16pm`;
       }
 
-      // Check Cache (Updated to synced_v2 to force refresh from server)
-      const cachedData = localStorage.getItem('wise_weather_quote_synced_v2');
+      // Check Cache (Updated to v3 to NUKE persisting garbage)
+      // Force clear old keys
+      localStorage.removeItem('wise_weather_quote_mistral');
+
+      const cachedData = localStorage.getItem('wise_weather_quote_v3');
       if (cachedData) {
         try {
           const parsed = JSON.parse(cachedData);
-          const isFallback = parsed.quote?.en?.author === "Eleanor Roosevelt";
-          // Only use cache if it matches the slot AND is not the fallback
+          const isFallback = parsed.quote?.en?.author === "Eleanor Roosevelt" || parsed.quote?.en?.author === "Seneca";
+
           if (parsed.slotKey === slotKey && parsed.quote && !isFallback) {
             setDailyQuote(parsed.quote);
             return;
+          } else if (isFallback) {
+            console.log("Cached quote is fallback/placeholder. Forcing refresh.");
           }
         } catch (e) { }
       }
+
+      // Check Manifest Accessibility (Debug for Notifications)
+      fetch('/manifest.json').then(r => {
+        if (!r.ok) alert("DEBUG: manifest.json missing! (" + r.status + ")");
+      }).catch(e => alert("DEBUG: manifest fetch error: " + e));
 
       // Call Cloud Function
       try {
@@ -303,7 +372,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
         if (response.success && response.data) {
           setDailyQuote(response.data);
-          localStorage.setItem('wise_weather_quote_synced_v2', JSON.stringify({
+          localStorage.setItem('wise_weather_quote_v3', JSON.stringify({
             slotKey: slotKey,
             quote: response.data
           }));
@@ -311,8 +380,11 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         } else {
           throw new Error(response.error || "Failed using AI model");
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Quote generation failed (UI):", e);
+        // Alert the user about the CLIENT-SIDE error (Network, CORS, etc.)
+        alert("DEBUG: Client-Side Fetch Error!\n" + e.message);
+
         // Fallback
         const fallbackQuote = {
           en: { text: "Difficulties strengthen the mind, as labor does the body.", author: "Seneca" },
@@ -321,7 +393,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         setDailyQuote(fallbackQuote);
 
         // Cache fallback to prevent rapid flickering on error
-        localStorage.setItem('wise_weather_quote_mistral', JSON.stringify({
+        localStorage.setItem('wise_weather_quote_v3', JSON.stringify({
           slotKey: slotKey,
           quote: fallbackQuote
         }));
@@ -355,40 +427,74 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     }
   };
 
-  const fetchMajorCitiesForCountry = async (countryName: string) => {
-    // ... (Keep existing logic or simplify if needed)
-    // For brevity in this fix, I'll rely on the original logic if I could view it, but I'll implement a basic version
-    // akin to what was there.
-    const normalizedInput = countryName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
-    let targetCities = GLOBAL_MAJOR_CITIES;
-    for (const key of Object.keys(COUNTRY_MAJOR_CITIES)) {
-      const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
-      if (normalizedInput.includes(normalizedKey) || normalizedKey.includes(normalizedInput)) {
-        targetCities = COUNTRY_MAJOR_CITIES[key];
-        break;
+  const fetchNearbyMajorCities = async (userLat: number, userLng: number, countryName?: string) => {
+    let candidateCities: { name: string, lat: number, lng: number }[] = [];
+    let countryFound = false;
+
+    // 1. Try to filter by Country first (User Preference)
+    if (countryName) {
+      const normalizedInput = countryName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+
+      for (const key of Object.keys(COUNTRY_MAJOR_CITIES)) {
+        const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+        // "vietnam" includes "nam" -> careful. stick to strict inclusion or equality if possible. 
+        // Better: check if one includes the other is usually robust enough for country names.
+        if (normalizedInput.includes(normalizedKey) || normalizedKey.includes(normalizedInput)) {
+          candidateCities = COUNTRY_MAJOR_CITIES[key];
+          countryFound = true;
+          break;
+        }
       }
     }
 
-    const promises = targetCities.map(async (city) => {
+    // 2. If no country match, Fallback to ALL cities (Distance based)
+    if (!countryFound) {
+      Object.values(COUNTRY_MAJOR_CITIES).forEach(cities => candidateCities.push(...cities));
+    }
+
+    // 3. Calculate distances and sort
+    const sortedByDistance = candidateCities.map(city => {
+      const dLat = city.lat - userLat;
+      const dLng = city.lng - userLng;
+      const distSq = (dLat * dLat) + (dLng * dLng);
+      return { ...city, distSq };
+    }).sort((a, b) => a.distSq - b.distSq);
+
+    // 4. Take closest 4
+    const closestCities = sortedByDistance.slice(0, 4);
+
+    // 5. Always include Global Major Cities
+    const combinedCities = [...GLOBAL_MAJOR_CITIES];
+
+    // 6. Merge Closer Cities (Deduplicate)
+    closestCities.forEach(city => {
+      if (!combinedCities.find(existing => existing.name === city.name)) {
+        combinedCities.push(city);
+      }
+    });
+
+    // 7. Fetch Weather
+    const promises = combinedCities.map(async (city) => {
       try {
         const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto`);
         const data = await res.json();
         return { ...city, temp: data.current.temperature_2m, code: data.current.weather_code, isDay: data.current.is_day };
       } catch (e) { return null; }
     });
+
     const results = await Promise.all(promises);
     setMajorCitiesWeather(results.filter(c => c !== null));
   };
 
-  // UseEffect for Major Cities
+  // UseEffect for Major Cities (Location & Country)
   useEffect(() => {
-    if (currentCountry) {
-      fetchMajorCitiesForCountry(currentCountry);
+    if (location) {
+      fetchNearbyMajorCities(location.lat, location.lng, currentCountry);
     } else {
-      // Default
-      fetchMajorCitiesForCountry("France"); // Or global
+      // Default center fallback
+      fetchNearbyMajorCities(48.8566, 2.3522, "France");
     }
-  }, [currentCountry]);
+  }, [location, currentCountry]);
 
 
   const searchCity = async (query: string): Promise<SearchResult[]> => {
@@ -547,7 +653,9 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       dailyQuote,
       t,
       requestNotifications,
-      notificationsEnabled
+      notificationsEnabled,
+      testPush,
+      lastNotification
     }}>
       {children}
     </AppContext.Provider>
