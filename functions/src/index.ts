@@ -258,12 +258,21 @@ export const sendHourlyNotifications = onSchedule({
           token: data.token,
           notification: {
             title: "☀️ Wise Weather",
-            body: `"${globalQuote.en.text}"`,
+            body: `"${globalQuote.en.text}"\n\n` +
+              "☀️ Share the weather now and spread the love ❤️🌎",
           },
           data: {
             type: "quote",
             quote: JSON.stringify(globalQuote),
             click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+          webpush: {
+            notification: {
+              actions: [
+                {action: "report_sun", title: "☀️ Sun"},
+                {action: "report_rain", title: "🌧️ Rain"},
+              ],
+            },
           },
         });
       }

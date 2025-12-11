@@ -854,9 +854,9 @@ const MapPage = () => {
   );
 };
 
-const ContributionModal = ({ onClose }: { onClose: () => void }) => {
+const ContributionModal = ({ onClose, initialSelection }: { onClose: () => void, initialSelection?: string | null }) => {
   const { addReport, t, notificationsEnabled, requestNotifications } = useContext(AppContext)!;
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>(initialSelection ? [initialSelection] : []);
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -1043,8 +1043,10 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
 // --- App Layout ---
 
 const App = () => {
+
   const [page, setPage] = useState<'home' | 'map'>('home');
   const [showContribution, setShowContribution] = useState(false);
+  const [initialSelection, setInitialSelection] = useState<string | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
   const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification } = useContext(AppContext)!;
 
@@ -1053,6 +1055,9 @@ const App = () => {
     // Check if opened via Notification Click
     const params = new URLSearchParams(window.location.search);
     if (params.get('action') === 'contribution') {
+      const select = params.get('select');
+      if (select) setInitialSelection(select);
+
       setShowContribution(true);
       // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
@@ -1169,7 +1174,8 @@ const App = () => {
       </nav>
 
       {/* Modals */}
-      {showContribution && <ContributionModal onClose={() => setShowContribution(false)} />}
+      {/* Modals */}
+      {showContribution && <ContributionModal onClose={() => { setShowContribution(false); setInitialSelection(null); }} initialSelection={initialSelection} />}
       {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
 
     </div>
