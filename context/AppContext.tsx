@@ -178,7 +178,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         try {
           const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
           const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng });
+          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng, language: language });
           console.log("Subscribed/Updated notifications on server.");
         } catch (subError) {
           console.error("Subscription Cloud Function Error", subError);
@@ -201,7 +201,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           // Register just for quotes
           const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
           const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          await subscribeFn({ token, timezone: timeZone });
+          await subscribeFn({ token, timezone: timeZone, language: language });
         }
       }
     } catch (error) {
@@ -216,7 +216,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       setNotificationsEnabled(true);
       registerForPushNotifications(location);
     }
-  }, [location]); // Re-run when location is ready to ensure we capture it for weather alerts
+  }, [location, language]); // Re-run when location OR language updates
 
   // 2. Real-time Reports Sync
   useEffect(() => {

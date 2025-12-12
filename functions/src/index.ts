@@ -188,15 +188,56 @@ export const generateQuote = onCall({secrets: [openRouterApiKey]},
     }
   });
 
+const NOTIF_TRANSLATIONS: any = {
+  en: {
+    dailyTitle: "Daily Inspiration",
+    weatherTitle: "Weather Update",
+    verifyTitle: "🤔 Weather Update?",
+    clouds: "Clouds are rolling in. Do you confirm?",
+    rain: "Rain detected nearby. Is it raining for you?",
+    heavy_rain: "Heavy rain detected. Confirm?",
+    fog: "Fog detected. Is visibility low?",
+    sun: "The sun is back! Do you see it?",
+    wind: "Strong winds detected. Confirm?",
+    bad_forecast: "Forecast says bad weather. Confirm?",
+    verifyBody: (cond: string) => `Someone reported "${cond}" ` +
+      "in your area, but the forecast disagrees. Is it true?",
+    conditions: {
+      "Sunny": "Sunny", "Cloudy": "Cloudy", "Rain": "Rain",
+      "Storm": "Storm", "Windy": "Windy", "Snow": "Snow",
+    },
+  },
+  fr: {
+    dailyTitle: "Inspiration Quotidienne",
+    weatherTitle: "Météo en direct",
+    verifyTitle: "🤔 Vérification Météo",
+    clouds: "Les nuages arrivent. Confirmez-vous ?",
+    rain: "Pluie détectée à proximité. Pleut-il chez vous ?",
+    heavy_rain: "Fortes pluies détectées. Confirmez-vous ?",
+    fog: "Brouillard détecté. La visibilité est-elle faible ?",
+    sun: "Le soleil est de retour ! Le voyez-vous ?",
+    wind: "Vents forts détectés. Confirmez-vous ?",
+    bad_forecast: "Mauvais temps prévu. Confirmez-vous ?",
+    verifyBody: (cond: string) => `Quelqu'un a signalé "${cond}" ` +
+      "dans votre zone. Confirmez-vous ?",
+    conditions: {
+      "Sunny": "Ensoleillé", "Cloudy": "Nuageux", "Rain": "Pluie",
+      "Storm": "Orage", "Windy": "Vent", "Snow": "Neige",
+    },
+  },
+};
+
+
 // Subscribe with Token & Location
 export const subscribeToNotifications = onCall(async (request) => {
-  const {token, timezone, lat, lng} = request.data;
+  const {token, timezone, lat, lng, language} = request.data;
   if (!token) return {success: false, error: "No token"};
 
   const db = getFirestore();
   await db.collection("push_tokens").doc(token).set({
     token,
     timezone: timezone || "UTC",
+    language: language || "en",
     lat: lat || null,
     lng: lng || null,
     updatedAt: new Date(),
@@ -246,6 +287,8 @@ export const sendHourlyNotifications = onSchedule({
   for (const doc of snapshot.docs) {
     const data = doc.data();
     const tz = data.timezone || "UTC";
+    const lang = data.language || "en";
+    const t = NOTIF_TRANSLATIONS[lang] || NOTIF_TRANSLATIONS["en"];
 
     // Local Time
     const localDate = new Date(now.toLocaleString("en-US", {timeZone: tz}));
@@ -254,35 +297,33 @@ export const sendHourlyNotifications = onSchedule({
     // --- 1. MORNING QUOTE (07:00) ---
     if (localHour === 7) {
       if (globalQuote) {
-        messages.push({
-          token: data.token,
-          notification: {
-            title: "Daily Inspiration",
-            body: `"${globalQuote.en.text}"\n— ${globalQuote.en.author}`,
-          },
-          data: {
-            type: "quote",
-            quote: JSON.stringify(globalQuote),
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-          },
-          webpush: {
+        const qContent = globalQuote[lang] || globalQuote["en"];
+        if (qContent) {
+          messages.push({
+            token: data.token,
             notification: {
-              actions: [
-                {action: "report_sun", title: "☀️ Sun"},
-                {action: "report_rain", title: "🌧️ Rain"},
-              ],
+              title: t.dailyTitle,
+              body: `"${qContent.text}"\n— ${qContent.author}`,
             },
-          },
-        });
+            data: {
+              type: "quote",
+              quote: JSON.stringify(globalQuote),
+              click_action: "FLUTTER_NOTIFICATION_CLICK",
+            },
+            webpush: {
+              notification: {
+                actions: [
+                  {action: "report_sun", title: "☀️ Sun"},
+                  {action: "report_rain", title: "🌧️ Rain"},
+                ],
+              },
+            },
+          });
+        }
       }
     }
 
     // --- 2. CONTEXTUAL WEATHER NOTIFICATIONS ---
-    // Rules:
-    // - Window 1: 07:15 - 14:00 (Max 1)
-    // - Window 2: 14:00 - 23:00 (Max 1)
-    // - Night: 23:00 - 07:15 (0)
-
     // Check if user has location
     if (data.lat && data.lng) {
       const isWindow1 = localHour >= 7 && localHour < 14;
@@ -342,38 +383,36 @@ export const sendHourlyNotifications = onSchedule({
               // 1. Sun (0,1) -> Cloud/Gloomy (3, 45)
               if ((oldCode <= 1) && (newCode >= 3 && newCode <= 48)) {
                 ruptureDetected = true;
-                msgBody = "Clouds are rolling in. Do you confirm?";
+                msgBody = t.clouds;
               } else if ((oldCode < 51) && (newCode >= 51)) {
                 // 2. Dry -> Any Rain/Snow/Storm (51+)
-                // FIX: Now catches direct jumps to Heavy Rain (80+)
-                // or Storm (95+)
                 ruptureDetected = true;
-                msgBody = "Rain detected nearby. Is it raining for you?";
+                msgBody = t.rain;
               } else if ((oldCode >= 51 && oldCode <= 67) && (newCode >= 80)) {
                 // 3. Light Rain -> Heavy (80+)
                 ruptureDetected = true;
-                msgBody = "Review pours detected. Confirm heavy rain?";
+                msgBody = t.heavy_rain;
               } else if (oldCode !== 45 && oldCode !== 48 &&
                 (newCode === 45 || newCode === 48)) {
                 // 4. Fog (45, 48)
                 ruptureDetected = true;
-                msgBody = "Fog detected. Is visibility low?";
+                msgBody = t.fog;
               } else if ((oldCode >= 51) && (newCode <= 2)) {
                 // 5. Sun Return (Rain -> Sun)
                 ruptureDetected = true;
-                msgBody = "The sun is back! Do you see it?";
+                msgBody = t.sun;
               } else if (current.wind_speed_10m > 40 &&
                 (!lastState.wind || lastState.wind < 30)) {
                 // 6. Wind
                 ruptureDetected = true;
-                msgBody = "Strong winds detected. Confirm?";
+                msgBody = t.wind;
               }
             } else {
               // First run: If it's already raining/storming, ASK!
               const newCode = current.weather_code;
               if (newCode >= 51) {
                 ruptureDetected = true;
-                msgBody = "Forecast says bad weather. Confirm?";
+                msgBody = t.bad_forecast;
               }
             }
 
@@ -393,7 +432,7 @@ export const sendHourlyNotifications = onSchedule({
             if (ruptureDetected) {
               messages.push({
                 token: data.token,
-                notification: {title: "Weather Update", body: msgBody},
+                notification: {title: t.weatherTitle, body: msgBody},
                 data: {type: "weather_alert"},
                 webpush: {
                   fcm_options: {
@@ -463,28 +502,40 @@ export const triggerTestNotification = onRequest(async (req: any, res: any) => {
       token = tokenData.token;
     }
 
+    // Get language for this token
+    const tokenDoc = await db.collection("push_tokens").doc(token).get();
+    const lang = tokenDoc.exists ? (tokenDoc.data()?.language || "en") : "en";
+    const t = NOTIF_TRANSLATIONS[lang] || NOTIF_TRANSLATIONS["en"];
+
     let message: any = {};
 
     if (type === "weather") {
       message = {
         token,
         notification: {
-          title: "🧪 Test Weather Alert",
-          body: "Clouds are rolling in. Do you confirm?",
+          title: "🧪 " + t.weatherTitle,
+          body: t.clouds, // Example
         },
         data: {
           type: "weather_alert",
         },
       };
     } else {
+      // Test Quote (Use built-in backup for simplicity in test)
+      const qText = lang === "fr" ?
+        "La seule façon de faire du bon travail est d'aimer ce que " +
+        "vous faites." :
+        "The only way to do great work is to love what you do.";
+
       message = {
         token,
         notification: {
-          title: "🧪 Test Quote",
-          body: "\"The only way to do great work is to love what you do.\"",
+          title: "🧪 " + t.dailyTitle,
+          body: `"${qText}"\n— Steve Jobs`,
         },
         data: {
           type: "quote",
+          // Send full JSON for app to handle
           quote: JSON.stringify({
             en: {
               text: "The only way to do great work is to love what you do.",
@@ -580,12 +631,19 @@ export const checkCommunityReport = onDocumentCreated(
         const dLng = Math.abs(tData.lng - lng);
 
         if (dLat < RADIUS_DEG && dLng < RADIUS_DEG) {
+          // Localization
+          const lang = tData.language || "en";
+          const t = NOTIF_TRANSLATIONS[lang] || NOTIF_TRANSLATIONS["en"];
+
+          const translatedCondition = t.conditions[reportedLabel] ||
+            reportedLabel;
+          const body = t.verifyBody(translatedCondition);
+
           messages.push({
             token: tData.token,
             notification: {
-              title: "🤔 Weather Update?",
-              body: `Someone reported "${reportedLabel}" in your area, ` +
-                "but the forecast disagrees. Is it true?",
+              title: t.verifyTitle,
+              body: body,
             },
             data: {
               type: "verification",
