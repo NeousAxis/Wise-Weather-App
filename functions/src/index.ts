@@ -225,7 +225,7 @@ export const sendHourlyNotifications = onSchedule({
   // Get Quote for CURRENT slot to maybe send
   // Note: We always use the "all-day" quote for the 7am notification.
   const dateKey = now.toISOString().split("T")[0];
-  const slotKey = `${dateKey}-all-day`;
+  const slotKey = `${dateKey}-all-day-v6`;
 
   // We only send the quote notification at 7am local time.
   // We can pre-fetch the morning quote.
@@ -257,9 +257,8 @@ export const sendHourlyNotifications = onSchedule({
         messages.push({
           token: data.token,
           notification: {
-            title: "☀️ Wise Weather",
-            body: `"${globalQuote.en.text}"\n\n` +
-              "☀️ Share the weather now and spread the love ❤️🌎",
+            title: "Daily Inspiration",
+            body: `"${globalQuote.en.text}"\n— ${globalQuote.en.author}`,
           },
           data: {
             type: "quote",
@@ -565,7 +564,7 @@ export const checkCommunityReport = onDocumentCreated(
     // 3. Notify Nearby Users
     const db = getFirestore();
     const messaging = getMessaging();
-    const RADIUS_DEG = 0.23; // Approx 25km
+    const RADIUS_DEG = 0.045; // Approx 5km
 
     try {
       const tokensSnap = await db.collection("push_tokens").get();

@@ -73,8 +73,8 @@ const Badge = ({ label, level }: { label: string, level: ConfidenceLevel }) => {
 const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
   // If it's night (isDay === 0)
   if (isDay === 0) {
-    // Clear (0), Mainly Clear (1), or Default Fallback -> Moon
-    if (code === 0 || code === 1) {
+    // Clear (0), Mainly Clear (1), Partly Cloudy (2) -> Moon
+    if (code >= 0 && code <= 2) {
       return <Moon size={size} className={`text-blue-200 ${className}`} />;
     }
   }
@@ -336,7 +336,7 @@ const WeatherDashboard = () => {
 };
 
 const CommunityCarousel = () => {
-  const { t, weather, communityReports, unit, language } = useContext(AppContext)!;
+  const { t, weather, communityReports, unit, language, location } = useContext(AppContext)!;
 
   if (!weather) return null;
 
@@ -374,11 +374,16 @@ const CommunityCarousel = () => {
             timeDisplay = `${h}:00 ${ampm}`;
           }
 
-          // Filter reports for this exact clock hour (e.g., 14:00:00 to 14:59:59) matching the column time
-          // This aligns with addReport logic for ranking and gamification
+          // Filter reports for this exact clock hour AND nearby location (~10km)
           const reportsForHour = communityReports.filter(r => {
             const rDate = new Date(r.timestamp);
-            return rDate.getHours() === date.getHours() && rDate.toDateString() === date.toDateString();
+            const isSameHour = rDate.getHours() === date.getHours() && rDate.toDateString() === date.toDateString();
+
+            // Spatial Filter (essential for hyper-local accuracy)
+            if (!location) return isSameHour; // Fallback
+            const isNearby = Math.abs(r.lat - location.lat) < 0.1 && Math.abs(r.lng - location.lng) < 0.1;
+
+            return isSameHour && isNearby;
           });
 
           let displayConditions: string[] = [];
