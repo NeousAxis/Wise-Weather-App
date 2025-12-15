@@ -1,10 +1,10 @@
-import { onCall, onRequest } from "firebase-functions/v2/https";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
-import { onSchedule } from "firebase-functions/v2/scheduler";
-import { initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-import { getMessaging } from "firebase-admin/messaging";
-import { defineSecret } from "firebase-functions/params";
+import {onCall, onRequest} from "firebase-functions/v2/https";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
+import {onSchedule} from "firebase-functions/v2/scheduler";
+import {initializeApp} from "firebase-admin/app";
+import {getFirestore} from "firebase-admin/firestore";
+import {getMessaging} from "firebase-admin/messaging";
+import {defineSecret} from "firebase-functions/params";
 import OpenAI from "openai";
 
 initializeApp();
@@ -72,7 +72,7 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
   try {
     const chatResponse = await client.chat.completions.create({
       model: "openai/gpt-oss-20b:free",
-      messages: [{ role: "user", content: prompt }],
+      messages: [{role: "user", content: prompt}],
     });
 
     const content = chatResponse.choices[0]?.message?.content;
@@ -147,7 +147,7 @@ async function getOrGenerateQuote(
 }
 
 // Public Callable for Frontend (Updated for shared daily logic)
-export const generateQuote = onCall({ secrets: [openRouterApiKey] },
+export const generateQuote = onCall({secrets: [openRouterApiKey]},
   async () => {
     try {
       // Determine Slot based on UTC
@@ -165,7 +165,7 @@ export const generateQuote = onCall({ secrets: [openRouterApiKey] },
         openRouterApiKey.value()
       );
 
-      return { success: true, data: data };
+      return {success: true, data: data};
     } catch (error) {
       console.error("Error generating quote:", error);
       // Return fallback directly in worst case
@@ -190,8 +190,8 @@ export const generateQuote = onCall({ secrets: [openRouterApiKey] },
 
 // Subscribe with Token & Location
 export const subscribeToNotifications = onCall(async (request) => {
-  const { token, timezone, lat, lng } = request.data;
-  if (!token) return { success: false, error: "No token" };
+  const {token, timezone, lat, lng} = request.data;
+  if (!token) return {success: false, error: "No token"};
 
   const db = getFirestore();
   await db.collection("push_tokens").doc(token).set({
@@ -204,9 +204,9 @@ export const subscribeToNotifications = onCall(async (request) => {
     lastWeatherNotif: 0,
     weatherNotifCountToday: 0,
     lastWeatherState: null,
-  }, { merge: true });
+  }, {merge: true});
 
-  return { success: true };
+  return {success: true};
 });
 
 // Hourly Cron for Smart Notifications
@@ -248,7 +248,7 @@ export const sendHourlyNotifications = onSchedule({
     const tz = data.timezone || "UTC";
 
     // Local Time
-    const localDate = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+    const localDate = new Date(now.toLocaleString("en-US", {timeZone: tz}));
     const localHour = localDate.getHours();
 
     // --- 1. MORNING QUOTE (07:00) ---
@@ -268,8 +268,8 @@ export const sendHourlyNotifications = onSchedule({
           webpush: {
             notification: {
               actions: [
-                { action: "report_sun", title: "☀️ Sun" },
-                { action: "report_rain", title: "🌧️ Rain" },
+                {action: "report_sun", title: "☀️ Sun"},
+                {action: "report_rain", title: "🌧️ Rain"},
               ],
             },
           },
@@ -294,11 +294,11 @@ export const sendHourlyNotifications = onSchedule({
       const sentTodayCount = data.weatherNotifCountToday || 0;
       const lastSentDay = lastSent.toLocaleDateString(
         "en-US",
-        { timeZone: tz },
+        {timeZone: tz},
       );
       const currentDay = localDate.toLocaleDateString(
         "en-US",
-        { timeZone: tz },
+        {timeZone: tz},
       );
 
       // Reset counter if new day
@@ -314,11 +314,13 @@ export const sendHourlyNotifications = onSchedule({
         // Fetch Weather
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          // 5 second timeout
           const wUrl = "https://api.open-meteo.com/v1/forecast?latitude=" +
             `${data.lat}&longitude=${data.lng}` +
-            "&current=weather_code,temperature_2m,wind_speed_10m,wind_gusts_10m";
-          const weatherRes = await fetch(wUrl, { signal: controller.signal });
+            "&current=weather_code,temperature_2m," +
+            "wind_speed_10m,wind_gusts_10m";
+          const weatherRes = await fetch(wUrl, {signal: controller.signal});
           clearTimeout(timeoutId);
           const wData: {
             current?: {
@@ -372,16 +374,19 @@ export const sendHourlyNotifications = onSchedule({
                 ruptureDetected = true;
                 msgBody = "Strong winds detected. Confirm?";
                 forceSend = true;
-              } else if (current.wind_gusts_10m && current.wind_gusts_10m > 60 &&
+              } else if (current.wind_gusts_10m &&
+                current.wind_gusts_10m > 60 &&
                 (!lastState.gusts || lastState.gusts < 45)) {
                 // 7. Strong Gusts (>60km/h)
                 ruptureDetected = true;
                 msgBody = "Strong gusts detected! Be careful.";
                 forceSend = true;
-              } else if (lastState.wind && current.wind_speed_10m > (lastState.wind + 15)) {
+              } else if (lastState.wind &&
+                current.wind_speed_10m > (lastState.wind + 15)) {
                 // 8. Wind Intensification (> +15km/h increase)
                 ruptureDetected = true;
-                msgBody = `Wind is intensifying (${current.wind_speed_10m} km/h). Stay safe.`;
+                msgBody = "Wind is intensifying " +
+                  `(${current.wind_speed_10m} km/h). Stay safe.`;
                 forceSend = true;
               }
             } else {
@@ -394,12 +399,15 @@ export const sendHourlyNotifications = onSchedule({
             }
 
             // CHECK LIMITS HERE
-            const hoursSinceLast = (now.getTime() - lastSent.getTime()) / (1000 * 60 * 60);
+            const hoursSinceLast = (now.getTime() - lastSent.getTime()) /
+              (1000 * 60 * 60);
             const withinLimits = (newCount < 2 && hoursSinceLast >= 4);
 
             let finalCanSend = false;
-            // logic: If danger (forceSend), we allow it up to 10 times/day and ignore hoursSinceLast interval
-            // If normal (clouds/sun), we strictly respect withinLimits (2/day, >4h)
+            // logic: If danger (forceSend), we allow it up to 10 times/day
+            // and ignore hoursSinceLast interval
+            // If normal (clouds/sun), we strictly respect withinLimits
+            // (2/day, >4h)
             if (forceSend) {
               if (newCount < 10) finalCanSend = true;
             } else {
@@ -410,8 +418,8 @@ export const sendHourlyNotifications = onSchedule({
             if (ruptureDetected && finalCanSend) {
               messages.push({
                 token: data.token,
-                notification: { title: "Weather Update", body: msgBody },
-                data: { type: "weather_alert" },
+                notification: {title: "Weather Update", body: msgBody},
+                data: {type: "weather_alert"},
                 webpush: {
                   fcm_options: {
                     link: "/?action=contribution",
@@ -450,7 +458,7 @@ export const sendHourlyNotifications = onSchedule({
 
   // Execute updates
   for (const up of updates) {
-    await up.ref.set(up.data, { merge: true });
+    await up.ref.set(up.data, {merge: true});
   }
 
   // Send Messages
@@ -470,7 +478,7 @@ export const sendHourlyNotifications = onSchedule({
 // https://us-central1-wise-weather-app.cloudfunctions.net/triggerTestNotification?type=quote&token=...
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const triggerTestNotification = onRequest(async (req: any, res: any) => {
-  const { type = "quote", token: queryToken } = req.query;
+  const {type = "quote", token: queryToken} = req.query;
   const db = getFirestore();
   const messaging = getMessaging();
 

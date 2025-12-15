@@ -20,7 +20,7 @@ messaging.onBackgroundMessage((payload) => {
 
     const notificationOptions = {
         body: payload.notification.body,
-        icon: '/pwa-192x192.png',
+        icon: '/icon-192.png',
         data: payload.data,
         actions: actions
     };
