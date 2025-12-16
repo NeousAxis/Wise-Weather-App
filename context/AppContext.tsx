@@ -178,7 +178,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         try {
           const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
           const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng });
+          // Inject language state into subscription
+          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng, language: language });
           console.log("Subscribed/Updated notifications on server.");
         } catch (subError) {
           console.error("Subscription Cloud Function Error", subError);
@@ -216,7 +217,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       setNotificationsEnabled(true);
       registerForPushNotifications(location);
     }
-  }, [location]); // Re-run when location is ready to ensure we capture it for weather alerts
+  }, [location, language]); // Re-run when location or language is ready/changed
 
   // 2. Real-time Reports Sync
   useEffect(() => {
@@ -311,8 +312,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           body: payload.notification?.body || "",
           data: payload.data
         });
-        // Auto-dismiss after 6 seconds
-        setTimeout(() => setLastNotification(null), 6000);
+        // Auto-dismiss after 15 seconds (enough to read quotes)
+        setTimeout(() => setLastNotification(null), 15000);
       });
       return () => unsubscribe && unsubscribe(); // unsubscribe might be void or function
     } catch (e) {
@@ -603,6 +604,16 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     else if (count === 3) precisionIncrease = 75;
     else if (count === 4) precisionIncrease = 85;
     else if (count >= 5) precisionIncrease = 100;
+
+    // --- CHECK: BLOCK SELF VALIDATION if reported recently (1h window) ---
+    const nearbyRecentSelfReports = recentNearbyReports.filter(r => r.userId === user?.uid);
+    if (nearbyRecentSelfReports.length > 0) {
+      // User has already reported in this window (1h)
+      // Throw error to be caught by UI
+      // Use localized error key or simple string that UI can handle
+      // We will handle this error specifically in UI.
+      throw new Error("ALREADY_CONTRIBUTED");
+    }
 
     try {
       console.log("Adding report...", conditions, location);

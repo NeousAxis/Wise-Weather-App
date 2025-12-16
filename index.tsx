@@ -883,11 +883,21 @@ const ContributionModal = ({ onClose, initialSelection }: { onClose: () => void,
     if (selected.length === 0) return;
     setIsSubmitting(true);
     // Call API and get calculated gain and rank
-    const result = await addReport(selected);
-    setIsSubmitting(false);
-    setPrecisionGain(result.gain);
-    setContributionRank(result.rank);
-    setShowSuccess(true);
+    try {
+      const result = await addReport(selected);
+      setIsSubmitting(false);
+      setPrecisionGain(result.gain);
+      setContributionRank(result.rank);
+      setShowSuccess(true);
+    } catch (e: any) {
+      setIsSubmitting(false);
+      // Handle Blocking Error
+      if (e.message === "ALREADY_CONTRIBUTED") {
+        alert(t("error.already_contributed") || "You have already contributed to this event. We are waiting for other users to confirm!");
+      } else {
+        alert("Error sending report. Please try again.");
+      }
+    }
   };
 
   const handleFinish = () => {
@@ -1118,16 +1128,87 @@ const App = () => {
       </header>
 
       {/* Notification Banner */}
+      {/* Notification Banner */}
       {lastNotification && (
-        <div className="fixed top-20 left-4 right-4 z-[9999] animate-in slide-in-from-top-4 duration-500 pointer-events-none">
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl p-4 border border-blue-100 flex items-start gap-4 ring-1 ring-black/5 pointer-events-auto">
-            <div className="bg-blue-100 p-2 rounded-full text-blue-600 flex-shrink-0">
-              <Bell size={24} className="animate-pulse" />
+        <div className="fixed top-24 left-4 right-4 z-[9999] animate-in slide-in-from-top-4 duration-500 pointer-events-none flex justify-center">
+          <div
+            onClick={() => setShowContribution(true)}
+            className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl p-5 border border-blue-100 w-full max-w-2xl pointer-events-auto ring-1 ring-black/5 flex flex-col gap-4 cursor-pointer hover:bg-white transition-colors max-h-[70vh] overflow-y-auto"
+          >
+            <div className="flex items-start gap-4">
+              <div className="bg-blue-100 p-2 rounded-full text-blue-600 flex-shrink-0 mt-1">
+                <Bell size={24} className="animate-pulse" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-bold text-gray-900">{lastNotification.title}</h4>
+                <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap leading-snug">
+                  {lastNotification.body}
+                </p>
+              </div>
             </div>
-            <div>
-              <h4 className="font-bold text-gray-900">{lastNotification.title}</h4>
-              <p className="text-sm text-gray-600 leading-snug mt-1">{lastNotification.body}</p>
-            </div>
+
+            {/* Actions for Interactive Notifications */}
+            {lastNotification.data?.type === 'quote' && (
+              <div className="flex gap-3 justify-end mt-2 flex-wrap">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setInitialSelection('Sunny');
+                    setShowContribution(true);
+                  }}
+                  className="text-yellow-600 bg-yellow-50 hover:bg-yellow-100"
+                >
+                  ☀️ {t('weather.sunny')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setInitialSelection('Rain');
+                    setShowContribution(true);
+                  }}
+                  className="text-blue-600 bg-blue-50 hover:bg-blue-100"
+                >
+                  🌧️ {t('weather.rain')}
+                </Button>
+              </div>
+            )}
+
+            {lastNotification.data?.type === 'weather_alert' && (
+              <div className="flex gap-2 justify-end mt-1">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    // For alerts, usually we want users to confirm the condition mentioned.
+                    // But the simplest flow is to open the contribution modal.
+                    setShowContribution(true);
+                  }}
+                >
+                  {t('modal.submit')}
+                </Button>
+              </div>
+            )}
+
+            {/* Verification type */}
+            {lastNotification.data?.type === 'verification' && (
+              <div className="flex gap-2 justify-end mt-1">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    if (lastNotification.data.condition) {
+                      setInitialSelection(lastNotification.data.condition);
+                    }
+                    setShowContribution(true);
+                  }}
+                >
+                  {t('modal.submit')}
+                </Button>
+              </div>
+            )}
+
           </div>
         </div>
       )}

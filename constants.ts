@@ -72,7 +72,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "condition.Rain": "Rain",
     "condition.Storm": "Storm",
     "condition.Snow": "Snow",
-    "condition.Windy": "Windy"
+    "condition.Windy": "Windy",
+    "error.already_contributed": "You have already contributed to this event. We are waiting for other users to confirm!"
   },
   fr: {
     "app.name": "Wise Weather",
@@ -144,6 +145,7 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "condition.Rain": "Pluie",
     "condition.Storm": "Orage",
     "condition.Snow": "Neige",
-    "condition.Windy": "Vent"
+    "condition.Windy": "Vent",
+    "error.already_contributed": "Vous avez déjà contribué à cet événement. Nous attendons la confirmation d'autres utilisateurs !"
   }
 };
