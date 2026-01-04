@@ -211,8 +211,19 @@ const WeatherDashboard = () => {
       {/* Top Header Section */}
       <div className="flex justify-between items-start mb-8">
         <div>
-          <h2 className="text-3xl font-bold text-foreground tracking-tight">{cityName}</h2>
-          <p className="text-gray-500 font-medium mt-1">{t('weather.official_forecast')}</p>
+          {cityName.includes('(') ? (
+            <>
+              <h2 className="text-3xl font-bold text-foreground tracking-tight leading-tight">
+                {cityName.split('(')[0].trim()}
+              </h2>
+              <p className="text-lg text-gray-400 font-medium mt-0.5">
+                {cityName.split('(')[1].replace(')', '').trim()}
+              </p>
+            </>
+          ) : (
+            <h2 className="text-3xl font-bold text-foreground tracking-tight">{cityName}</h2>
+          )}
+          <p className="text-gray-500 font-medium mt-1 text-sm">{t('weather.official_forecast')}</p>
         </div>
         <div className="text-right">
           <div className="flex items-center justify-end gap-3">

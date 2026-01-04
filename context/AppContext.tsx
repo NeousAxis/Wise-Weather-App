@@ -425,19 +425,20 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           .then(data => {
             const addr = data.address || {};
 
-            // 0. DATA NORMALIZATION (Fix for OSM "Province-Cities" like Da Nang)
-            // Some cities are stored as "State" in OSM but act as the "City" level.
+            // 0. DATA NORMALIZATION (Aggressive Fix for Da Nang context)
+            // Search ANYWHERE in the address object for "Da Nang"
+            const fullAddrStr = JSON.stringify(addr).toLowerCase();
             let mainCity = addr.city || addr.town || addr.municipality;
-            const state = addr.state || "";
 
-            // Check specifically for Da Nang or major VN cities if mainCity is empty
-            if (!mainCity && state) {
-              const lowerState = state.toLowerCase();
-              if (lowerState.includes("da nang") || lowerState.includes("đà nẵng") ||
-                lowerState.includes("ha noi") || lowerState.includes("hà nội") ||
-                lowerState.includes("ho chi minh") || lowerState.includes("hồ chí minh")) {
-                mainCity = state; // Promote State to City
-              }
+            // Major City Override
+            // If the address contains Da Nang/Hanoi/HCM anywhere (state, ISO code via fullStr, etc.), force it as Main City.
+            // "vn-dn" is the ISO code for Da Nang.
+            if (fullAddrStr.includes("da nang") || fullAddrStr.includes("đà nẵng") || fullAddrStr.includes("vn-dn")) {
+              mainCity = "Da Nang";
+            } else if (fullAddrStr.includes("ha noi") || fullAddrStr.includes("hà nội") || fullAddrStr.includes("vn-hn")) {
+              mainCity = "Hanoi";
+            } else if (fullAddrStr.includes("ho chi minh") || fullAddrStr.includes("hồ chí minh") || fullAddrStr.includes("vn-sg")) {
+              mainCity = "Ho Chi Minh City";
             }
 
             // GLOBAL NAMING SYSTEM (Universal Hierarchy: Parent > Child)
@@ -451,8 +452,26 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
               // We have a major city/merged-city. Use it as primary.
               finalName = mainCity;
               // If we have a precision (District/Ward) that is different string-wise, append it.
-              if (subArea && !mainCity.toLowerCase().includes(subArea.toLowerCase())) {
-                finalName += ` (${subArea})`;
+              // Logic Update: If mainCity IS the subArea (Nominatim weirdness where city="phường..."), 
+              // we don't want "Da Nang (Da Nang)". 
+              // But here mainCity is forced to "Da Nang". 
+              // The original `city` from JSON was "phường ngũ hành sơn".
+              // So we should check if that original city matches the subArea or if we can extract it.
+
+              // Actually, in the user's case: city="phường ngũ hành sơn". subArea might be undefined in that JSON!
+              // Let's re-read the DEBUG JSON: {"city":"phường ngũ hành sơn", ...} -> subArea is undefined!
+              // So `subArea` variable will be undefined.
+              // IF `subArea` is undefined, we should fallback to checking if `addr.city` looks like a district when we have forced mainCity.
+
+              let effectiveSubArea = subArea;
+              if (!effectiveSubArea && mainCity !== addr.city && addr.city) {
+                // If we forced mainCity (to Da Nang) AND the original 'city' field exists but is different (e.g. "phường..."),
+                // treat the original 'city' field as the sub-area.
+                effectiveSubArea = addr.city;
+              }
+
+              if (effectiveSubArea && !mainCity.toLowerCase().includes(effectiveSubArea.toLowerCase())) {
+                finalName += ` (${effectiveSubArea})`;
               }
             } else {
               // Rural: Fallback to SubArea or State if nothing else
