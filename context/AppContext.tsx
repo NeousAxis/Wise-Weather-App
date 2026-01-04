@@ -425,9 +425,22 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           .then(data => {
             const addr = data.address || {};
 
-            // GLOBAL NAMING SYSTEM (Universal)
-            // 1. "Macro" Entity (The City/Metropolis)
-            const mainCity = addr.city || addr.town || addr.municipality;
+            // 0. DATA NORMALIZATION (Fix for OSM "Province-Cities" like Da Nang)
+            // Some cities are stored as "State" in OSM but act as the "City" level.
+            let mainCity = addr.city || addr.town || addr.municipality;
+            const state = addr.state || "";
+
+            // Check specifically for Da Nang or major VN cities if mainCity is empty
+            if (!mainCity && state) {
+              const lowerState = state.toLowerCase();
+              if (lowerState.includes("da nang") || lowerState.includes("đà nẵng") ||
+                lowerState.includes("ha noi") || lowerState.includes("hà nội") ||
+                lowerState.includes("ho chi minh") || lowerState.includes("hồ chí minh")) {
+                mainCity = state; // Promote State to City
+              }
+            }
+
+            // GLOBAL NAMING SYSTEM (Universal Hierarchy: Parent > Child)
 
             // 2. "Micro" Entity (The District/Suburb/Village)
             const subArea = addr.suburb || addr.quarter || addr.neighbourhood || addr.district || addr.hamlet || addr.village;
@@ -435,14 +448,14 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
             let finalName = "";
 
             if (mainCity) {
-              // We have a major city. Use it as primary.
+              // We have a major city/merged-city. Use it as primary.
               finalName = mainCity;
-              // If we have a precision (District/Ward) that is different, append it.
+              // If we have a precision (District/Ward) that is different string-wise, append it.
               if (subArea && !mainCity.toLowerCase().includes(subArea.toLowerCase())) {
                 finalName += ` (${subArea})`;
               }
             } else {
-              // Rural area or Data missing: Use the smallest available entity or State
+              // Rural: Fallback to SubArea or State if nothing else
               finalName = subArea || addr.state || "Unknown Location";
             }
 
