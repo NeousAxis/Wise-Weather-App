@@ -394,7 +394,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           { en: { text: "Difficulties strengthen the mind, as labor does the body.", author: "Seneca" }, fr: { text: "Les difficultés renforcent l'esprit, comme le travail renforce le corps.", author: "Sénèque" } },
           { en: { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" }, fr: { text: "La seule façon de faire du bon travail est d'aimer ce que vous faites.", author: "Steve Jobs" } },
           { en: { text: "Happiness depends upon ourselves.", author: "Aristotle" }, fr: { text: "Le bonheur dépend de nous-mêmes.", author: "Aristote" } },
-          { en: { text: "Turn your wounds into wisdom.", author: "Oprah Winfrey" }, fr: { text: "Transformez vos blessures en sagesse.", author: "Oprah Winfrey" } }
+          { en: { text: "The happiness of your life depends upon the quality of your thoughts.", author: "Marcus Aurelius" }, fr: { text: "Le bonheur de votre vie dépend de la qualité de vos pensées.", author: "Marc Aurèle" } }
         ];
         const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
         const fallbackQuote = fallbackQuotes[dayOfYear % fallbackQuotes.length];

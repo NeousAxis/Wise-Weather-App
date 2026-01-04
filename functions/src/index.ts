@@ -178,12 +178,13 @@ async function getOrGenerateQuote(
     },
     {
       en: {
-        text: "Turn your wounds into wisdom.",
-        author: "Oprah Winfrey",
+        text: "The happiness of your life depends upon the quality of " +
+          "your thoughts.",
+        author: "Marcus Aurelius",
       },
       fr: {
-        text: "Transformez vos blessures en sagesse.",
-        author: "Oprah Winfrey",
+        text: "Le bonheur de votre vie dépend de la qualité de vos pensées.",
+        author: "Marc Aurèle",
       },
     },
   ];
