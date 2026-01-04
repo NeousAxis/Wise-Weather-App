@@ -51,13 +51,17 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
     "René Descartes", "Socrates", "Plato", "Aristotle",
   ];
 
-  const prompt = "Generate a SINGLE, SHORT inspiring quote (MAX 25 WORDS) " +
+  const today = new Date().toDateString();
+  const prompt = `Context: Today is ${today}. ` +
+    "Generate a SINGLE, SHORT inspiring quote (MAX 25 WORDS) " +
     `based on the theme: "${theme}". ` +
     "CRITICAL INSTRUCTIONS:\n" +
     `1. The 'author' MUST be one of these: ${authors.join(", ")}.\n` +
-    "2. Provide the quote in both English ('en') and French ('fr').\n" +
-    "3. Return ONLY valid JSON. No markdown, no backticks.\n" +
-    "4. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
+    "2. Prioritize variety. Mix well-known quotes with deeper, " +
+    "lesser-known ones to keep it fresh.\n" +
+    "3. Provide the quote in both English ('en') and French ('fr').\n" +
+    "4. Return ONLY valid JSON. No markdown, no backticks.\n" +
+    "5. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
     "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
 
   if (!apiKey) {

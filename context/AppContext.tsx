@@ -424,11 +424,26 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           .then(res => res.json())
           .then(data => {
             const addr = data.address || {};
-            // Standard Global Logic: City -> Town -> Village -> State
-            let finalName = addr.city || addr.town || addr.village;
 
-            if (!finalName) {
-              finalName = addr.state || "Unknown Location";
+            // GLOBAL NAMING SYSTEM (Universal)
+            // 1. "Macro" Entity (The City/Metropolis)
+            const mainCity = addr.city || addr.town || addr.municipality;
+
+            // 2. "Micro" Entity (The District/Suburb/Village)
+            const subArea = addr.suburb || addr.quarter || addr.neighbourhood || addr.district || addr.hamlet || addr.village;
+
+            let finalName = "";
+
+            if (mainCity) {
+              // We have a major city. Use it as primary.
+              finalName = mainCity;
+              // If we have a precision (District/Ward) that is different, append it.
+              if (subArea && !mainCity.toLowerCase().includes(subArea.toLowerCase())) {
+                finalName += ` (${subArea})`;
+              }
+            } else {
+              // Rural area or Data missing: Use the smallest available entity or State
+              finalName = subArea || addr.state || "Unknown Location";
             }
 
             const ctry = addr.country;
