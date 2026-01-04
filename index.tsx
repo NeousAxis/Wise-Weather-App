@@ -129,14 +129,12 @@ const QuoteBlock = () => {
   const text = quoteData?.text || (language === 'fr' ? "L'avenir appartient à ceux qui croient à la beauté de leurs rêves." : "The future belongs to those who believe in the beauty of their dreams.");
   const author = quoteData?.author || "Eleanor Roosevelt";
 
-  // Debug Alert for User if generation failed
-  React.useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((dailyQuote as any).error_debug) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      alert("DEBUG: Quote Generation Failed!\n" + (dailyQuote as any).error_debug);
-    }
-  }, [dailyQuote]);
+  // Debug Alert removed for production seamlessness
+  // React.useEffect(() => {
+  //   if ((dailyQuote as any).error_debug) {
+  //      console.warn("Quote generation fallback active:", (dailyQuote as any).error_debug);
+  //   }
+  // }, [dailyQuote]);
 
   return (
     <Card className="mx-4 mt-4 mb-6 p-6 bg-gradient-to-br from-white to-blue-50">

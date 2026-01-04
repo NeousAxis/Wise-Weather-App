@@ -179,7 +179,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
           const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           // Inject language state into subscription
-          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng, language: language });
+          const userId = auth.currentUser?.uid || null;
+          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng, language: language, userId });
           console.log("Subscribed/Updated notifications on server.");
         } catch (subError) {
           console.error("Subscription Cloud Function Error", subError);
@@ -202,7 +203,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           // Register just for quotes
           const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
           const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          await subscribeFn({ token, timezone: timeZone });
+          const userId = auth.currentUser?.uid || null;
+          await subscribeFn({ token, timezone: timeZone, userId });
         }
       }
     } catch (error) {
@@ -386,14 +388,20 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         // Alert the user about the CLIENT-SIDE error (Network, CORS, etc.)
         alert("DEBUG: Client-Side Fetch Error!\n" + e.message);
 
-        // Fallback
-        const fallbackQuote = {
-          en: { text: "Difficulties strengthen the mind, as labor does the body.", author: "Seneca" },
-          fr: { text: "Les difficultés renforcent l'esprit, comme le travail renforce le corps.", author: "Sénèque" }
-        };
+        // Rotating Client-Side Fallback
+        const fallbackQuotes = [
+          { en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" }, fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" } },
+          { en: { text: "Difficulties strengthen the mind, as labor does the body.", author: "Seneca" }, fr: { text: "Les difficultés renforcent l'esprit, comme le travail renforce le corps.", author: "Sénèque" } },
+          { en: { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" }, fr: { text: "La seule façon de faire du bon travail est d'aimer ce que vous faites.", author: "Steve Jobs" } },
+          { en: { text: "Happiness depends upon ourselves.", author: "Aristotle" }, fr: { text: "Le bonheur dépend de nous-mêmes.", author: "Aristote" } },
+          { en: { text: "Turn your wounds into wisdom.", author: "Oprah Winfrey" }, fr: { text: "Transformez vos blessures en sagesse.", author: "Oprah Winfrey" } }
+        ];
+        const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
+        const fallbackQuote = fallbackQuotes[dayOfYear % fallbackQuotes.length];
+
         setDailyQuote(fallbackQuote);
 
-        // Cache fallback to prevent rapid flickering on error
+        // Cache fallback
         localStorage.setItem('wise_weather_quote_v3', JSON.stringify({
           slotKey: slotKey,
           quote: fallbackQuote
@@ -410,15 +418,24 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     if (source === 'gps') {
       setUserPosition({ lat, lng });
       if (!name) {
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+        // Dynamic fetch with language preference
+        const langParam = language === 'fr' ? 'fr' : 'en';
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=${langParam}`)
           .then(res => res.json())
           .then(data => {
-            const city = data.address.city || data.address.town || data.address.village || "Unknown Location";
-            const ctry = data.address.country;
-            setCityName(city);
+            const addr = data.address || {};
+            // Standard Global Logic: City -> Town -> Village -> State
+            let finalName = addr.city || addr.town || addr.village;
+
+            if (!finalName) {
+              finalName = addr.state || "Unknown Location";
+            }
+
+            const ctry = addr.country;
+
+            setCityName(finalName);
             if (ctry) {
               setCurrentCountry(ctry);
-              // fetchMajorCitiesForCountry(ctry); // Optional optimization
             }
           });
       } else if (country) {
@@ -578,18 +595,19 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
     // Calculate Precision Gain Logic
     // Calculate Rank (1st, 2nd, etc. for this hour/location)
-    // "Redémarre à chaque heure" -> Align with clock hour
+    // Calculate Rank (1st, 2nd, etc. for this active event window)
     const now = new Date();
-    const currentHour = now.getHours();
-    const currentDateStr = now.toDateString();
+
+    // Sliding window: Look at reports in the last 60 minutes
+    const ONE_HOUR = 60 * 60 * 1000;
 
     const recentNearbyReports = communityReports.filter(r => {
-      const rDate = new Date(r.timestamp);
-      const isSameHour = rDate.getHours() === currentHour && rDate.toDateString() === currentDateStr;
+      const timeDiff = now.getTime() - r.timestamp;
       const isNearby = Math.abs(r.lat - location.lat) < 0.1 && Math.abs(r.lng - location.lng) < 0.1;
-      return isNearby && isSameHour;
+      return isNearby && timeDiff < ONE_HOUR;
     });
-    // Rank is existing + 1 (since we are about to add ours)
+
+    // Rank is existing + 1
     const rank = recentNearbyReports.length + 1;
 
     // Fixed Progression Calculation (User Contribution Count)
@@ -605,13 +623,25 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     else if (count === 4) precisionIncrease = 85;
     else if (count >= 5) precisionIncrease = 100;
 
-    // --- CHECK: BLOCK SELF VALIDATION if reported recently (1h window) ---
-    const nearbyRecentSelfReports = recentNearbyReports.filter(r => r.userId === user?.uid);
-    if (nearbyRecentSelfReports.length > 0) {
-      // User has already reported in this window (1h)
-      // Throw error to be caught by UI
-      // Use localized error key or simple string that UI can handle
-      // We will handle this error specifically in UI.
+    // --- SMART BLOCKING LOGIC ---
+    // Rule: You can report AGAIN immediately if the condition changes.
+    // You are only blocked if you report the SAME condition within 10 minutes.
+
+    const TEN_MINUTES = 10 * 60 * 1000;
+    const myRecentReports = recentNearbyReports.filter(r =>
+      r.userId === (user?.uid || 'anonymous') &&
+      (now.getTime() - r.timestamp) < TEN_MINUTES
+    );
+
+    const isSpamming = myRecentReports.some(r => {
+      const rConds = r.conditions || [];
+      // Check if conditions are identical
+      if (rConds.length !== conditions.length) return false;
+      return rConds.every(c => conditions.includes(c));
+    });
+
+    if (isSpamming) {
+      // User is spamming the same condition
       throw new Error("ALREADY_CONTRIBUTED");
     }
 
