@@ -740,13 +740,46 @@ const MapPage = () => {
 
     } else {
       // Community View
-      communityReports.forEach(report => {
-        // FILTER: Only show reports from last 1 HOUR on the map
-        // (The context now provides 6 hours for the table)
-        const age = Date.now() - report.timestamp;
-        const ONE_HOUR = 60 * 60 * 1000;
-        if (age > ONE_HOUR) return;
 
+      // ALGORITHME "WAZE-LIKE" (Vérité Terrain)
+      // 1. Trier par le plus récent (priorité absolue)
+      const sortedReports = [...communityReports]
+        .filter(r => (Date.now() - r.timestamp) < (6 * 60 * 60 * 1000)) // Garder 6h max comme la liste
+        .sort((a, b) => b.timestamp - a.timestamp);
+
+      const consolidatedReports: typeof sortedReports & { count?: number }[] = [];
+      const MERGE_RADIUS_KM = 0.15; // 150 mètres
+
+      // Fonction distance (Haversine)
+      const getDistKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        const R = 6371; // Rayon Terre km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      };
+
+      // 2. Consolidation
+      sortedReports.forEach(report => {
+        // Chercher un "Leader" existant dans la zone
+        const leader = consolidatedReports.find(l => getDistKm(l.lat, l.lng, report.lat, report.lng) < MERGE_RADIUS_KM);
+
+        if (leader) {
+          // Si trouvé, c'est une "confirmation" (ou une vieille info écrasée par le leader)
+          // On incrémente juste le compteur du leader
+          leader.count = (leader.count || 1) + 1;
+        } else {
+          // Sinon, c'est un nouveau point d'intérêt (le plus récent de sa zone)
+          consolidatedReports.push({ ...report, count: 1 });
+        }
+      });
+
+      // 3. Affichage des Leaders uniquement
+      consolidatedReports.forEach(report => {
         let iconsHtml = '';
 
         report.conditions.forEach(cond => {
@@ -768,16 +801,22 @@ const MapPage = () => {
         });
 
         const tempDisplay = report.temp ? `${convertTemp(report.temp, unit)}°` : '';
+        const countBadge = (report.count && report.count > 1)
+          ? `<div class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white shadow-sm z-50">${report.count}</div>`
+          : '';
 
         // Requirement: Violet Pill (bg-violet-400), No Border, White Temp Text
         const el = L.divIcon({
-          className: 'bg-transparent',
+          className: 'bg-transparent overflow-visible', // overflow-visible pour le badge
           html: `
-            <div class="bg-violet-400 rounded-full shadow-md px-3 py-1.5 h-10 flex items-center justify-center gap-2 transform hover:scale-110 transition-transform whitespace-nowrap">
-              <div class="flex gap-1 items-center">
-                ${iconsHtml}
+            <div class="relative">
+              <div class="bg-violet-400 rounded-full shadow-md px-3 py-1.5 h-10 flex items-center justify-center gap-2 transform hover:scale-110 transition-transform whitespace-nowrap">
+                <div class="flex gap-1 items-center">
+                  ${iconsHtml}
+                </div>
+                ${tempDisplay ? `<span class="font-bold text-white text-xs">${tempDisplay}</span>` : ''}
               </div>
-              ${tempDisplay ? `<span class="font-bold text-white text-xs">${tempDisplay}</span>` : ''}
+              ${countBadge}
             </div>
           `,
           iconSize: [Math.max(50, 30 + (report.conditions.length * 22) + (tempDisplay ? 25 : 0)), 40],
