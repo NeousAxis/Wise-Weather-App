@@ -445,7 +445,10 @@ export const sendHourlyNotifications = onSchedule({
             `${data.lat}&longitude=${data.lng}` +
             "&current=weather_code,temperature_2m," +
             "wind_speed_10m,wind_gusts_10m,precipitation" +
-            "&minutely_15=weather_code";
+            "&minutely_15=weather_code" +
+            "&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04," +
+            "gfs_seamless,jma_seamless,gem_seamless,icon_seamless," +
+            "cma_grapes_global,bom_access_global";
 
           console.log(`[WEATHER CHECK] Fetching: ${wUrl}`);
           const weatherRes = await fetch(wUrl, { signal: controller.signal });
