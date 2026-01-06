@@ -396,13 +396,38 @@ export const sendHourlyNotifications = onSchedule({
       // Always allowing check, but limiting sends via logic below
       const canSend = true;
 
-      const lastSent = data.lastWeatherNotif ?
-        new Date(data.lastWeatherNotif) : new Date(0);
+      // CRITICAL FIX: Normalize lastWeatherNotif to Date
+      // Firestore stores dates as Timestamps with toDate() method
+      let lastSent: Date | null = null;
+
+      try {
+        if (data.lastWeatherNotif) {
+          // Firestore Timestamp has toDate() method
+          if (typeof data.lastWeatherNotif.toDate === "function") {
+            lastSent = data.lastWeatherNotif.toDate();
+          } else {
+            // Fallback for legacy formats
+            const attemptedDate = new Date(data.lastWeatherNotif);
+            if (!isNaN(attemptedDate.getTime())) {
+              lastSent = attemptedDate;
+            }
+          }
+        }
+      } catch (e) {
+        // If conversion fails, treat as null (first time)
+        console.log(`[WEATHER CHECK] Failed to parse lastWeatherNotif:`, e);
+        lastSent = null;
+      }
+
       const sentTodayCount = data.weatherNotifCountToday || 0;
-      const lastSentDay = lastSent.toLocaleDateString(
-        "en-US",
-        { timeZone: tz },
-      );
+
+      let lastSentDay = "";
+      if (lastSent) {
+        lastSentDay = lastSent.toLocaleDateString(
+          "en-US",
+          { timeZone: tz },
+        );
+      }
 
       // Reset counter if new day
       const newCount = (lastSentDay !== currentLocalDay) ? 0 : sentTodayCount;
@@ -410,6 +435,9 @@ export const sendHourlyNotifications = onSchedule({
       if (canSend) {
         // Fetch Weather
         try {
+          console.log(`[WEATHER CHECK] User token: ${data.token.substring(0, 20)}...`);
+          console.log(`[WEATHER CHECK] Location: ${data.lat}, ${data.lng}`);
+
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
           // 5 second timeout
@@ -419,6 +447,7 @@ export const sendHourlyNotifications = onSchedule({
             "wind_speed_10m,wind_gusts_10m,precipitation" +
             "&minutely_15=weather_code";
 
+          console.log(`[WEATHER CHECK] Fetching: ${wUrl}`);
           const weatherRes = await fetch(wUrl, { signal: controller.signal });
           clearTimeout(timeoutId);
           const wData: {
@@ -436,8 +465,13 @@ export const sendHourlyNotifications = onSchedule({
           const current = wData.current;
           const minutely15 = wData.minutely_15;
 
+          console.log(`[WEATHER CHECK] Current weather:`, JSON.stringify(current));
+          console.log(`[WEATHER CHECK] Minutely15 available: ${!!minutely15}`);
+
           if (current) {
             const lastState = data.lastWeatherState;
+            console.log(`[WEATHER CHECK] Last state:`, JSON.stringify(lastState));
+
             let ruptureDetected = false;
             let msgBody = "";
             let msgTitle = ""; // Dynamic title
@@ -616,9 +650,17 @@ export const sendHourlyNotifications = onSchedule({
             }
 
             // CHECK LIMITS
-            const hoursSinceLast = (now.getTime() - lastSent.getTime()) /
-              (1000 * 60 * 60);
+            // CRITICAL FIX: Handle null lastSent (new users)
+            const hoursSinceLast = lastSent ?
+              (now.getTime() - lastSent.getTime()) / (1000 * 60 * 60) :
+              Infinity; // First time = always allow
             const withinLimits = (newCount < 2 && hoursSinceLast >= 4);
+
+            console.log(`[ALERT CHECK] Rupture detected: ${ruptureDetected}`);
+            console.log(`[ALERT CHECK] Force send: ${forceSend}`);
+            console.log(`[ALERT CHECK] New count today: ${newCount}`);
+            console.log(`[ALERT CHECK] Hours since last: ${hoursSinceLast.toFixed(2)}`);
+            console.log(`[ALERT CHECK] Within limits: ${withinLimits}`);
 
             let finalCanSend = false;
             // logic: If danger (forceSend), we allow it up to 10 times/day
@@ -630,8 +672,13 @@ export const sendHourlyNotifications = onSchedule({
               if (withinLimits) finalCanSend = true;
             }
 
+            console.log(`[ALERT CHECK] Final can send: ${finalCanSend}`);
+            console.log(`[ALERT CHECK] Message title: ${msgTitle}`);
+            console.log(`[ALERT CHECK] Message body: ${msgBody}`);
+
             // Only proceed if rupture AND allowed
             if (ruptureDetected && finalCanSend) {
+              console.log(`[ALERT SEND] ✅ SENDING ALERT to ${data.token.substring(0, 20)}...`);
               // If not set by loop
               if (!msgTitle) {
                 const title = lang === "fr" ? "Point Météo" : "Weather Update";
