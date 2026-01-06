@@ -1121,22 +1121,39 @@ const App = () => {
 
   // Handle Notification Clicks & Auto-Open
   useEffect(() => {
-    // Check if opened via Notification Click
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('action') === 'contribution') {
-      const select = params.get('select');
-      if (select) setInitialSelection(select);
+    const handleUrlParams = () => {
+      const params = new URLSearchParams(window.location.search);
+      // Check for 'contribution' action
+      if (params.get('action') === 'contribution') {
+        const select = params.get('select');
+        if (select) setInitialSelection(select);
 
-      setShowContribution(true);
-      // Clean URL
-      window.history.replaceState({}, '', window.location.pathname);
-    } else {
-      // Regular open: Small delay for better UX
-      const timer = setTimeout(() => {
         setShowContribution(true);
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
+        // Clean URL to prevent loop
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    };
+
+    // 1. Check on Mount
+    handleUrlParams();
+
+    // 2. Check when App comes to Foreground (for background instances)
+    const handleFocus = () => {
+      // Small delay to ensure URL is updated by browser navigation
+      setTimeout(handleUrlParams, 500);
+    };
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        handleFocus();
+      }
+    });
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('visibilitychange', handleFocus);
+    };
   }, []);
 
   return (
