@@ -1,13 +1,13 @@
 {
   "name": "wise-weather-app",
-  "version": "2.2.11",
+  "version": "2.2.12",
   "type": "module",
   "scripts": {
     "dev": "vite --port 3000",
     "build": "vite build",
     "preview": "vite preview",
     "deploy:staging": "npm run build && firebase hosting:channel:deploy staging --expires 30d",
-    "deploy:prod": "npm run build && firebase deploy --only hosting:production",
+    "deploy:prod": "npm run build && firebase deploy --only hosting",
     "deploy:functions:staging": "firebase deploy --only functions --project wise-weather-app",
     "deploy:functions:prod": "firebase deploy --only functions --project wise-weather-app",
     "test:staging": "echo 'Testing staging environment...' && open https://wise-weather-app--staging-CHANNEL_ID.web.app"
