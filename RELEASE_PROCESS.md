@@ -39,3 +39,4 @@ This document explains the steps to properly version, tag, and release the appli
 ## Verification
 - Go to the GitHub repository homepage.
 - You should see **Golden Master V2.1.9** with the green "Latest" label on the right sidebar.
+
