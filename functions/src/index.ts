@@ -1,10 +1,10 @@
-import {onCall, onRequest} from "firebase-functions/v2/https";
-import {onDocumentCreated} from "firebase-functions/v2/firestore";
-import {onSchedule} from "firebase-functions/v2/scheduler";
-import {initializeApp} from "firebase-admin/app";
-import {getFirestore} from "firebase-admin/firestore";
-import {getMessaging} from "firebase-admin/messaging";
-import {defineSecret} from "firebase-functions/params";
+import { onCall, onRequest } from "firebase-functions/v2/https";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
+import { defineSecret } from "firebase-functions/params";
 import OpenAI from "openai";
 
 initializeApp();
@@ -76,7 +76,7 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
   try {
     const chatResponse = await client.chat.completions.create({
       model: "google/gemini-2.0-flash-exp:free",
-      messages: [{role: "user", content: prompt}],
+      messages: [{ role: "user", content: prompt }],
     });
 
     const content = chatResponse.choices[0]?.message?.content;
@@ -133,7 +133,6 @@ async function getOrGenerateQuote(
     (global as any).lastQuoteError = e; // Hack to pass error to return
   }
 
-  // Fallback if generation fails
   // Fallback if generation fails
   const fallbackQuotes = [
     {
@@ -206,7 +205,7 @@ async function getOrGenerateQuote(
 }
 
 // Public Callable for Frontend (Updated for shared daily logic)
-export const generateQuote = onCall({secrets: [openRouterApiKey]},
+export const generateQuote = onCall({ secrets: [openRouterApiKey] },
   async () => {
     try {
       // Determine Slot based on UTC
@@ -224,7 +223,7 @@ export const generateQuote = onCall({secrets: [openRouterApiKey]},
         openRouterApiKey.value()
       );
 
-      return {success: true, data: data};
+      return { success: true, data: data };
     } catch (error) {
       console.error("Error generating quote:", error);
       // Return fallback directly in worst case
@@ -249,8 +248,8 @@ export const generateQuote = onCall({secrets: [openRouterApiKey]},
 
 // Subscribe with Token & Location
 export const subscribeToNotifications = onCall(async (request) => {
-  const {token, timezone, lat, lng} = request.data;
-  if (!token) return {success: false, error: "No token"};
+  const { token, timezone, lat, lng } = request.data;
+  if (!token) return { success: false, error: "No token" };
 
   const db = getFirestore();
   await db.collection("push_tokens").doc(token).set({
@@ -265,14 +264,15 @@ export const subscribeToNotifications = onCall(async (request) => {
     lastWeatherNotif: 0,
     weatherNotifCountToday: 0,
     lastWeatherState: null,
-  }, {merge: true});
+    lastQuoteDate: "", // Track daily quote sent date
+  }, { merge: true });
 
-  return {success: true};
+  return { success: true };
 });
 
 // Hourly Cron for Smart Notifications
 export const sendHourlyNotifications = onSchedule({
-  schedule: "every 1 hours",
+  schedule: "every 15 minutes",
   timeoutSeconds: 540,
   secrets: [openRouterApiKey],
 }, async () => {
@@ -325,11 +325,20 @@ export const sendHourlyNotifications = onSchedule({
     const tz = data.timezone || "UTC";
 
     // Local Time
-    const localDate = new Date(now.toLocaleString("en-US", {timeZone: tz}));
+    const localDate = new Date(now.toLocaleString("en-US", { timeZone: tz }));
     const localHour = localDate.getHours();
 
-    // --- 1. MORNING QUOTE (07:00) ---
-    if (localHour === 7) {
+    // Use local date string (M/D/YYYY) as unique key for "Today"
+    const currentLocalDay = localDate.toLocaleDateString(
+      "en-US",
+      { timeZone: tz }
+    );
+
+    // --- 1. MORNING QUOTE (07:00+) ---
+    // Robust Logic: Send if > 7am AND not sent yet today.
+    const lastQuoteDay = data.lastQuoteDate || "";
+
+    if (localHour >= 7 && lastQuoteDay !== currentLocalDay) {
       if (globalQuote) {
         // Localized Quote
         const lang = data.language || "en";
@@ -338,9 +347,6 @@ export const sendHourlyNotifications = onSchedule({
           "Inspiration Quotidienne" :
           "Daily Inspiration";
 
-        // Also translate actions?
-        // Actions titles are hardcoded in "webpush" below.
-        // We should translate them too.
         const titleSun = lang === "fr" ? "☀️ Soleil" : "☀️ Sun";
         const titleRain = lang === "fr" ? "🌧️ Pluie" : "🌧️ Rain";
 
@@ -358,8 +364,8 @@ export const sendHourlyNotifications = onSchedule({
           webpush: {
             notification: {
               actions: [
-                {action: "report_sun", title: titleSun},
-                {action: "report_rain", title: titleRain},
+                { action: "report_sun", title: titleSun },
+                { action: "report_rain", title: titleRain },
               ],
             },
             fcm_options: {
@@ -367,41 +373,35 @@ export const sendHourlyNotifications = onSchedule({
             },
           },
         });
+
+        // Mark as sent for today
+        updates.push({
+          ref: doc.ref,
+          data: {
+            lastQuoteDate: currentLocalDay,
+          },
+        });
       }
     }
 
-    // --- 2. CONTEXTUAL WEATHER NOTIFICATIONS ---
-    // Rules:
-    // - Window 1: 07:15 - 14:00 (Max 1)
-    // - Window 2: 14:00 - 23:00 (Max 1)
-    // - Night: 23:00 - 07:15 (0)
+    // --- 2. CONTEXTUAL WEATHER NOTIFICATIONS (24/7) ---
+    // Removed Time Windows logic to support 24/7 alerts for dangerous weather.
 
     // Check if user has location
     if (data.lat && data.lng) {
-      const isWindow1 = localHour >= 7 && localHour < 14;
-      const isWindow2 = localHour >= 14 && localHour < 23;
+      // Always allowing check, but limiting sends via logic below
+      const canSend = true;
 
-      let canSend = false;
       const lastSent = data.lastWeatherNotif ?
         new Date(data.lastWeatherNotif) : new Date(0);
       const sentTodayCount = data.weatherNotifCountToday || 0;
       const lastSentDay = lastSent.toLocaleDateString(
         "en-US",
-        {timeZone: tz},
-      );
-      const currentDay = localDate.toLocaleDateString(
-        "en-US",
-        {timeZone: tz},
+        { timeZone: tz },
       );
 
       // Reset counter if new day
-      const newCount = (lastSentDay !== currentDay) ? 0 : sentTodayCount;
-
-      if (isWindow1 || isWindow2) {
-        // ALWAYS fetch weather to check for danger (Force Mode support)
-        // We will filter sending later based on limits vs danger level.
-        canSend = true;
-      }
+      const newCount = (lastSentDay !== currentLocalDay) ? 0 : sentTodayCount;
 
       if (canSend) {
         // Fetch Weather
@@ -412,10 +412,10 @@ export const sendHourlyNotifications = onSchedule({
           const wUrl = "https://api.open-meteo.com/v1/forecast?latitude=" +
             `${data.lat}&longitude=${data.lng}` +
             "&current=weather_code,temperature_2m," +
-            "wind_speed_10m,wind_gusts_10m" +
+            "wind_speed_10m,wind_gusts_10m,precipitation" +
             "&minutely_15=weather_code";
 
-          const weatherRes = await fetch(wUrl, {signal: controller.signal});
+          const weatherRes = await fetch(wUrl, { signal: controller.signal });
           clearTimeout(timeoutId);
           const wData: {
             current?: {
@@ -423,6 +423,7 @@ export const sendHourlyNotifications = onSchedule({
               temperature_2m: number;
               wind_speed_10m: number;
               wind_gusts_10m?: number;
+              precipitation?: number;
             };
             minutely_15?: {
               weather_code: number[];
@@ -444,14 +445,13 @@ export const sendHourlyNotifications = onSchedule({
               minutely15,
               current.weather_code
             );
+            const lang = data.language || "en";
 
             if (forecast) {
               // FORECAST FOUND!
               isForecastAlert = true;
               ruptureDetected = true;
               forceSend = true; // Always warn about coming rain
-
-              const lang = data.language || "en";
 
               // "Rain arriving in ~30 min"
               if (lang === "fr") {
@@ -463,97 +463,128 @@ export const sendHourlyNotifications = onSchedule({
                 msgBody = `Rain expected in ~${forecast.start} min ` +
                   `(duration: ${forecast.duration} min).`;
               }
-            } else if (lastState) {
-              // ... Proceed to REACTIVE check (Existing Logic) ...
-              // RUPTURE LOGIC
-              const oldCode = lastState.code;
-              const newCode = current.weather_code;
-              const lang = data.language || "en";
+            }
 
-              // 1. Sun (0,1) -> Cloud/Gloomy (3, 45)
-              if ((oldCode <= 1) && (newCode >= 3 && newCode <= 48)) {
-                ruptureDetected = true;
-                msgTitle = lang === "fr" ? "Point Météo" : "Weather Update";
-                msgBody = lang === "fr" ?
-                  "Les nuages arrivent. Vous confirmez ?" :
-                  "Clouds are rolling in. Do you confirm?";
-              } else if ((oldCode < 51) && (newCode >= 51)) {
-                // 2. Dry -> Any Rain/Snow/Storm (51+)
-                ruptureDetected = true;
-                msgTitle = lang === "fr" ? "🌧️ Alerte Pluie" : "🌧️ Rain Alert";
-                msgBody = lang === "fr" ?
-                  "Pluie détectée à proximité. Il pleut chez vous ?" :
-                  "Rain detected nearby. Is it raining for you?";
-                forceSend = true;
-              } else if ((oldCode >= 51 && oldCode <= 67) && (newCode >= 80)) {
-                // 3. Light Rain -> Heavy (80+)
-                ruptureDetected = true;
-                msgTitle = lang === "fr" ? "🌧️ Alerte Averse" : "🌧️ Heavy Rain";
-                msgBody = lang === "fr" ?
-                  "Fortes averses détectées. Vous confirmez ?" :
-                  "Heavy pours detected. Confirm?";
-                forceSend = true;
-              } else if (oldCode !== 45 && oldCode !== 48 &&
-                (newCode === 45 || newCode === 48)) {
-                // 4. Fog (45, 48)
-                ruptureDetected = true;
-                msgTitle = lang === "fr" ? "🌫️ Météo" : "🌫️ Weather";
-                msgBody = lang === "fr" ?
-                  "Brouillard détecté. Visibilité réduite ?" :
-                  "Fog detected. Is visibility low?";
-              } else if ((oldCode >= 51) && (newCode <= 2)) {
-                // 5. Sun Return (Rain -> Sun)
-                ruptureDetected = true;
-                msgTitle = lang === "fr" ? "☀️ Soleil" : "☀️ Sun";
-                msgBody = lang === "fr" ?
-                  "Le soleil est de retour ! Vous le voyez ?" :
-                  "The sun is back! Do you see it?";
-              } else if (current.wind_speed_10m > 40 &&
-                (!lastState.wind || lastState.wind < 30)) {
-                // 6. Strong Wind (Average)
-                ruptureDetected = true;
-                msgTitle = lang === "fr" ? "🌬️ Vent Fort" : "🌬️ Windy";
-                msgBody = lang === "fr" ?
-                  "Vents forts détectés. Vous confirmez ?" :
-                  "Strong winds detected. Confirm?";
-                forceSend = true;
-              } else if (current.wind_gusts_10m &&
-                current.wind_gusts_10m > 60 &&
-                (!lastState.gusts || lastState.gusts < 45)) {
-                // 7. Strong Gusts (>60km/h)
-                ruptureDetected = true;
-                msgTitle = lang === "fr" ? "🌬️ Rafales" : "🌬️ Gusts";
-                msgBody = lang === "fr" ?
-                  "Rafales puissantes détectées ! Soyez prudent." :
-                  "Strong gusts detected! Be careful.";
-                forceSend = true;
-              } else if (lastState.wind &&
-                current.wind_speed_10m > (lastState.wind + 15)) {
-                // 8. Wind Intensification (> +15km/h increase)
-                ruptureDetected = true;
-                msgTitle = lang === "fr" ? "⚠️ Danger Vent" : "⚠️ Wind Warning";
-                msgBody = lang === "fr" ?
-                  `Le vent se renforce (${current.wind_speed_10m} km/h). ` +
-                  "Mettez-vous à l'abri." :
-                  `Wind is intensifying (${current.wind_speed_10m} km/h). ` +
-                  "Stay safe.";
-                forceSend = true;
-              }
-            } else {
-              // First run: If it's already raining/storming, ASK!
-              const newCode = current.weather_code;
-              const lang = data.language || "en";
+            // 1. IMMEDIATE DANGER CHECK (New Users / First Check)
+            // CRITICAL FIX: Detect dangerous conditions IMMEDIATELY,
+            // even without lastState. This ensures users get alerts
+            // when subscribing during ongoing bad weather
+            const isRaining = (current.precipitation &&
+              current.precipitation >= 0.1);
+            const isStormy = [95, 96, 99].includes(current.weather_code);
+            const isWindy = (current.wind_speed_10m > 70 ||
+              (current.wind_gusts_10m && current.wind_gusts_10m > 90));
+            const isSnowCode = (current.weather_code >= 71 &&
+              current.weather_code <= 77) ||
+              current.weather_code === 85 || current.weather_code === 86;
+            const isLikeSnow = isRaining &&
+              (current.temperature_2m <= 1 || isSnowCode);
 
-              if (newCode >= 51) {
+            // If no previous state exists, check if we're in
+            // dangerous conditions NOW
+            if (!lastState) {
+              if (isRaining) {
                 ruptureDetected = true;
-                msgTitle = lang === "fr" ? "🌧️ Météo" : "🌧️ Weather";
+                forceSend = true;
+
+                if (isLikeSnow) {
+                  msgTitle = lang === "fr" ?
+                    "❄️ Alerte Neige" : "❄️ Snow Alert";
+                  msgBody = lang === "fr" ?
+                    `Chute de neige en cours (${current.precipitation}mm). ` +
+                    "Confirmez-vous ?" :
+                    `Snow ongoing (${current.precipitation}mm). Confirm?`;
+                } else {
+                  msgTitle = lang === "fr" ?
+                    "🌧️ Alerte Pluie" : "🌧️ Rain Alert";
+                  msgBody = lang === "fr" ?
+                    `Pluie en cours (${current.precipitation}mm). ` +
+                    "Confirmez-vous ?" :
+                    `Rain ongoing (${current.precipitation}mm). Confirm?`;
+                }
+              } else if (isStormy) {
+                ruptureDetected = true;
+                forceSend = true;
+                msgTitle = lang === "fr" ? "⛈️ Alerte Orage" : "⛈️ Storm Alert";
                 msgBody = lang === "fr" ?
-                  "Mauvais temps prévu. Vous confirmez ?" :
-                  "Forecast says bad weather. Confirm?";
+                  "Orage en cours ! Soyez prudent." :
+                  "Thunderstorm ongoing! Be careful.";
+              } else if (isWindy) {
+                ruptureDetected = true;
+                forceSend = true;
+                msgTitle = lang === "fr" ?
+                  "🌬️ Vent Violent" : "🌬️ Violent Wind";
+                msgBody = lang === "fr" ?
+                  `Vents violents en cours (${current.wind_speed_10m} km/h).` :
+                  `Strong winds ongoing (${current.wind_speed_10m} km/h).`;
               }
             }
 
-            // CHECK LIMITS HERE
+            // 2. CHANGE DETECTION (For existing users with lastState)
+            if (lastState) {
+              // 2. TRIGGER LOGIC (Simplified & Sensitive)
+              // Rules: "Important Changes" = Rain (>=0.1mm), Snow (>=0.1mm),
+              // Storm (Any), Strong Wind/Gusts.
+
+              const wasRaining = (lastState.precip && lastState.precip >= 0.1);
+
+              const wasStormy = [95, 96, 99].includes(lastState.code);
+
+              const wasWindy = (lastState.wind > 70 || lastState.gusts > 90);
+
+              if (isRaining && !wasRaining) {
+                // ONSET: Valid Rain/Snow (>0.1mm)
+                ruptureDetected = true;
+                forceSend = true;
+
+                if (isLikeSnow) {
+                  msgTitle = lang === "fr" ?
+                    "❄️ Alerte Neige" : "❄️ Snow Alert";
+                  msgBody = lang === "fr" ?
+                    `Chute de neige détectée (${current.precipitation}mm). ` +
+                    "Confirmez-vous ?" :
+                    `Snow detected (${current.precipitation}mm). Confirm?`;
+                } else {
+                  msgTitle = lang === "fr" ?
+                    "🌧️ Alerte Pluie" : "🌧️ Rain Alert";
+                  msgBody = lang === "fr" ?
+                    `Pluie détectée (${current.precipitation}mm). ` +
+                    "Confirmez-vous ?" :
+                    `Rain detected (${current.precipitation}mm). Confirm?`;
+                }
+              } else if (isStormy && !wasStormy) {
+                // ONSET: Storm
+                ruptureDetected = true;
+                forceSend = true;
+                msgTitle = lang === "fr" ? "⛈️ Alerte Orage" : "⛈️ Storm Alert";
+                msgBody = lang === "fr" ?
+                  "Orage détecté à proximité ! Soyez prudent." :
+                  "Thunderstorm detected! Be careful.";
+              } else if (isWindy && !wasWindy) {
+                // ONSET: Violent Wind
+                ruptureDetected = true;
+                forceSend = true;
+                msgTitle = lang === "fr" ?
+                  "🌬️ Vent Violent" : "🌬️ Violent Wind";
+                msgBody = lang === "fr" ?
+                  `Vents violents détectés (${current.wind_speed_10m} km/h).` :
+                  `Strong winds detected (${current.wind_speed_10m} km/h).`;
+              } else if (isRaining && (current.precipitation || 0) > 2.0 &&
+                ((!lastState.precip) ||
+                  (current.precipitation || 0) > (lastState.precip + 2.0))) {
+                // BONUS: HEAVY Rain Intensification (e.g. 0.5 -> 3.0)
+                // We only alert if it jumps by +2.0mm or is >2.0mm newly.
+                // Kept simply to catch "Grosses Averses" if Onset was missed.
+                ruptureDetected = true;
+                forceSend = true;
+                msgTitle = lang === "fr" ? "🌧️ Forte Averse" : "🌧️ Heavy Rain";
+                msgBody = lang === "fr" ?
+                  `Averse intense (${current.precipitation}mm).` :
+                  `Heavy downpour (${current.precipitation}mm).`;
+              }
+            }
+
+            // CHECK LIMITS
             const hoursSinceLast = (now.getTime() - lastSent.getTime()) /
               (1000 * 60 * 60);
             const withinLimits = (newCount < 2 && hoursSinceLast >= 4);
@@ -562,7 +593,6 @@ export const sendHourlyNotifications = onSchedule({
             // logic: If danger (forceSend), we allow it up to 10 times/day
             // and ignore hoursSinceLast interval
             // If normal (clouds/sun), we strictly respect withinLimits
-            // (2/day, >4h)
             if (forceSend) {
               if (newCount < 10) finalCanSend = true;
             } else {
@@ -573,16 +603,13 @@ export const sendHourlyNotifications = onSchedule({
             if (ruptureDetected && finalCanSend) {
               // If not set by loop
               if (!msgTitle) {
-                const lang = data.language || "en";
-                msgTitle = lang === "fr" ? "Point Météo" : "Weather Update";
+                const title = lang === "fr" ? "Point Météo" : "Weather Update";
+                msgTitle = title;
               }
 
               messages.push({
                 token: data.token,
-                notification: {title: msgTitle, body: msgBody},
-                // V2: Differentiate types.
-                // 'weather_alert' -> Asks for confirmation (opens contribution)
-                // 'weather_forecast' -> Informational (opens map or home)
+                notification: { title: msgTitle, body: msgBody },
                 data: {
                   type: isForecastAlert ? "weather_forecast" : "weather_alert",
                 },
@@ -610,6 +637,7 @@ export const sendHourlyNotifications = onSchedule({
                   temp: current.temperature_2m,
                   wind: current.wind_speed_10m,
                   gusts: current.wind_gusts_10m || 0,
+                  precip: current.precipitation || 0,
                 },
                 lastWeatherCheck: new Date(),
               },
@@ -624,7 +652,7 @@ export const sendHourlyNotifications = onSchedule({
 
   // Execute updates
   for (const up of updates) {
-    await up.ref.set(up.data, {merge: true});
+    await up.ref.set(up.data, { merge: true });
   }
 
   // Send Messages
@@ -684,7 +712,7 @@ function getPrecipitationEvent(
     const durationMin = (endIndex - startIndex + 1) * 15;
 
     // Filter very short/far events if needed, but for now report all
-    return {start: startMin, duration: durationMin};
+    return { start: startMin, duration: durationMin };
   }
 
   return null;
@@ -694,7 +722,7 @@ function getPrecipitationEvent(
 // https://us-central1-wise-weather-app.cloudfunctions.net/triggerTestNotification?type=quote&token=...
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const triggerTestNotification = onRequest(async (req: any, res: any) => {
-  const {type = "quote", token: queryToken} = req.query;
+  const { type = "quote", token: queryToken } = req.query;
   const db = getFirestore();
   const messaging = getMessaging();
 
@@ -912,6 +940,7 @@ export const checkCommunityReport = onDocumentCreated(
               type: "verification",
               reportId: event.params.reportId,
               condition: reportedLabel,
+              reporterId: data.userId || "",
             },
             webpush: {
               fcm_options: {

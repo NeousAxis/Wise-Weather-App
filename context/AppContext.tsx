@@ -29,6 +29,7 @@ interface AppContextType {
   notificationsEnabled: boolean;
   testPush: () => Promise<void>;
   lastNotification: { title: string, body: string, data?: any } | null;
+  user: User | null;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -329,18 +330,11 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   useEffect(() => {
     const generateQuote = async () => {
       const now = new Date();
-      const currentHour = now.getHours();
-      const todayStr = now.toDateString();
 
-      let slotKey = "";
-      if (currentHour >= 7 && currentHour < 11) slotKey = `${todayStr}-slot-7am`;
-      else if (currentHour >= 11 && currentHour < 16) slotKey = `${todayStr}-slot-11am`;
-      else if (currentHour >= 16) slotKey = `${todayStr}-slot-16pm`;
-      else {
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        slotKey = `${yesterday.toDateString()}-slot-16pm`;
-      }
+      // CRITICAL FIX: Use SINGLE daily slot aligned with backend (all-day-v6)
+      // This prevents multiple quotes per day
+      const dateKey = now.toISOString().split("T")[0]; // YYYY-MM-DD format
+      const slotKey = `${dateKey}-all-day-v6`;
 
       // Check Cache (Updated to v3 to NUKE persisting garbage)
       // Force clear old keys
@@ -737,13 +731,10 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       communityReports, addReport,
       searchCity,
       majorCitiesWeather,
-      alertsCount,
-      dailyQuote,
-      t,
-      requestNotifications,
       notificationsEnabled,
       testPush,
-      lastNotification
+      lastNotification,
+      user
     }}>
       {children}
     </AppContext.Provider>

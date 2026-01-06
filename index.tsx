@@ -202,6 +202,12 @@ const WeatherDashboard = () => {
 
   const nextHours = weather.hourly.time.slice(safeIndex, safeIndex + 6);
 
+  // Calculate strict Day/Night based on Sunrise/Sunset for Icon
+  const nowMs = new Date().getTime();
+  const sunriseMs = new Date(weather.daily.sunrise[0]).getTime();
+  const sunsetMs = new Date(weather.daily.sunset[0]).getTime();
+  const isDayNow = (nowMs >= sunriseMs && nowMs < sunsetMs) ? 1 : 0;
+
   const maxTemp = convertTemp(weather.daily.temperature_2m_max[0], unit);
   const minTemp = convertTemp(weather.daily.temperature_2m_min[0], unit);
   const currentTemp = convertTemp(weather.current.temperature, unit);
@@ -227,7 +233,7 @@ const WeatherDashboard = () => {
         </div>
         <div className="text-right">
           <div className="flex items-center justify-end gap-3">
-            {getWeatherIcon(weather.current.weatherCode, 48, "", weather.current.isDay)}
+            {getWeatherIcon(weather.current.weatherCode, 48, "", isDayNow)}
             <span className="text-6xl font-bold text-foreground tracking-tighter">
               {currentTemp}°
             </span>
@@ -1072,7 +1078,7 @@ const App = () => {
   const [showContribution, setShowContribution] = useState(false);
   const [initialSelection, setInitialSelection] = useState<string | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
-  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification } = useContext(AppContext)!;
+  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user } = useContext(AppContext)!;
 
   // Handle Notification Clicks & Auto-Open
   useEffect(() => {
@@ -1203,18 +1209,24 @@ const App = () => {
             {/* Verification type */}
             {lastNotification.data?.type === 'verification' && (
               <div className="flex gap-2 justify-end mt-1">
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => {
-                    if (lastNotification.data.condition) {
-                      setInitialSelection(lastNotification.data.condition);
-                    }
-                    setShowContribution(true);
-                  }}
-                >
-                  {t('modal.submit')}
-                </Button>
+                {lastNotification.data.reporterId && user && lastNotification.data.reporterId === user.uid ? (
+                  <span className="text-gray-400 text-xs font-bold px-2 py-1 bg-gray-100 rounded-lg">
+                    {language === 'fr' ? 'Votre contribution' : 'Your report'}
+                  </span>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => {
+                      if (lastNotification.data.condition) {
+                        setInitialSelection(lastNotification.data.condition);
+                      }
+                      setShowContribution(true);
+                    }}
+                  >
+                    {t('modal.submit')}
+                  </Button>
+                )}
               </div>
             )}
 
