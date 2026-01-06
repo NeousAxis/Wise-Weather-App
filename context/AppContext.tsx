@@ -534,7 +534,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     // 7. Fetch Weather
     const promises = combinedCities.map(async (city) => {
       try {
-        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto`);
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04,gfs_seamless,jma_seamless,gem_seamless,icon_seamless,cma_grapes_global,bom_access_global`);
         const data = await res.json();
         return { ...city, temp: data.current.temperature_2m, code: data.current.weather_code, isDay: data.current.is_day };
       } catch (e) { return null; }
@@ -573,7 +573,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     setLoadingWeather(true);
     try {
       const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04,gfs_seamless,jma_seamless,gem_seamless,icon_seamless,cma_grapes_global,bom_access_global`
       );
       const data = await res.json();
 

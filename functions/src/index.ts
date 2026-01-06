@@ -560,15 +560,17 @@ export const sendHourlyNotifications = onSchedule({
                     "❄️ Alerte Neige" : "❄️ Snow Alert";
                   msgBody = lang === "fr" ?
                     `Chute de neige en cours (${current.precipitation}mm). ` +
-                    "Confirmez-vous ?" :
-                    `Snow ongoing (${current.precipitation}mm). Confirm?`;
+                    (forecast?.duration ? `Fin estimée dans ~${forecast.duration} min.` : "Confirmez-vous ?") :
+                    `Snow ongoing (${current.precipitation}mm). ` +
+                    (forecast?.duration ? `Est. end in ~${forecast.duration} min.` : "Confirm?");
                 } else {
                   msgTitle = lang === "fr" ?
                     "🌧️ Alerte Pluie" : "🌧️ Rain Alert";
                   msgBody = lang === "fr" ?
                     `Pluie en cours (${current.precipitation}mm). ` +
-                    "Confirmez-vous ?" :
-                    `Rain ongoing (${current.precipitation}mm). Confirm?`;
+                    (forecast?.duration ? `Fin estimée dans ~${forecast.duration} min.` : "Confirmez-vous ?") :
+                    `Rain ongoing (${current.precipitation}mm). ` +
+                    (forecast?.duration ? `Est. end in ~${forecast.duration} min.` : "Confirm?");
                 }
               } else if (isStormy) {
                 ruptureDetected = true;
@@ -610,15 +612,17 @@ export const sendHourlyNotifications = onSchedule({
                     "❄️ Alerte Neige" : "❄️ Snow Alert";
                   msgBody = lang === "fr" ?
                     `Chute de neige détectée (${current.precipitation}mm). ` +
-                    "Confirmez-vous ?" :
-                    `Snow detected (${current.precipitation}mm). Confirm?`;
+                    (forecast?.duration ? `Fin estimée dans ~${forecast.duration} min.` : "Confirmez-vous ?") :
+                    `Snow detected (${current.precipitation}mm). ` +
+                    (forecast?.duration ? `Est. end in ~${forecast.duration} min.` : "Confirm?");
                 } else {
                   msgTitle = lang === "fr" ?
                     "🌧️ Alerte Pluie" : "🌧️ Rain Alert";
                   msgBody = lang === "fr" ?
                     `Pluie détectée (${current.precipitation}mm). ` +
-                    "Confirmez-vous ?" :
-                    `Rain detected (${current.precipitation}mm). Confirm?`;
+                    (forecast?.duration ? `Fin estimée dans ~${forecast.duration} min.` : "Confirmez-vous ?") :
+                    `Rain detected (${current.precipitation}mm). ` +
+                    (forecast?.duration ? `Est. end in ~${forecast.duration} min.` : "Confirm?");
                 }
               } else if (isStormy && !wasStormy) {
                 // ONSET: Storm
