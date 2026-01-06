@@ -11,6 +11,13 @@ export interface WeatherData {
     relativeHumidity: number;
     visibility?: number; // meters
     aqi?: number; // WAQI index
+    uvIndex?: number;
+    pollen?: {
+      ragweed?: number;
+      grass?: number;
+      birch?: number;
+      olive?: number;
+    }; // Grains/m3
   };
   hourly: {
     time: string[];

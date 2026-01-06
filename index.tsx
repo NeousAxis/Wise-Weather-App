@@ -323,6 +323,51 @@ const WeatherDashboard = () => {
             </div>
           </div>
         )}
+
+        {/* UV Index */}
+        {weather.current.uvIndex !== undefined && (
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-full relative ${weather.current.uvIndex > 6 ? 'bg-red-100 text-red-600' : 'bg-orange-50 text-orange-500'}`}>
+              {weather.current.uvIndex > 6 && (
+                <span className="absolute inset-0 rounded-full animate-ping opacity-75 bg-red-400"></span>
+              )}
+              <Sun size={20} className="relative z-10" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">UV Index</p>
+              <p className="font-semibold text-gray-700">{weather.current.uvIndex?.toFixed(1) || 0}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Pollen */}
+        {weather.current.pollen && (
+          <div className="flex items-center gap-3">
+            {(() => {
+              const maxPollen = Math.max(
+                weather.current.pollen.birch || 0,
+                weather.current.pollen.grass || 0,
+                weather.current.pollen.ragweed || 0,
+                weather.current.pollen.olive || 0
+              );
+              const isHigh = maxPollen > 50;
+              return (
+                <>
+                  <div className={`p-2 rounded-full relative ${isHigh ? 'bg-red-100 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                    {isHigh && (
+                      <span className="absolute inset-0 rounded-full animate-ping opacity-75 bg-red-400"></span>
+                    )}
+                    <Wind size={20} className="relative z-10" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">Pollen</p>
+                    <p className="font-semibold text-gray-700">{maxPollen.toFixed(0)} <span className="text-[10px] font-normal text-gray-400">grains/m³</span></p>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Hourly Forecast */}

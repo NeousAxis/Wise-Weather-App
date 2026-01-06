@@ -534,7 +534,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     // 7. Fetch Weather
     const promises = combinedCities.map(async (city) => {
       try {
-        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04,gfs_seamless,jma_seamless,gem_seamless,icon_seamless,cma_grapes_global,bom_access_global`);
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto`);
         const data = await res.json();
         return { ...city, temp: data.current.temperature_2m, code: data.current.weather_code, isDay: data.current.is_day };
       } catch (e) { return null; }
@@ -573,7 +573,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     setLoadingWeather(true);
     try {
       const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04,gfs_seamless,jma_seamless,gem_seamless,icon_seamless,cma_grapes_global,bom_access_global`
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility&hourly=temperature_2m,weather_code,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
       );
       const data = await res.json();
 
@@ -589,6 +589,28 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         console.error("AQI fetch failed", e);
       }
 
+      // Fetch Pollen (Air Quality API)
+      let pollenData = undefined;
+      try {
+        const pollenRes = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=alder_pollen,birch_pollen,grass_pollen,ragweed_pollen,olive_pollen&timezone=auto`);
+        const pollenJson = await pollenRes.json();
+        if (pollenJson.current) {
+          pollenData = {
+            birch: pollenJson.current.birch_pollen,
+            grass: pollenJson.current.grass_pollen,
+            ragweed: pollenJson.current.ragweed_pollen,
+            olive: pollenJson.current.olive_pollen
+          };
+        }
+      } catch (e) {
+        console.error("Pollen fetch failed", e);
+      }
+
+      // Find current hour index for UV
+      const currentHourIso = new Date().toISOString().slice(0, 13); // YYYY-MM-DDTHH matches closest
+      const hourIndex = data.hourly.time.findIndex((t: string) => t.startsWith(currentHourIso)) || 0;
+      const currentUV = data.hourly.uv_index ? data.hourly.uv_index[hourIndex] : 0;
+
       const mappedWeather: WeatherData = {
         current: {
           temperature: data.current.temperature_2m,
@@ -597,7 +619,9 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           isDay: data.current.is_day,
           relativeHumidity: data.current.relative_humidity_2m,
           visibility: data.current.visibility,
-          aqi: aqiValue
+          aqi: aqiValue,
+          uvIndex: currentUV,
+          pollen: pollenData
         },
         hourly: {
           time: data.hourly.time,
