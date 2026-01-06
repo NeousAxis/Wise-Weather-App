@@ -756,7 +756,7 @@ const MapPage = () => {
           // Requirement: Colored icons on community map as well
           switch (cond) {
             case 'Sunny': type = 'sun'; color = '#FCD34D'; break; // Amber
-            case 'Cloudy': type = 'cloud'; color = '#E2E8F0'; break; // Light Slate (Cloud)
+            case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break; // White (Better contrast on violet)
             case 'Rain': type = 'rain'; color = '#60A5FA'; break; // Blue
             case 'Windy': type = 'wind'; color = '#93C5FD'; break; // Light Blue
             case 'Snow': type = 'snow'; color = '#A5F3FC'; break; // Cyan
@@ -764,24 +764,24 @@ const MapPage = () => {
             default: type = 'sun'; color = '#F59E0B';
           }
 
-          iconsHtml += getIconSvg(type, color, 16);
+          iconsHtml += `<div class="flex-shrink-0">${getIconSvg(type, color, 18)}</div>`;
         });
 
-        const temp = report.temp ? convertTemp(report.temp, unit) : '--';
+        const tempDisplay = report.temp ? `${convertTemp(report.temp, unit)}°` : '';
 
         // Requirement: Violet Pill (bg-violet-400), No Border, White Temp Text
         const el = L.divIcon({
           className: 'bg-transparent',
           html: `
-            <div class="bg-violet-400 rounded-full shadow-md px-3 py-1.5 h-10 flex items-center gap-2 transform hover:scale-110 transition-transform">
-              <div class="flex gap-1">
+            <div class="bg-violet-400 rounded-full shadow-md px-3 py-1.5 h-10 flex items-center justify-center gap-2 transform hover:scale-110 transition-transform whitespace-nowrap">
+              <div class="flex gap-1 items-center">
                 ${iconsHtml}
               </div>
-              <span class="font-bold text-white text-xs">${temp}°</span>
+              ${tempDisplay ? `<span class="font-bold text-white text-xs">${tempDisplay}</span>` : ''}
             </div>
           `,
-          iconSize: [Math.max(60, 40 + (report.conditions.length * 20)), 40],
-          iconAnchor: [30, -10]
+          iconSize: [Math.max(50, 30 + (report.conditions.length * 22) + (tempDisplay ? 25 : 0)), 40],
+          iconAnchor: [Math.max(50, 30 + (report.conditions.length * 22) + (tempDisplay ? 25 : 0)) / 2, 20]
         });
         markersRef.current.push(L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current));
       });
