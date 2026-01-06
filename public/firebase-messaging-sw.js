@@ -1,6 +1,30 @@
-importScripts('/__/firebase/10.9.0/firebase-app-compat.js');
-importScripts('/__/firebase/10.9.0/firebase-messaging-compat.js');
-importScripts('/__/firebase/init.js');
+// Firebase Cloud Messaging Service Worker
+// Works in both development (localhost) and production (Firebase Hosting)
+
+// Check if we're in production (Firebase Hosting) or development (localhost)
+const isProduction = self.location.hostname !== 'localhost' &&
+    self.location.hostname !== '127.0.0.1';
+
+if (isProduction) {
+    // Production: Use Firebase Hosting auto-config
+    importScripts('/__/firebase/10.9.0/firebase-app-compat.js');
+    importScripts('/__/firebase/10.9.0/firebase-messaging-compat.js');
+    importScripts('/__/firebase/init.js');
+} else {
+    // Development: Use CDN + manual config
+    importScripts('https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js');
+    importScripts('https://www.gstatic.com/firebasejs/10.9.0/firebase-messaging-compat.js');
+
+    // Initialize Firebase manually with your config
+    firebase.initializeApp({
+        apiKey: "AIzaSyDiGmCMmhWIKHRXFcbOCDCOqTjqvPDgRhw",
+        authDomain: "wise-weather-app.firebaseapp.com",
+        projectId: "wise-weather-app",
+        storageBucket: "wise-weather-app.firebasestorage.app",
+        messagingSenderId: "1031906629754",
+        appId: "1:1031906629754:web:1f8c0c9e8c5f8b8e8c5f8b"
+    });
+}
 
 const messaging = firebase.messaging();
 
