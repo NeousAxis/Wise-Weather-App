@@ -1,5 +1,20 @@
 {
   "projects": {
-    "default": "wise-weather-app"
-  }
+    "default": "wise-weather-app",
+    "staging": "wise-weather-app",
+    "production": "wise-weather-app"
+  },
+  "targets": {
+    "wise-weather-app": {
+      "hosting": {
+        "production": [
+          "wise-weather-app"
+        ],
+        "staging": [
+          "staging-wise-weather"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
