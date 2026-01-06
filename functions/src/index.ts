@@ -283,10 +283,14 @@ export const sendHourlyNotifications = onSchedule({
   // Fetch all tokens
   const snapshot = await db.collection("push_tokens").get();
 
-  // Get Quote for CURRENT slot to maybe send
-  // Note: We always use the "all-day" quote for the 7am notification.
-  const dateKey = now.toISOString().split("T")[0];
-  const slotKey = `${dateKey}-all-day-v6`;
+  // CRITICAL FIX: Universal Quote System
+  // Everyone in the world gets the SAME quote on the same calendar day
+  // We use UTC+14 (furthest ahead timezone) as the "global day" reference
+  // This ensures Paris, NYC, Da Nang, Singapore all get the same quote
+  // when it's the same calendar date for them
+  const utcPlus14 = new Date(now.getTime() + (14 * 60 * 60 * 1000));
+  const universalDateKey = utcPlus14.toISOString().split("T")[0];
+  const slotKey = `${universalDateKey}-all-day-v6`;
 
   // We only send the quote notification at 7am local time.
   // We can pre-fetch the morning quote.
@@ -294,7 +298,7 @@ export const sendHourlyNotifications = onSchedule({
   try {
     globalQuote = await getOrGenerateQuote(
       slotKey,
-      now.getDay(),
+      utcPlus14.getDay(), // Use UTC+14 day for theme consistency
       openRouterApiKey.value()
     );
   } catch (e) {
@@ -440,28 +444,55 @@ export const sendHourlyNotifications = onSchedule({
             let forceSend = false; // Bypass limits for danger
             let isForecastAlert = false; // Is this a future prediction?
 
-            // 0. FORECAST CHECK (Proactive)
-            const forecast = getPrecipitationEvent(
+            // 0. FORECAST CHECK (Proactive - CRITICAL!)
+            // Alert users BEFORE dangerous weather arrives
+            const forecast = getDangerousForecast(
               minutely15,
-              current.weather_code
+              current.weather_code,
+              current
             );
             const lang = data.language || "en";
 
             if (forecast) {
-              // FORECAST FOUND!
+              // FORECAST FOUND! Alert the community BEFORE it hits
               isForecastAlert = true;
               ruptureDetected = true;
-              forceSend = true; // Always warn about coming rain
+              forceSend = true; // Always warn about coming danger
 
-              // "Rain arriving in ~30 min"
-              if (lang === "fr") {
-                msgTitle = "🌧️ Prévision Pluie";
-                msgBody = `Pluie prévue dans ~${forecast.start} min ` +
-                  `(durée estimée: ${forecast.duration} min).`;
+              // Customize message based on danger type
+              if (forecast.type === "storm") {
+                if (lang === "fr") {
+                  msgTitle = "⛈️ ALERTE ORAGE";
+                  msgBody = `DANGER ! Orage prévu dans ~${forecast.start} ` +
+                    `min (durée: ${forecast.duration} min). Mettez-vous ` +
+                    `à l'abri !`;
+                } else {
+                  msgTitle = "⛈️ STORM ALERT";
+                  msgBody = `DANGER! Storm expected in ~${forecast.start} ` +
+                    `min (duration: ${forecast.duration} min). Take ` +
+                    `shelter!`;
+                }
+              } else if (forecast.type === "snow") {
+                if (lang === "fr") {
+                  msgTitle = "❄️ Alerte Neige";
+                  msgBody = `Neige prévue dans ~${forecast.start} min ` +
+                    `(durée: ${forecast.duration} min). Préparez-vous !`;
+                } else {
+                  msgTitle = "❄️ Snow Alert";
+                  msgBody = `Snow expected in ~${forecast.start} min ` +
+                    `(duration: ${forecast.duration} min). Get ready!`;
+                }
               } else {
-                msgTitle = "🌧️ Rain Forecast";
-                msgBody = `Rain expected in ~${forecast.start} min ` +
-                  `(duration: ${forecast.duration} min).`;
+                // Rain
+                if (lang === "fr") {
+                  msgTitle = "🌧️ Prévision Pluie";
+                  msgBody = `Pluie prévue dans ~${forecast.start} min ` +
+                    `(durée estimée: ${forecast.duration} min).`;
+                } else {
+                  msgTitle = "🌧️ Rain Forecast";
+                  msgBody = `Rain expected in ~${forecast.start} min ` +
+                    `(duration: ${forecast.duration} min).`;
+                }
               }
             }
 
@@ -669,36 +700,70 @@ export const sendHourlyNotifications = onSchedule({
 });
 
 /**
- * Helper to get time estimates from minutely_15 data
- * Looks at next 8 slots (2 hours). Returns start time and duration.
+ * CRITICAL: Detect ALL dangerous weather events in forecast
+ * Looks at next 8 slots (2 hours) for: Rain, Snow, Storm, Violent Wind
  * @param {any} minutely15 The OpenMeteo minutely_15 object
  * @param {number} currentCode The current weather code
- * @return {{ start: number, duration: number } | null} Start and Duration
+ * @param {any} current Current weather data (for wind check)
+ * @return {{type: string, start: number, duration: number} | null}
  */
-function getPrecipitationEvent(
+function getDangerousForecast(
   minutely15: any,
-  currentCode: number
-): { start: number, duration: number } | null {
+  currentCode: number,
+  current: any
+): { type: string, start: number, duration: number } | null {
   if (!minutely15 || !minutely15.weather_code) return null;
   const codes = minutely15.weather_code;
 
-  // If it's already bad now, we consider the event has "started" (start=0)
-  // But usually we use this for UPCOMING events.
-  // If current is bad, we rely on standard alerts.
-  if (currentCode >= 51) return null;
+  // If it's already dangerous now, we rely on immediate alerts
+  const isCurrentlyDangerous = currentCode >= 51 ||
+    [95, 96, 99].includes(currentCode) ||
+    (current.wind_speed_10m && current.wind_speed_10m > 70);
+
+  if (isCurrentlyDangerous) return null;
 
   let startIndex = -1;
   let endIndex = -1;
+  let eventType = "";
 
   // Look ahead up to 2 hours (8 slots of 15 min)
   for (let i = 0; i < 8 && i < codes.length; i++) {
     const code = codes[i];
-    const isBad = code >= 51; // Rain/Snow/Storm
 
-    if (isBad) {
-      if (startIndex === -1) startIndex = i;
+    // Detect ALL dangerous conditions
+    let isDangerous = false;
+    let detectedType = "";
+
+    // STORM (Priority 1 - Most dangerous)
+    if (code >= 95 && code <= 99) {
+      isDangerous = true;
+      detectedType = "storm";
+    }
+    // SNOW (Priority 2)
+    else if ((code >= 71 && code <= 77) ||
+      code === 85 || code === 86) {
+      isDangerous = true;
+      detectedType = "snow";
+    }
+    // RAIN (Priority 3)
+    else if ((code >= 51 && code <= 67) ||
+      (code >= 80 && code <= 82)) {
+      isDangerous = true;
+      detectedType = "rain";
+    }
+
+    if (isDangerous) {
+      if (startIndex === -1) {
+        startIndex = i;
+        eventType = detectedType;
+      }
       // Extend end index as long as it is bad
       endIndex = i;
+      // Upgrade event type if we find something worse
+      if (detectedType === "storm") eventType = "storm";
+      else if (detectedType === "snow" && eventType !== "storm") {
+        eventType = "snow";
+      }
     } else {
       // If we found a start and now it's clear again, the event is over
       if (startIndex !== -1) break;
@@ -711,8 +776,7 @@ function getPrecipitationEvent(
     // Duration: (End - Start + 1) * 15
     const durationMin = (endIndex - startIndex + 1) * 15;
 
-    // Filter very short/far events if needed, but for now report all
-    return { start: startMin, duration: durationMin };
+    return { type: eventType, start: startMin, duration: durationMin };
   }
 
   return null;
