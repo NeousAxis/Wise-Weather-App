@@ -415,7 +415,7 @@ export const sendHourlyNotifications = onSchedule({
         }
       } catch (e) {
         // If conversion fails, treat as null (first time)
-        console.log(`[WEATHER CHECK] Failed to parse lastWeatherNotif:`, e);
+        console.log("[WEATHER CHECK] Failed to parse lastWeatherNotif:", e);
         lastSent = null;
       }
 
@@ -465,12 +465,12 @@ export const sendHourlyNotifications = onSchedule({
           const current = wData.current;
           const minutely15 = wData.minutely_15;
 
-          console.log(`[WEATHER CHECK] Current weather:`, JSON.stringify(current));
+          console.log("[WEATHER CHECK] Current weather:", JSON.stringify(current));
           console.log(`[WEATHER CHECK] Minutely15 available: ${!!minutely15}`);
 
           if (current) {
             const lastState = data.lastWeatherState;
-            console.log(`[WEATHER CHECK] Last state:`, JSON.stringify(lastState));
+            console.log("[WEATHER CHECK] Last state:", JSON.stringify(lastState));
 
             let ruptureDetected = false;
             let msgBody = "";
@@ -499,12 +499,12 @@ export const sendHourlyNotifications = onSchedule({
                   msgTitle = "⛈️ ALERTE ORAGE";
                   msgBody = `DANGER ! Orage prévu dans ~${forecast.start} ` +
                     `min (durée: ${forecast.duration} min). Mettez-vous ` +
-                    `à l'abri !`;
+                    "à l'abri !";
                 } else {
                   msgTitle = "⛈️ STORM ALERT";
                   msgBody = `DANGER! Storm expected in ~${forecast.start} ` +
                     `min (duration: ${forecast.duration} min). Take ` +
-                    `shelter!`;
+                    "shelter!";
                 }
               } else if (forecast.type === "snow") {
                 if (lang === "fr") {
@@ -681,7 +681,8 @@ export const sendHourlyNotifications = onSchedule({
               console.log(`[ALERT SEND] ✅ SENDING ALERT to ${data.token.substring(0, 20)}...`);
               // If not set by loop
               if (!msgTitle) {
-                const title = lang === "fr" ? "Point Météo" : "Weather Update";
+                const title = lang === "fr" ?
+                  "Point Météo" : "Weather Update";
                 msgTitle = title;
               }
 
@@ -728,10 +729,27 @@ export const sendHourlyNotifications = onSchedule({
     }
   }
 
-  // Execute updates
+  // Execute updates using Batches (Max 500 per batch)
+  const writeBatches: any[] = [];
+  let currentBatch = db.batch();
+  let operationCounter = 0;
+
   for (const up of updates) {
-    await up.ref.set(up.data, { merge: true });
+    currentBatch.set(up.ref, up.data, { merge: true });
+    operationCounter++;
+
+    if (operationCounter === 500) {
+      writeBatches.push(currentBatch.commit());
+      currentBatch = db.batch();
+      operationCounter = 0;
+    }
   }
+  // Push remaining ops
+  if (operationCounter > 0) {
+    writeBatches.push(currentBatch.commit());
+  }
+
+  await Promise.all(writeBatches);
 
   // Send Messages
   if (messages.length > 0) {
@@ -807,8 +825,9 @@ function getDangerousForecast(
       // Extend end index as long as it is bad
       endIndex = i;
       // Upgrade event type if we find something worse
-      if (detectedType === "storm") eventType = "storm";
-      else if (detectedType === "snow" && eventType !== "storm") {
+      if (detectedType === "storm") {
+        eventType = "storm";
+      } else if (detectedType === "snow" && eventType !== "storm") {
         eventType = "snow";
       }
     } else {
