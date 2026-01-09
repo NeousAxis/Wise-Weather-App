@@ -71,6 +71,14 @@ const Badge = ({ label, level }: { label: string, level: ConfidenceLevel }) => {
 };
 
 const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
+  // If it's night (isDay === 0)
+  if (isDay === 0) {
+    // Clear (0), Mainly Clear (1), Partly Cloudy (2) -> Moon
+    if (code >= 0 && code <= 2) {
+      return <Moon size={size} className={`text-blue-200 ${className}`} />;
+    }
+  }
+
   // Detailed mapping for WMO codes
   if (code === 0) return <Sun size={size} className={`text-yellow-500 ${className}`} />;
   if (code >= 1 && code <= 3) return <Cloud size={size} className={`text-gray-400 ${className}`} />;
@@ -79,7 +87,10 @@ const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
   if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <Snowflake size={size} className={`text-cyan-400 ${className}`} />;
   if (code >= 95) return <CloudLightning size={size} className={`text-purple-500 ${className}`} />;
 
-  // Default Fallback
+  // Result: Sun for Day, Moon for Night (Fallback)
+  if (isDay === 0) {
+    return <Moon size={size} className={`text-blue-200 ${className}`} />;
+  }
   return <Sun size={size} className={`text-yellow-500 ${className}`} />;
 };
 
