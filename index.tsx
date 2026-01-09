@@ -269,10 +269,8 @@ const WeatherDashboard = () => {
   const displayTimes = criticalTimes.slice(0, 6);
 
   // Calculate strict Day/Night based on Sunrise/Sunset for Icon
-  const nowMs = new Date().getTime();
-  const sunriseMs = new Date(weather.daily.sunrise[0]).getTime();
-  const sunsetMs = new Date(weather.daily.sunset[0]).getTime();
-  const isDayNow = (nowMs >= sunriseMs && nowMs < sunsetMs) ? 1 : 0;
+  // Use API provided isDay (1=Day, 0=Night) to ensure accuracy
+  const isDayNow = weather.current.isDay;
 
   const maxTemp = convertTemp(weather.daily.temperature_2m_max[0], unit);
   const minTemp = convertTemp(weather.daily.temperature_2m_min[0], unit);
