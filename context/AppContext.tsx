@@ -633,7 +633,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           temperature_2m_max: data.daily.temperature_2m_max,
           temperature_2m_min: data.daily.temperature_2m_min,
           sunrise: data.daily.sunrise,
-          sunset: data.daily.sunset
+          sunset: data.daily.sunset,
+          time: data.daily.time
         }
       };
       setWeather(mappedWeather);
