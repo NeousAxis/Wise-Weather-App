@@ -29,6 +29,7 @@ interface AppContextType {
   notificationsEnabled: boolean;
   testPush: () => Promise<void>;
   lastNotification: { title: string, body: string, data?: any } | null;
+  user: User | null;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -762,7 +763,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       requestNotifications,
       notificationsEnabled,
       testPush,
-      lastNotification
+      lastNotification,
+      user
     }}>
       {children}
     </AppContext.Provider>

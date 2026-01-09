@@ -956,7 +956,7 @@ const MapPage = () => {
         .filter(r => (Date.now() - r.timestamp) < (6 * 60 * 60 * 1000)) // Garder 6h max comme la liste
         .sort((a, b) => b.timestamp - a.timestamp);
 
-      const consolidatedReports: typeof sortedReports & { count?: number }[] = [];
+      const consolidatedReports: (CommunityReport & { count?: number })[] = [];
       const MERGE_RADIUS_KM = 0.15; // 150 mètres
 
       // Fonction distance (Haversine)
