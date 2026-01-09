@@ -324,8 +324,40 @@ export const sendHourlyNotifications = onSchedule({
   const messages: any[] = [];
   const updates: any[] = []; // Batched DB updates
 
-  for (const doc of snapshot.docs) {
-    const data = doc.data();
+  // --- DEDUPLICATION LOGIC START ---
+  // Filter tokens to keep only the latest one per User ID
+  const allDocs = snapshot.docs.map((d) => ({ ref: d.ref, data: d.data() }));
+
+  // Sort by updatedAt DESC (newest first)
+  allDocs.sort((a, b) => {
+    const timeA = a.data.updatedAt?.toMillis ? a.data.updatedAt.toMillis() : 0;
+    const timeB = b.data.updatedAt?.toMillis ? b.data.updatedAt.toMillis() : 0;
+    return timeB - timeA;
+  });
+
+  const uniqueDocs: { ref: any, data: any }[] = [];
+  const processedUserIds = new Set<string>();
+
+  for (const item of allDocs) {
+    const uid = item.data.userId;
+    // If we have a user ID, ensure we only process the FIRST (newest) one we see
+    if (uid) {
+      if (processedUserIds.has(uid)) continue;
+      processedUserIds.add(uid);
+    }
+    // If no userId, we assume it's a unique anonymous device (or legacy), so keep it.
+    // (Or we could dedup by token string, but that's implicit since docs are unique)
+    uniqueDocs.push(item);
+  }
+
+  console.log(`[DEDUP] Processing ${uniqueDocs.length} unique devices (from ${snapshot.size} total).`);
+  // --- DEDUPLICATION LOGIC END ---
+
+  const sentQuoteUserIds = new Set<string>(); // Keep for extra safety on quotes
+
+  for (const docObj of uniqueDocs) {
+    const data = docObj.data;
+    const docRef = docObj.ref; // Use this for updates
     const tz = data.timezone || "UTC";
 
     // Local Time
@@ -343,48 +375,55 @@ export const sendHourlyNotifications = onSchedule({
     const lastQuoteDay = data.lastQuoteDate || "";
 
     if (localHour === 7 && lastQuoteDay !== currentLocalDay) {
-      if (globalQuote) {
-        // Localized Quote
-        const lang = data.language || "en";
-        const qContent = lang === "fr" ? globalQuote.fr : globalQuote.en;
-        const qTitle = lang === "fr" ?
-          "Inspiration Quotidienne" :
-          "Daily Inspiration";
+      // Deduplication by User ID
+      if (data.userId && sentQuoteUserIds.has(data.userId)) {
+        console.log(`[QUOTE] Skipping duplicate for user ${data.userId}`);
+      } else {
+        if (data.userId) sentQuoteUserIds.add(data.userId); // Mark user as sent
 
-        const titleSun = lang === "fr" ? "☀️ Soleil" : "☀️ Sun";
-        const titleRain = lang === "fr" ? "🌧️ Pluie" : "🌧️ Rain";
+        if (globalQuote) {
+          // Localized Quote
+          const lang = data.language || "en";
+          const qContent = lang === "fr" ? globalQuote.fr : globalQuote.en;
+          const qTitle = lang === "fr" ?
+            "Inspiration Quotidienne" :
+            "Daily Inspiration";
 
-        messages.push({
-          token: data.token,
-          notification: {
-            title: qTitle,
-            body: `"${qContent.text}"\n— ${qContent.author}`,
-          },
-          data: {
-            type: "quote",
-            quote: JSON.stringify(globalQuote),
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-          },
-          webpush: {
+          const titleSun = lang === "fr" ? "☀️ Soleil" : "☀️ Sun";
+          const titleRain = lang === "fr" ? "🌧️ Pluie" : "🌧️ Rain";
+
+          messages.push({
+            token: data.token,
             notification: {
-              actions: [
-                { action: "report_sun", title: titleSun },
-                { action: "report_rain", title: titleRain },
-              ],
+              title: qTitle,
+              body: `"${qContent.text}"\n— ${qContent.author}`,
             },
-            fcm_options: {
-              link: "/?action=contribution",
+            data: {
+              type: "quote",
+              quote: JSON.stringify(globalQuote),
+              click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-          },
-        });
+            webpush: {
+              notification: {
+                actions: [
+                  { action: "report_sun", title: titleSun },
+                  { action: "report_rain", title: titleRain },
+                ],
+              },
+              fcm_options: {
+                link: "/?action=contribution",
+              },
+            },
+          });
 
-        // Mark as sent for today
-        updates.push({
-          ref: doc.ref,
-          data: {
-            lastQuoteDate: currentLocalDay,
-          },
-        });
+          // Mark as sent for today
+          updates.push({
+            ref: docRef,
+            data: {
+              lastQuoteDate: currentLocalDay,
+            },
+          });
+        }
       }
     }
 
@@ -481,6 +520,10 @@ export const sendHourlyNotifications = onSchedule({
             let forceSend = false; // Bypass limits for danger
             let isForecastAlert = false; // Is this a future prediction?
 
+            const isCurrentlyDangerous = (current.weather_code >= 51) ||
+              [95, 96, 99].includes(current.weather_code) ||
+              (current.wind_speed_10m > 70);
+
             // 0. FORECAST CHECK (Proactive - CRITICAL!)
             // Alert users BEFORE dangerous weather arrives
             const forecast = getDangerousForecast(
@@ -531,150 +574,105 @@ export const sendHourlyNotifications = onSchedule({
                     `(duration: ${forecast.duration} min).`;
                 }
               }
-            }
+            } else if (isCurrentlyDangerous) {
+              // 1. IMMEDIATE ONSET & ONGOING DURATION
+              // Logic: It is raining NOW.
+              // Action: Find when it stops.
+              ruptureDetected = true;
+              forceSend = true;
 
-            // 1. IMMEDIATE DANGER CHECK (New Users / First Check)
-            // CRITICAL FIX: Detect dangerous conditions IMMEDIATELY,
-            // even without lastState. This ensures users get alerts
-            // when subscribing during ongoing bad weather
-            const isRaining = (current.precipitation &&
-              current.precipitation >= 0.1);
-            const isStormy = [95, 96, 99].includes(current.weather_code);
-            const isWindy = (current.wind_speed_10m > 70 ||
-              (current.wind_gusts_10m && current.wind_gusts_10m > 90));
-            const isSnowCode = (current.weather_code >= 71 &&
-              current.weather_code <= 77) ||
-              current.weather_code === 85 || current.weather_code === 86;
-            const isLikeSnow = isRaining &&
-              (current.temperature_2m <= 1 || isSnowCode);
+              const code = current.weather_code;
+              let type = "rain";
+              if (code >= 95) type = "storm";
+              else if (code >= 71 && code <= 77) type = "snow";
+              else if (code === 85 || code === 86) type = "snow"; // Snow showers
 
-            // If no previous state exists, check if we're in
-            // dangerous conditions NOW
-            if (!lastState) {
-              if (isRaining) {
-                ruptureDetected = true;
-                forceSend = true;
+              // Calculate Duration (When does it stop?)
+              let remainingMin = 0;
+              let foundEnd = false;
+              if (minutely15 && minutely15.weather_code) {
+                const codes = minutely15.weather_code;
+                // Look ahead 2 hours max (8 slots)
+                for (let i = 0; i < 8 && i < codes.length; i++) {
+                  const c = codes[i];
+                  // Check if it's still "bad"
+                  // Storm, Rain, Snow, Drizzle, Showers
+                  const isBad = (c >= 51 && c <= 67) || (c >= 71 && c <= 77) ||
+                    (c >= 80 && c <= 82) || (c >= 85 && c <= 86) || (c >= 95);
 
-                if (isLikeSnow) {
-                  msgTitle = lang === "fr" ?
-                    "❄️ Alerte Neige" : "❄️ Snow Alert";
-                  msgBody = lang === "fr" ?
-                    `Chute de neige en cours (${current.precipitation}mm).` +
-                    (forecast?.duration ? ` Fin estimée dans ~${forecast.duration} min.` : "") :
-                    `Snow ongoing (${current.precipitation}mm).` +
-                    (forecast?.duration ? ` Est. end in ~${forecast.duration} min.` : "");
-                } else {
-                  msgTitle = lang === "fr" ?
-                    "🌧️ Alerte Pluie" : "🌧️ Rain Alert";
-                  msgBody = lang === "fr" ?
-                    `Pluie en cours (${current.precipitation}mm).` +
-                    (forecast?.duration ? ` Fin estimée dans ~${forecast.duration} min.` : "") :
-                    `Rain ongoing (${current.precipitation}mm).` +
-                    (forecast?.duration ? ` Est. end in ~${forecast.duration} min.` : "");
+                  if (isBad) {
+                    remainingMin += 15;
+                  } else {
+                    // Found a clear slot!
+                    foundEnd = true;
+                    break;
+                  }
                 }
-              } else if (isStormy) {
-                ruptureDetected = true;
-                forceSend = true;
-                msgTitle = lang === "fr" ? "⛈️ Alerte Orage" : "⛈️ Storm Alert";
-                msgBody = lang === "fr" ?
-                  "Orage en cours ! Soyez prudent." :
-                  "Thunderstorm ongoing! Be careful.";
-              } else if (isWindy) {
-                ruptureDetected = true;
-                forceSend = true;
-                msgTitle = lang === "fr" ?
-                  "🌬️ Vent Violent" : "🌬️ Violent Wind";
-                msgBody = lang === "fr" ?
-                  `Vents violents en cours (${current.wind_speed_10m} km/h).` :
-                  `Strong winds ongoing (${current.wind_speed_10m} km/h).`;
+              }
+
+              // Helper for > 2h message
+              const longDurationFr = "sera encore présente pour les deux prochaines heures.";
+              const longDurationFrMasc = "sera encore présent pour les deux prochaines heures.";
+
+              const longDurationEn = "will be present for the next two hours.";
+
+              if (lang === "fr") {
+                if (type === "storm") {
+                  msgTitle = "⛈️ ORAGE EN COURS";
+                  const suffix = foundEnd
+                    ? `devrait s'arrêter dans ${remainingMin} minutes environ.`
+                    : longDurationFrMasc;
+                  msgBody = `Un orage est en cours. Il ${suffix}`;
+                } else if (type === "snow") {
+                  msgTitle = "❄️ IL NEIGE";
+                  const suffix = foundEnd
+                    ? `devrait s'arrêter dans ${remainingMin} minutes environ.`
+                    : longDurationFr;
+                  msgBody = `La neige ${suffix}`;
+                } else {
+                  // Rain
+                  msgTitle = "🌧️ IL PLEUT";
+                  const suffix = foundEnd
+                    ? `devrait s'arrêter dans ${remainingMin} minutes environ.`
+                    : longDurationFr;
+                  msgBody = `La pluie ${suffix}`;
+                }
+              } else {
+                const suffix = foundEnd
+                  ? `should stop in about ${remainingMin} minutes.`
+                  : longDurationEn;
+
+                if (type === "storm") {
+                  msgTitle = "⛈️ STORM ACTIVE";
+                  msgBody = `Storm is active. It ${suffix}`;
+                } else if (type === "snow") {
+                  msgTitle = "❄️ SNOWING";
+                  msgBody = `Snow ${suffix}`;
+                } else {
+                  msgTitle = "🌧️ RAINING";
+                  msgBody = `Rain ${suffix}`;
+                }
               }
             }
 
-            // 2. CHANGE DETECTION (For existing users with lastState)
-            if (lastState) {
-              // 2. TRIGGER LOGIC (Simplified & Sensitive)
-              // Rules: "Important Changes" = Rain (>=0.1mm), Snow (>=0.1mm),
-              // Storm (Any), Strong Wind/Gusts.
-
-              const wasRaining = (lastState.precip && lastState.precip >= 0.1);
-
-              const wasStormy = [95, 96, 99].includes(lastState.code);
-
-              const wasWindy = (lastState.wind > 70 || lastState.gusts > 90);
-
-              if (isRaining && !wasRaining) {
-                // ONSET: Valid Rain/Snow (>0.1mm)
-                ruptureDetected = true;
-                forceSend = true;
-
-                if (isLikeSnow) {
-                  msgTitle = lang === "fr" ?
-                    "❄️ Alerte Neige" : "❄️ Snow Alert";
-                  msgBody = lang === "fr" ?
-                    `Chute de neige détectée (${current.precipitation}mm).` +
-                    (forecast?.duration ? ` Fin estimée dans ~${forecast.duration} min.` : "") :
-                    `Snow detected (${current.precipitation}mm).` +
-                    (forecast?.duration ? ` Est. end in ~${forecast.duration} min.` : "");
-                } else {
-                  msgTitle = lang === "fr" ?
-                    "🌧️ Alerte Pluie" : "🌧️ Rain Alert";
-                  msgBody = lang === "fr" ?
-                    `Pluie détectée (${current.precipitation}mm).` +
-                    (forecast?.duration ? ` Fin estimée dans ~${forecast.duration} min.` : "") :
-                    `Rain detected (${current.precipitation}mm).` +
-                    (forecast?.duration ? ` Est. end in ~${forecast.duration} min.` : "");
-                }
-              } else if (isStormy && !wasStormy) {
-                // ONSET: Storm
-                ruptureDetected = true;
-                forceSend = true;
-                msgTitle = lang === "fr" ? "⛈️ Alerte Orage" : "⛈️ Storm Alert";
-                msgBody = lang === "fr" ?
-                  "Orage détecté à proximité ! Soyez prudent." :
-                  "Thunderstorm detected! Be careful.";
-              } else if (isWindy && !wasWindy) {
-                // ONSET: Violent Wind
-                ruptureDetected = true;
-                forceSend = true;
-                msgTitle = lang === "fr" ?
-                  "🌬️ Vent Violent" : "🌬️ Violent Wind";
-                msgBody = lang === "fr" ?
-                  `Vents violents détectés (${current.wind_speed_10m} km/h).` :
-                  `Strong winds detected (${current.wind_speed_10m} km/h).`;
-              } else if (isRaining && (current.precipitation || 0) > 2.0 &&
-                ((!lastState.precip) ||
-                  (current.precipitation || 0) > (lastState.precip + 2.0))) {
-                // BONUS: HEAVY Rain Intensification (e.g. 0.5 -> 3.0)
-                // We only alert if it jumps by +2.0mm or is >2.0mm newly.
-                // Kept simply to catch "Grosses Averses" if Onset was missed.
-                ruptureDetected = true;
-                forceSend = true;
-                msgTitle = lang === "fr" ? "🌧️ Forte Averse" : "🌧️ Heavy Rain";
-                msgBody = lang === "fr" ?
-                  `Averse intense (${current.precipitation}mm).` :
-                  `Heavy downpour (${current.precipitation}mm).`;
-              }
-            }
 
             // CHECK LIMITS
-            // CRITICAL FIX: Handle null lastSent (new users)
-            const hoursSinceLast = lastSent ?
-              (now.getTime() - lastSent.getTime()) / (1000 * 60 * 60) :
+            const minutesSinceLast = lastSent ?
+              (now.getTime() - lastSent.getTime()) / (1000 * 60) :
               Infinity; // First time = always allow
-            const withinLimits = (newCount < 2 && hoursSinceLast >= 4);
+
+            const withinLimits = (newCount < 2 && minutesSinceLast >= 240); // 4 hours for normal updates
 
             console.log(`[ALERT CHECK] Rupture detected: ${ruptureDetected}`);
             console.log(`[ALERT CHECK] Force send: ${forceSend}`);
             console.log(`[ALERT CHECK] New count today: ${newCount}`);
-            console.log(`[ALERT CHECK] Hours since last: ${hoursSinceLast.toFixed(2)}`);
-            console.log(`[ALERT CHECK] Within limits: ${withinLimits}`);
+            console.log(`[ALERT CHECK] Minutes since last: ${minutesSinceLast.toFixed(0)}`);
 
             let finalCanSend = false;
             // logic: If danger (forceSend), we allow it up to 10 times/day
-            // and ignore hoursSinceLast interval
-            // If normal (clouds/sun), we strictly respect withinLimits
+            // BUT we enforce a 30-minute Clean-Up Period to prevent duplicate execution spam
             if (forceSend) {
-              if (newCount < 10) finalCanSend = true;
+              if (newCount < 10 && minutesSinceLast >= 30) finalCanSend = true;
             } else {
               if (withinLimits) finalCanSend = true;
             }
@@ -707,7 +705,7 @@ export const sendHourlyNotifications = onSchedule({
               });
               // Update notification trackers
               updates.push({
-                ref: doc.ref,
+                ref: docRef,
                 data: {
                   lastWeatherNotif: new Date(),
                   weatherNotifCountToday: newCount + 1,
@@ -716,7 +714,7 @@ export const sendHourlyNotifications = onSchedule({
             }
             // Save new state (always save, even if no notification sent)
             updates.push({
-              ref: doc.ref,
+              ref: docRef,
               data: {
                 lastWeatherState: {
                   code: current.weather_code,
@@ -760,14 +758,29 @@ export const sendHourlyNotifications = onSchedule({
 
   // Send Messages
   if (messages.length > 0) {
+    // ENHANCED DEDUPLICATION: Ensure unique (token + type) combinations
+    // This prevents the same user from receiving duplicate weather alerts
+    const seenCombos = new Set<string>();
+    const uniqueMessages = messages.filter(msg => {
+      const combo = `${msg.token}:${msg.data?.type || 'unknown'}`;
+      if (seenCombos.has(combo)) {
+        console.log(`[DEDUP] Blocked duplicate: ${combo.substring(0, 40)}...`);
+        return false;
+      }
+      seenCombos.add(combo);
+      return true;
+    });
+
+    console.log(`[SEND] Original: ${messages.length}, After dedup: ${uniqueMessages.length}`);
+
     const chunks = [];
-    for (let i = 0; i < messages.length; i += 500) {
-      chunks.push(messages.slice(i, i + 500));
+    for (let i = 0; i < uniqueMessages.length; i += 500) {
+      chunks.push(uniqueMessages.slice(i, i + 500));
     }
     for (const chunk of chunks) {
       await messaging.sendEach(chunk);
     }
-    console.log(`Sent ${messages.length} notifications.`);
+    console.log(`Sent ${uniqueMessages.length} notifications (${messages.length - uniqueMessages.length} duplicates blocked).`);
   }
 });
 
@@ -788,11 +801,10 @@ function getDangerousForecast(
   const codes = minutely15.weather_code;
 
   // If it's already dangerous now, we rely on immediate alerts
-  const isCurrentlyDangerous = currentCode >= 51 ||
-    [95, 96, 99].includes(currentCode) ||
-    (current.wind_speed_10m && current.wind_speed_10m > 70);
-
-  if (isCurrentlyDangerous) return null;
+  // MODIFICATION: We DO NOT return null here anymore. 
+  // We want to know if a dangerous event is continuing or starting.
+  // The caller will handle "Current vs Forecast" priority.
+  // Prior logic (if isCurrentlyDangerous return null) removed.
 
   let startIndex = -1;
   let endIndex = -1;

@@ -200,7 +200,73 @@ const WeatherDashboard = () => {
   // Fallback if not found (timezone issues), take last available or middle
   const safeIndex = currentHourIndex !== -1 ? currentHourIndex : Math.floor(weather.hourly.time.length / 2);
 
-  const nextHours = weather.hourly.time.slice(safeIndex, safeIndex + 6);
+  // Calculate critical times to display
+  const sunriseTime = new Date(weather.daily.sunrise[0]);
+  const sunsetTime = new Date(weather.daily.sunset[0]);
+  const nowDate = new Date();
+
+  // Build smart hourly forecast that includes sunrise and sunset
+  const criticalTimes: Array<{ time: string, temp: number, code: number, label?: string, icon?: any }> = [];
+
+  // Find sunrise index
+  const sunriseIndex = weather.hourly.time.findIndex(t => {
+    const d = new Date(t);
+    return d.getTime() >= sunriseTime.getTime();
+  });
+
+  // Find sunset index
+  const sunsetIndex = weather.hourly.time.findIndex(t => {
+    const d = new Date(t);
+    return d.getTime() >= sunsetTime.getTime();
+  });
+
+  // Add sunrise if it's today and in the future or recent
+  if (sunriseIndex !== -1 && sunriseTime.getTime() > nowDate.getTime() - (2 * 60 * 60 * 1000)) {
+    criticalTimes.push({
+      time: weather.daily.sunrise[0],
+      temp: weather.hourly.temperature_2m[sunriseIndex],
+      code: weather.hourly.weather_code[sunriseIndex],
+      label: 'sunrise',
+      icon: <Sunrise size={24} className="text-yellow-500" />
+    });
+  }
+
+  // Add next 4 hourly slots after current hour
+  if (safeIndex !== -1) {
+    for (let i = 0; i < 4; i++) {
+      const idx = safeIndex + i + 1;
+      if (idx < weather.hourly.time.length) {
+        const timeVal = weather.hourly.time[idx];
+        // Skip if too close to sunrise or sunset (within 1 hour)
+        const timeMs = new Date(timeVal).getTime();
+        if (Math.abs(timeMs - sunriseTime.getTime()) > 60 * 60 * 1000 &&
+          Math.abs(timeMs - sunsetTime.getTime()) > 60 * 60 * 1000) {
+          criticalTimes.push({
+            time: timeVal,
+            temp: weather.hourly.temperature_2m[idx],
+            code: weather.hourly.weather_code[idx]
+          });
+        }
+      }
+    }
+  }
+
+  // Add sunset if it's today and in the future
+  if (sunsetIndex !== -1 && sunsetTime.getTime() > nowDate.getTime()) {
+    criticalTimes.push({
+      time: weather.daily.sunset[0],
+      temp: weather.hourly.temperature_2m[sunsetIndex],
+      code: weather.hourly.weather_code[sunsetIndex],
+      label: 'sunset',
+      icon: <Moon size={24} className="text-blue-300" />
+    });
+  }
+
+  // Sort by time
+  criticalTimes.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+  // Take only first 6 to avoid overflow
+  const displayTimes = criticalTimes.slice(0, 6);
 
   // Calculate strict Day/Night based on Sunrise/Sunset for Icon
   const nowMs = new Date().getTime();
@@ -211,6 +277,7 @@ const WeatherDashboard = () => {
   const maxTemp = convertTemp(weather.daily.temperature_2m_max[0], unit);
   const minTemp = convertTemp(weather.daily.temperature_2m_min[0], unit);
   const currentTemp = convertTemp(weather.current.temperature, unit);
+
 
   return (
     <Card className="mx-4 mb-6 p-6">
@@ -233,13 +300,57 @@ const WeatherDashboard = () => {
         </div>
         <div className="text-right">
           <div className="flex items-center justify-end gap-3">
-            {getWeatherIcon(weather.current.weatherCode, 48, "", isDayNow)}
+            {(() => {
+              // Helper: Is this code Rain, Snow, or Storm?
+              const isWetCode = (c: number) =>
+                (c >= 51 && c <= 67) || // Drizzle/Rain
+                (c >= 71 && c <= 77) || // Snow
+                (c >= 80 && c <= 86) || // Showers
+                (c >= 95);              // Storm
+
+              let displayCode = weather.current.weatherCode;
+              const hourlyCode = weather.hourly.weather_code[safeIndex];
+              const precip = weather.current.precipitation || 0;
+              const temp = weather.current.temperature;
+
+              // 1. LOGIC: PRECIPITATION DATA DETECTED (Real-time)
+              // If we catch precip >= 0.1mm, we FORCE the icon.
+              if (precip >= 0.1 && displayCode < 50) {
+                // It is precipitating but API says Cloud. Force fit.
+                if (temp <= 1) displayCode = 71; // Force Snow
+                else displayCode = 61; // Force Rain
+              }
+
+              return getWeatherIcon(displayCode, 48, "", isDayNow);
+            })()}
             <span className="text-6xl font-bold text-foreground tracking-tighter">
               {currentTemp}°
             </span>
           </div>
           <p className="text-gray-500 font-medium mt-1">
             H: {maxTemp}°  L: {minTemp}°
+            <span className="text-xs ml-2 text-red-500 font-semibold">
+              {(() => {
+                const p = weather.current.precipitation || 0;
+                const c = weather.current.weatherCode;
+                const isSnow = (c >= 71 && c <= 77) || c === 85 || c === 86;
+                const isWet = (c >= 51 && c <= 67) || (c >= 80 && c <= 86) || (c >= 95);
+
+                // Case: Rain/Snow icon but 0mm (Inconsistency)
+                if (p < 0.1 && (isWet || isSnow)) {
+                  return isSnow
+                    ? (language === 'fr' ? "(Neige faible)" : "(Light snow)")
+                    : (language === 'fr' ? "(Pluie faible)" : "(Light rain)");
+                }
+                // Case: Cloud icon but Precip detected (Force Rain logic handles icon, text clarifies)
+                if (p >= 0.1 && c < 50) {
+                  return language === 'fr' ? "(Pluie légère)" : "(Light rain)";
+                }
+
+                // Default: Show measurable precip (or 0mm if dry)
+                return `(Precip: ${p}mm)`;
+              })()}
+            </span>
           </p>
         </div>
       </div>
@@ -306,7 +417,21 @@ const WeatherDashboard = () => {
             </div>
             <div>
               <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.pollution')}</p>
-              <p className="font-semibold text-gray-700">{weather.current.aqi}</p>
+              <p className="font-semibold text-gray-700">
+                {weather.current.aqi} <span className="text-[10px] text-gray-400 font-normal">/ 500</span>
+              </p>
+              <p className="text-[9px] font-bold text-gray-500 uppercase">
+                {(() => {
+                  const val = weather.current.aqi || 0;
+                  const isFr = language === 'fr';
+                  if (val <= 50) return isFr ? 'Bon' : 'Good';
+                  if (val <= 100) return isFr ? 'Modéré' : 'Moderate';
+                  if (val <= 150) return isFr ? 'Sensible' : 'Sensitive';
+                  if (val <= 200) return isFr ? 'Mauvais' : 'Unhealthy';
+                  if (val <= 300) return isFr ? 'Très Mauvais' : 'Very Unhealthy';
+                  return isFr ? 'Dangereux' : 'Hazardous';
+                })()}
+              </p>
             </div>
           </div>
         )}
@@ -335,7 +460,18 @@ const WeatherDashboard = () => {
             </div>
             <div>
               <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">UV Index</p>
-              <p className="font-semibold text-gray-700">{weather.current.uvIndex?.toFixed(1) || 0}</p>
+              <p className="font-semibold text-gray-700">{weather.current.uvIndex?.toFixed(1) || 0} <span className="text-[10px] text-gray-400 font-normal">/ 11</span></p>
+              <p className="text-[9px] font-bold text-gray-500 uppercase">
+                {(() => {
+                  const val = weather.current.uvIndex || 0;
+                  const isFr = language === 'fr';
+                  if (val <= 2) return isFr ? 'Bon' : 'Low';
+                  if (val <= 5) return isFr ? 'Modéré' : 'Moderate';
+                  if (val <= 7) return isFr ? 'Sensible' : 'High';
+                  if (val <= 10) return isFr ? 'Mauvais' : 'Very High';
+                  return isFr ? 'Très Mauvais' : 'Extreme';
+                })()}
+              </p>
             </div>
           </div>
         )}
@@ -361,7 +497,20 @@ const WeatherDashboard = () => {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">Pollen</p>
-                    <p className="font-semibold text-gray-700">{maxPollen.toFixed(0)} <span className="text-[10px] font-normal text-gray-400">grains/m³</span></p>
+                    <p className="font-semibold text-gray-700">
+                      {maxPollen.toFixed(0)} <span className="text-[10px] text-gray-400 font-normal">/ 100</span>
+                    </p>
+                    <p className="text-[9px] font-bold text-gray-500 uppercase">
+                      {(() => {
+                        const val = maxPollen;
+                        const isFr = language === 'fr';
+                        if (val <= 20) return isFr ? 'Bon' : 'Low';
+                        if (val <= 50) return isFr ? 'Modéré' : 'Moderate';
+                        if (val <= 100) return isFr ? 'Sensible' : 'High';
+                        if (val <= 200) return isFr ? 'Mauvais' : 'Very High';
+                        return isFr ? 'Très Mauvais' : 'Extreme';
+                      })()}
+                    </p>
                   </div>
                 </>
               );
@@ -374,18 +523,18 @@ const WeatherDashboard = () => {
       <div className="border-t border-gray-100 pt-6">
         <h3 className="text-xs font-bold text-gray-400 uppercase mb-4 tracking-wider">{t('weather.hourly')}</h3>
         <div className="flex overflow-x-auto gap-8 pb-2 scrollbar-hide">
-          {nextHours.map((time, i) => {
-            const index = safeIndex + i;
-            const temp = weather.hourly.temperature_2m[index];
-            const code = weather.hourly.weather_code[index];
-
+          {displayTimes.map((item, i) => {
             return (
-              <div key={time} className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[3rem]">
-                <span className="text-sm font-medium text-gray-500">{formatHour(time)}</span>
+              <div key={i} className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[3rem]">
+                <span className="text-sm font-medium text-gray-500">
+                  {item.label === 'sunrise' ? (language === 'fr' ? 'Lever' : 'Rise') :
+                    item.label === 'sunset' ? (language === 'fr' ? 'Coucher' : 'Set') :
+                      formatHour(item.time)}
+                </span>
                 <div className="my-1">
-                  {getWeatherIcon(code, 24)}
+                  {item.icon || getWeatherIcon(item.code, 24)}
                 </div>
-                <span className="text-lg font-bold text-foreground">{convertTemp(temp, unit)}°</span>
+                <span className="text-lg font-bold text-foreground">{convertTemp(item.temp, unit)}°</span>
               </div>
             );
           })}
@@ -832,14 +981,15 @@ const MapPage = () => {
           let color = '#F59E0B'; // Default yellow
 
           // Requirement: Colored icons on community map as well
+          // Requirement: All icons WHITE on community map for better contrast on violet
           switch (cond) {
-            case 'Sunny': type = 'sun'; color = '#FCD34D'; break; // Amber
-            case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break; // White (Better contrast on violet)
-            case 'Rain': type = 'rain'; color = '#60A5FA'; break; // Blue
-            case 'Windy': type = 'wind'; color = '#93C5FD'; break; // Light Blue
-            case 'Snow': type = 'snow'; color = '#A5F3FC'; break; // Cyan
-            case 'Storm': type = 'storm'; color = '#FBBF24'; break; // Yellow Lightning
-            default: type = 'sun'; color = '#F59E0B';
+            case 'Sunny': type = 'sun'; color = '#FFFFFF'; break;
+            case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break;
+            case 'Rain': type = 'rain'; color = '#FFFFFF'; break;
+            case 'Windy': type = 'wind'; color = '#FFFFFF'; break;
+            case 'Snow': type = 'snow'; color = '#FFFFFF'; break;
+            case 'Storm': type = 'storm'; color = '#FFFFFF'; break;
+            default: type = 'sun'; color = '#FFFFFF';
           }
 
           iconsHtml += `<div class="flex-shrink-0">${getIconSvg(type, color, 18)}</div>`;
@@ -859,7 +1009,7 @@ const MapPage = () => {
                 <div class="flex gap-1 items-center">
                   ${iconsHtml}
                 </div>
-                ${tempDisplay ? `<span class="font-bold text-white text-xs">${tempDisplay}</span>` : ''}
+                ${tempDisplay ? `<span class="font-bold text-white text-base leading-none pt-0.5">${tempDisplay}</span>` : ''}
               </div>
               ${countBadge}
             </div>

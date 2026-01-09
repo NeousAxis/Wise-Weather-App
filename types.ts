@@ -18,6 +18,7 @@ export interface WeatherData {
       birch?: number;
       olive?: number;
     }; // Grains/m3
+    precipitation?: number;
   };
   hourly: {
     time: string[];

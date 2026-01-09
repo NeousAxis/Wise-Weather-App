@@ -30,26 +30,13 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
     console.log('[firebase-messaging-sw.js] Received background message ', payload);
-    const notificationTitle = payload.notification.title;
+    // CRITICAL: Do NOT call showNotification here if the payload has a 'notification' key.
+    // The browser/OS handles it automatically. Calling it manually causes DOUBLE NOTIFICATIONS.
 
-    // Check for actions in various places (FCM structure is complex)
-    let actions = [];
-    if (payload.webpush && payload.webpush.notification && payload.webpush.notification.actions) {
-        actions = payload.webpush.notification.actions;
-    } else if (payload.notification && payload.notification.actions) {
-        actions = payload.notification.actions;
-    } else if (payload.data && payload.data.actions) {
-        try { actions = JSON.parse(payload.data.actions); } catch (e) { }
-    }
-
-    const notificationOptions = {
-        body: payload.notification.body,
-        icon: '/icon-192.png',
-        data: payload.data,
-        actions: actions
-    };
-
-    self.registration.showNotification(notificationTitle, notificationOptions);
+    // Only use this if you migrate to Data-Only messages in the future.
+    // const notificationTitle = payload.notification.title;
+    // const notificationOptions = { ... };
+    // self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
 self.addEventListener('notificationclick', function (event) {

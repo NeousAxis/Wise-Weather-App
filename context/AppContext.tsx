@@ -573,7 +573,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     setLoadingWeather(true);
     try {
       const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility&hourly=temperature_2m,weather_code,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility,precipitation&hourly=temperature_2m,weather_code,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
       );
       const data = await res.json();
 
@@ -621,7 +621,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           visibility: data.current.visibility,
           aqi: aqiValue,
           uvIndex: currentUV,
-          pollen: pollenData
+          pollen: pollenData,
+          precipitation: data.current.precipitation
         },
         hourly: {
           time: data.hourly.time,
