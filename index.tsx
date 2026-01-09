@@ -268,26 +268,8 @@ const WeatherDashboard = () => {
   // Take only first 6 to avoid overflow
   const displayTimes = criticalTimes.slice(0, 6);
 
-  // Calculate strict Day/Night based on TODAY'S Sunrise/Sunset from API
-  const now = new Date();
-  const todayDateString = now.toDateString(); // "Fri Jan 09 2026"
-
-  // Find the index in daily forecast that matches TODAY
-  // (Because API request uses past_days=1, index 0 is often Yesterday)
-  // Use 'any' cast temporarily if type update lag, but we just fixed types.ts
-  const dailyTimeArray = weather.daily.time || [];
-  const todayIndex = dailyTimeArray.findIndex(t => new Date(t).toDateString() === todayDateString);
-  // Fallback to 0 if not found (though it should be found)
-  const useIndex = todayIndex !== -1 ? todayIndex : 0;
-
-  const todaySunriseTime = new Date(weather.daily.sunrise[useIndex]);
-  const todaySunsetTime = new Date(weather.daily.sunset[useIndex]);
-
-  const nowMs = now.getTime();
-  const todaySunriseMs = todaySunriseTime.getTime();
-  const todaySunsetMs = todaySunsetTime.getTime();
-
-  const isDayNow = (nowMs >= todaySunriseMs && nowMs < todaySunsetMs) ? 1 : 0;
+  // Use API's isDay calculation - it correctly handles sunrise/sunset and timezones
+  const isDayNow = weather.current.isDay;
 
   const maxTemp = convertTemp(weather.daily.temperature_2m_max[0], unit);
   const minTemp = convertTemp(weather.daily.temperature_2m_min[0], unit);
