@@ -1121,9 +1121,12 @@ export const checkCommunityReport = onDocumentCreated(
 
 // --- STRIPE INTEGRATION ---
 
-const stripeSecretKey = defineSecret("STRIPE_SECRET_KEY");
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+  throw new Error("STRIPE_SECRET_KEY environment variable is not set");
+}
 
-export const createStripeCheckout = onCall({ secrets: [stripeSecretKey] }, async (request) => {
+export const createStripeCheckout = onCall(async (request) => {
   const userId = request.auth?.uid;
   const { priceId, successUrl, cancelUrl } = request.data;
 
@@ -1131,7 +1134,7 @@ export const createStripeCheckout = onCall({ secrets: [stripeSecretKey] }, async
     throw new HttpsError('unauthenticated', 'User must be logged in');
   }
 
-  const stripe = new Stripe(stripeSecretKey.value());
+  const stripe = new Stripe(stripeSecretKey);
 
   try {
     const session = await stripe.checkout.sessions.create({

@@ -1,0 +1,14 @@
+{
+    "version": "1.0.4",
+    "date": "2026-01-11",
+    "description": "v2.2.23 - UV/AQI graphs fix, Ultimate tier normalization, pollen enrichment (alder, mugwort)",
+    "changes": [
+        "Fixed UV/AQI graph visibility (h-full + justify-end CSS)",
+        "Normalized Ultimate tier (Firestore 'Ultimate' → 'ULTIMATE')",
+        "Added pollen types: Alder (winter), Mugwort",
+        "Restored precipitation logic (force display if >= 0.1mm)",
+        "Secured Stripe key (moved to environment variable)",
+        "Removed fallback simulated pollen data"
+    ],
+    "notes": "STRIPE_SECRET_KEY must be set in Firebase Functions environment variables"
+}
