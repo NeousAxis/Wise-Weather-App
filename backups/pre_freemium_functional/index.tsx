@@ -5,12 +5,11 @@ import {
   Sun, Cloud, CloudRain, Wind, Droplets, ArrowUp, ArrowDown,
   Map as MapIcon, Menu, X, Heart, Thermometer,
   CloudLightning, Snowflake, Navigation, Check, Bug, Wand2,
-  Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon, Bell, Eye, Lock, Crown, ChevronUp, ChevronDown, Settings,
-  BarChart2, Activity
+  Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon, Bell, Eye
 } from 'lucide-react';
 import { AppProvider, AppContext } from './context/AppContext';
 import { TRANSLATIONS } from './constants';
-import { WeatherData, CommunityReport, ConfidenceLevel, SearchResult, UserTier } from './types';
+import { WeatherData, CommunityReport, ConfidenceLevel, SearchResult } from './types';
 
 // --- Helpers ---
 
@@ -111,28 +110,6 @@ const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
   }
 };
 
-// --- Reusable Components ---
-
-const PremiumValue = ({ isLocked, children }: { isLocked: boolean, children: React.ReactNode }) => {
-  const { setShowPremium } = useContext(AppContext)!;
-
-  if (!isLocked) return <>{children}</>;
-
-  return (
-    <div className="relative group cursor-pointer w-full" onClick={() => setShowPremium(true)}>
-      <div className="blur-[4px] select-none pointer-events-none opacity-50 transition-all duration-300">
-        {children}
-      </div>
-      <div className="absolute inset-0 flex flex-col items-center justify-center z-10 transition-transform duration-300 group-hover:scale-105">
-        <div className="bg-white/90 p-1.5 rounded-full shadow-sm mb-0.5 group-hover:bg-yellow-100 transition-colors">
-          <Lock size={12} className="text-gray-600 group-hover:text-yellow-600 transition-colors" />
-        </div>
-        <span className="text-[8px] font-bold text-gray-600 uppercase tracking-wider group-hover:text-yellow-600 transition-colors">Premium</span>
-      </div>
-    </div>
-  );
-};
-
 // --- Features ---
 
 const QuoteBlock = () => {
@@ -174,17 +151,7 @@ const QuoteBlock = () => {
 };
 
 const WeatherDashboard = () => {
-  const { weather, loadingWeather, unit, t, cityName, language, userTier, setShowPremium } = useContext(AppContext)!;
-  const [showAirDetails, setShowAirDetails] = useState(false);
-  const [activeGraph, setActiveGraph] = useState<'uv' | 'aqi' | 'pollen' | null>(null);
-
-  // Helper for 24h Data (for Expert Graph)
-  const getTodayData = (key: 'uv_index' | 'european_aqi') => {
-    if (weather && weather.hourly && weather.hourly[key]) {
-      return weather.hourly[key].slice(0, 24);
-    }
-    return Array(24).fill(0);
-  };
+  const { weather, loadingWeather, unit, t, cityName, language } = useContext(AppContext)!;
 
   if (loadingWeather || !weather) {
     return (
@@ -264,10 +231,9 @@ const WeatherDashboard = () => {
     });
   }
 
-  // Add next hourly slots (4 for Free, 24 for Premium)
-  const hourlyLimit = (userTier === UserTier.FREE) ? 4 : 24;
+  // Add next 4 hourly slots after current hour
   if (safeIndex !== -1) {
-    for (let i = 0; i < hourlyLimit; i++) {
+    for (let i = 0; i < 4; i++) {
       const idx = safeIndex + i + 1;
       if (idx < weather.hourly.time.length) {
         const timeVal = weather.hourly.time[idx];
@@ -299,9 +265,8 @@ const WeatherDashboard = () => {
   // Sort by time
   criticalTimes.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-  // Take appropriate number of slots
-  const displayLimit = (userTier === UserTier.FREE) ? 6 : 24;
-  const displayTimes = criticalTimes.slice(0, displayLimit);
+  // Take only first 6 to avoid overflow
+  const displayTimes = criticalTimes.slice(0, 6);
 
   // Use API's isDay calculation - it correctly handles sunrise/sunset and timezones
   const isDayNow = weather.current.isDay;
@@ -333,19 +298,22 @@ const WeatherDashboard = () => {
         <div className="text-right">
           <div className="flex items-center justify-end gap-3">
             {(() => {
-              // SYNC STRATEGY: Use Hourly Forecast code for local icon
-              // This ensures the local icon always matches current hour data
-              const hourlyCode = weather.hourly.weather_code[safeIndex];
-              let displayCode = hourlyCode;
+              // Helper: Is this code Rain, Snow, or Storm?
+              const isWetCode = (c: number) =>
+                (c >= 51 && c <= 67) || // Drizzle/Rain
+                (c >= 71 && c <= 77) || // Snow
+                (c >= 80 && c <= 86) || // Showers
+                (c >= 95);              // Storm
 
-              // PRECIPITATION OVERRIDE LOGIC
-              // If real-time precipitation is detected but hourly shows clear/cloudy,
-              // override to show rain/snow icon
+              let displayCode = weather.current.weatherCode;
+              const hourlyCode = weather.hourly.weather_code[safeIndex];
               const precip = weather.current.precipitation || 0;
               const temp = weather.current.temperature;
 
+              // 1. LOGIC: PRECIPITATION DATA DETECTED (Real-time)
+              // If we catch precip >= 0.1mm, we FORCE the icon.
               if (precip >= 0.1 && displayCode < 50) {
-                // It is precipitating but hourly says clear/cloudy. Force precipitation icon.
+                // It is precipitating but API says Cloud. Force fit.
                 if (temp <= 1) displayCode = 71; // Force Snow
                 else displayCode = 61; // Force Rain
               }
@@ -358,64 +326,33 @@ const WeatherDashboard = () => {
           </div>
           <p className="text-gray-500 font-medium mt-1">
             H: {maxTemp}°  L: {minTemp}°
-          </p>
-          {userTier === UserTier.ULTIMATE && weather.yesterday && weather.yesterday.details && (
-            <div className="mt-3 bg-white/60 backdrop-blur-sm rounded-xl p-2 border border-purple-100 shadow-sm animate-in fade-in slide-in-from-top-1 mx-4">
-              <div className="flex items-center justify-between gap-1">
-                <div className="text-[9px] font-bold text-purple-600 uppercase tracking-widest leading-none transform rotate-180 py-1" style={{ writingMode: 'vertical-rl' }}>
-                  {language === 'fr' ? 'HIER' : 'YEST'}
-                </div>
+            <span className="text-xs ml-2 text-red-500 font-semibold">
+              {(() => {
+                const p = weather.current.precipitation || 0;
+                const c = weather.current.weatherCode;
+                const isSnow = (c >= 71 && c <= 77) || c === 85 || c === 86;
+                const isWet = (c >= 51 && c <= 67) || (c >= 80 && c <= 86) || (c >= 95);
 
-                <div className="flex flex-col items-center flex-1">
-                  <span className="text-[9px] text-gray-400 font-medium mb-0.5">{language === 'fr' ? 'Matin' : 'AM'}</span>
-                  <div className="opacity-90 scale-75 -my-1">{getWeatherIcon(weather.yesterday.details.morning.code, 24)}</div>
-                  <span className="text-xs font-bold text-gray-700">{convertTemp(weather.yesterday.details.morning.temp, unit)}°</span>
-                </div>
+                // Case: Rain/Snow icon but 0mm (Inconsistency)
+                if (p < 0.1 && (isWet || isSnow)) {
+                  return isSnow
+                    ? (language === 'fr' ? "(Neige faible)" : "(Light snow)")
+                    : (language === 'fr' ? "(Pluie faible)" : "(Light rain)");
+                }
+                // Case: Cloud icon but Precip detected (Force Rain logic handles icon, text clarifies)
+                if (p >= 0.1 && c < 50) {
+                  return language === 'fr' ? "(Pluie légère)" : "(Light rain)";
+                }
 
-                <div className="w-px h-8 bg-gray-100"></div>
-
-                <div className="flex flex-col items-center flex-1">
-                  <span className="text-[9px] text-gray-400 font-medium mb-0.5">{language === 'fr' ? 'Midi' : 'Noon'}</span>
-                  <div className="opacity-90 scale-75 -my-1">{getWeatherIcon(weather.yesterday.details.noon.code, 24)}</div>
-                  <span className="text-xs font-bold text-gray-700">{convertTemp(weather.yesterday.details.noon.temp, unit)}°</span>
-                </div>
-
-                <div className="w-px h-8 bg-gray-100"></div>
-
-                <div className="flex flex-col items-center flex-1">
-                  <span className="text-[9px] text-gray-400 font-medium mb-0.5">{language === 'fr' ? 'Soir' : 'PM'}</span>
-                  <div className="opacity-90 scale-75 -my-1">{getWeatherIcon(weather.yesterday.details.evening.code, 24)}</div>
-                  <span className="text-xs font-bold text-gray-700">{convertTemp(weather.yesterday.details.evening.temp, unit)}°</span>
-                </div>
-              </div>
-            </div>
-          )}
-          <p className="hidden">
-            {(() => {
-              const p = weather.current.precipitation || 0;
-              const c = weather.current.weatherCode;
-              const isSnow = (c >= 71 && c <= 77) || c === 85 || c === 86;
-              const isWet = (c >= 51 && c <= 67) || (c >= 80 && c <= 86) || (c >= 95);
-
-              // Case: Rain/Snow icon but 0mm (Inconsistency)
-              if (p < 0.1 && (isWet || isSnow)) {
-                return isSnow
-                  ? (language === 'fr' ? "(Neige faible)" : "(Light snow)")
-                  : (language === 'fr' ? "(Pluie faible)" : "(Light rain)");
-              }
-              // Case: Cloud icon but Precip detected (Force Rain logic handles icon, text clarifies)
-              if (p >= 0.1 && c < 50) {
-                return language === 'fr' ? "(Pluie légère)" : "(Light rain)";
-              }
-
-              // Default: Show measurable precip (or 0mm if dry)
-              return `(Precip: ${p}mm)`;
-            })()}
+                // Default: Show measurable precip (or 0mm if dry)
+                return `(Precip: ${p}mm)`;
+              })()}
+            </span>
           </p>
         </div>
-      </div >
+      </div>
 
-      {/* Stats Grid - Unified Layout */}
+      {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-y-6 gap-x-8 mb-8">
         {/* Sunrise */}
         <div className="flex items-center gap-3">
@@ -461,6 +398,41 @@ const WeatherDashboard = () => {
           </div>
         </div>
 
+        {/* Quality Air (Pollution) */}
+        {weather.current.aqi !== undefined && (
+          <div className="flex items-center gap-3">
+            <div className={`relative p-2 rounded-full ${weather.current.aqi <= 50 ? 'bg-green-50 text-green-600' :
+              weather.current.aqi <= 100 ? 'bg-yellow-50 text-yellow-600' :
+                weather.current.aqi <= 150 ? 'bg-orange-50 text-orange-600' :
+                  'bg-red-50 text-red-600'
+              }`}>
+              {weather.current.aqi > 100 && (
+                <span className={`absolute inset-0 rounded-full animate-ping opacity-75 ${weather.current.aqi <= 150 ? 'bg-orange-400' : 'bg-red-400'
+                  }`}></span>
+              )}
+              <CloudFog size={20} className="relative z-10" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.pollution')}</p>
+              <p className="font-semibold text-gray-700">
+                {weather.current.aqi} <span className="text-[10px] text-gray-400 font-normal">/ 500</span>
+              </p>
+              <p className="text-[9px] font-bold text-gray-500 uppercase">
+                {(() => {
+                  const val = weather.current.aqi || 0;
+                  const isFr = language === 'fr';
+                  if (val <= 50) return isFr ? 'Bon' : 'Good';
+                  if (val <= 100) return isFr ? 'Modéré' : 'Moderate';
+                  if (val <= 150) return isFr ? 'Sensible' : 'Sensitive';
+                  if (val <= 200) return isFr ? 'Mauvais' : 'Unhealthy';
+                  if (val <= 300) return isFr ? 'Très Mauvais' : 'Very Unhealthy';
+                  return isFr ? 'Dangereux' : 'Hazardous';
+                })()}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Visibility */}
         {weather.current.visibility !== undefined && (
           <div className="flex items-center gap-3">
@@ -474,92 +446,44 @@ const WeatherDashboard = () => {
           </div>
         )}
 
-        {/* UV Index - Clickable for Ultimate (Unified Style with Pulse) */}
+        {/* UV Index */}
         {weather.current.uvIndex !== undefined && (
-          <div
-            className={`flex items-center gap-3 transition-all rounded-xl p-2 -m-2 ${userTier === UserTier.ULTIMATE ? 'cursor-pointer hover:bg-orange-50/50 active:scale-95' : ''}`}
-            onClick={() => userTier === UserTier.ULTIMATE && setActiveGraph('uv')}
-          >
-            <div className="p-2 bg-orange-50 rounded-full text-orange-600 relative">
-              {(weather.current.uvIndex || 0) > 5 && (
-                <span className={`absolute inset-0 rounded-full animate-ping opacity-75 ${(weather.current.uvIndex || 0) > 7 ? 'bg-red-400' : 'bg-orange-400'}`}></span>
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-full relative ${weather.current.uvIndex > 6 ? 'bg-red-100 text-red-600' : 'bg-orange-50 text-orange-500'}`}>
+              {weather.current.uvIndex > 6 && (
+                <span className="absolute inset-0 rounded-full animate-ping opacity-75 bg-red-400"></span>
               )}
               <Sun size={20} className="relative z-10" />
-              {userTier === UserTier.ULTIMATE && <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-orange-100 z-20"><BarChart2 size={8} className="text-orange-400" /></div>}
             </div>
             <div>
-              <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{language === 'fr' ? 'Index UV' : 'UV Index'}</p>
-              <PremiumValue isLocked={userTier === UserTier.FREE}>
-                <div className="flex items-baseline gap-1">
-                  <span className="font-semibold text-gray-700">{weather.current.uvIndex?.toFixed(0)}</span>
-                  <span className="text-[10px] text-gray-400 font-medium">/ 11</span>
-                </div>
-              </PremiumValue>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">UV Index</p>
+              <p className="font-semibold text-gray-700">{weather.current.uvIndex?.toFixed(1) || 0} <span className="text-[10px] text-gray-400 font-normal">/ 11</span></p>
+              <p className="text-[9px] font-bold text-gray-500 uppercase">
+                {(() => {
+                  const val = weather.current.uvIndex || 0;
+                  const isFr = language === 'fr';
+                  if (val <= 2) return isFr ? 'Bon' : 'Low';
+                  if (val <= 5) return isFr ? 'Modéré' : 'Moderate';
+                  if (val <= 7) return isFr ? 'Sensible' : 'High';
+                  if (val <= 10) return isFr ? 'Mauvais' : 'Very High';
+                  return isFr ? 'Très Mauvais' : 'Extreme';
+                })()}
+              </p>
             </div>
           </div>
         )}
 
-        {/* Air Quality - Clickable for Ultimate (Unified Style with Pulse) */}
-        {(weather.current.aqi !== undefined) && (
-          <div
-            className={`flex items-center gap-3 transition-all rounded-xl p-2 -m-2 ${userTier === UserTier.ULTIMATE ? 'cursor-pointer hover:bg-blue-50/50 active:scale-95' : ''}`}
-            onClick={() => userTier === UserTier.ULTIMATE && setActiveGraph('aqi')}
-          >
-            <div className={`p-2 rounded-full relative ${weather.current.aqi <= 50 ? 'bg-green-50 text-green-600' :
-              weather.current.aqi <= 100 ? 'bg-yellow-50 text-yellow-600' :
-                weather.current.aqi <= 150 ? 'bg-orange-50 text-orange-600' :
-                  'bg-red-50 text-red-600'
-              }`}>
-              {(weather.current.aqi || 0) > 50 && (
-                <span className={`absolute inset-0 rounded-full animate-ping opacity-75 
-                  ${(weather.current.aqi || 0) > 150 ? 'bg-red-500' :
-                    (weather.current.aqi || 0) > 100 ? 'bg-orange-500' : 'bg-yellow-400'
-                  }`}>
-                </span>
-              )}
-              <Activity size={20} className="relative z-10" />
-              {userTier === UserTier.ULTIMATE && <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-blue-100 z-20"><BarChart2 size={8} className="text-blue-400" /></div>}
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{language === 'fr' ? 'Qualité Air' : 'Air Quality'}</p>
-              <PremiumValue isLocked={userTier === UserTier.FREE}>
-                <div className="flex items-baseline gap-1">
-                  <span className="font-semibold text-gray-700">{weather.current.aqi?.toFixed(0)}</span>
-                  <span className="text-[10px] text-gray-400 font-medium">/ 500</span>
-                </div>
-              </PremiumValue>
-            </div>
-          </div>
-        )}
-
-        {/* Pollen - Unified Style with Dominant Type */}
+        {/* Pollen */}
         {weather.current.pollen && (
-          <div
-            className={`flex items-center gap-3 transition-all rounded-xl p-2 -m-2 ${userTier === UserTier.ULTIMATE ? 'cursor-pointer hover:bg-green-50/50 active:scale-95' : ''}`}
-            onClick={() => userTier === UserTier.ULTIMATE && setActiveGraph('pollen')}
-          >
+          <div className="flex items-center gap-3">
             {(() => {
-              const isFr = language === 'fr';
-              const pollens = [
-                { val: weather.current.pollen.alder || 0, label: isFr ? 'Aulne' : 'Alder' },
-                { val: weather.current.pollen.birch || 0, label: isFr ? 'Bouleau' : 'Birch' },
-                { val: weather.current.pollen.grass || 0, label: isFr ? 'Graminées' : 'Grass' },
-                { val: weather.current.pollen.ragweed || 0, label: isFr ? 'Ambroisie' : 'Ragweed' },
-                { val: weather.current.pollen.olive || 0, label: isFr ? 'Olivier' : 'Olive' },
-                { val: weather.current.pollen.mugwort || 0, label: isFr ? 'Armoise' : 'Mugwort' }
-              ];
-              // Find dominant pollen
-              const dominant = pollens.reduce((prev, curr) => (curr.val > prev.val ? curr : prev), pollens[0]);
-              const maxPollen = dominant.val;
+              const maxPollen = Math.max(
+                weather.current.pollen.birch || 0,
+                weather.current.pollen.grass || 0,
+                weather.current.pollen.ragweed || 0,
+                weather.current.pollen.olive || 0
+              );
               const isHigh = maxPollen > 50;
-
-              // Risk Label
-              let riskLabel = '';
-              if (maxPollen <= 20) riskLabel = isFr ? 'Faible' : 'Low';
-              else if (maxPollen <= 50) riskLabel = isFr ? 'Modéré' : 'Moderate';
-              else if (maxPollen <= 100) riskLabel = isFr ? 'Élevé' : 'High';
-              else riskLabel = isFr ? 'Extrême' : 'Extreme';
-
               return (
                 <>
                   <div className={`p-2 rounded-full relative ${isHigh ? 'bg-red-100 text-red-600' : 'bg-green-50 text-green-600'}`}>
@@ -567,25 +491,23 @@ const WeatherDashboard = () => {
                       <span className="absolute inset-0 rounded-full animate-ping opacity-75 bg-red-400"></span>
                     )}
                     <Wind size={20} className="relative z-10" />
-                    {userTier === UserTier.ULTIMATE && <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-green-100 z-20"><BarChart2 size={8} className="text-green-600" /></div>}
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">Pollen</p>
-                    <PremiumValue isLocked={userTier === UserTier.FREE}>
-                      <div>
-                        <div className="flex items-baseline gap-1">
-                          <span className="font-semibold text-gray-700">{maxPollen.toFixed(0)}</span>
-                          <span className="text-[10px] text-gray-400 font-medium">/ 100</span>
-                        </div>
-                        <p className="text-[9px] font-bold text-gray-500 uppercase mt-0.5 truncate w-24">
-                          {maxPollen > 10 ? (
-                            <span className="text-blue-600">{dominant.label}</span>
-                          ) : (
-                            riskLabel
-                          )}
-                        </p>
-                      </div>
-                    </PremiumValue>
+                    <p className="font-semibold text-gray-700">
+                      {maxPollen.toFixed(0)} <span className="text-[10px] text-gray-400 font-normal">/ 100</span>
+                    </p>
+                    <p className="text-[9px] font-bold text-gray-500 uppercase">
+                      {(() => {
+                        const val = maxPollen;
+                        const isFr = language === 'fr';
+                        if (val <= 20) return isFr ? 'Bon' : 'Low';
+                        if (val <= 50) return isFr ? 'Modéré' : 'Moderate';
+                        if (val <= 100) return isFr ? 'Sensible' : 'High';
+                        if (val <= 200) return isFr ? 'Mauvais' : 'Very High';
+                        return isFr ? 'Très Mauvais' : 'Extreme';
+                      })()}
+                    </p>
                   </div>
                 </>
               );
@@ -594,139 +516,25 @@ const WeatherDashboard = () => {
         )}
       </div>
 
-      {/* Expert Graph Modal */}
-      {activeGraph && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setActiveGraph(null)}>
-          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">
-                  {activeGraph === 'uv' ? (language === 'fr' ? 'Index UV (24h)' : 'UV Index (24h)') :
-                    activeGraph === 'aqi' ? (language === 'fr' ? 'Pollution (AQI)' : 'Air Quality (AQI)') :
-                      (language === 'fr' ? 'Détails Pollens' : 'Pollen Details')}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  {activeGraph === 'pollen'
-                    ? (language === 'fr' ? 'Niveaux actuels par type' : 'Current levels by type')
-                    : (language === 'fr' ? 'Evolution sur la journée' : 'Forecast for today')}
-                </p>
-              </div>
-              <button onClick={() => setActiveGraph(null)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Graph or List Render */}
-            {activeGraph === 'pollen' ? (
-              <div className="space-y-4 py-2">
-                {[
-                  { key: 'alder', label: language === 'fr' ? 'Aulne' : 'Alder', color: 'bg-amber-400' },
-                  { key: 'birch', label: language === 'fr' ? 'Bouleau' : 'Birch', color: 'bg-yellow-400' },
-                  { key: 'grass', label: language === 'fr' ? 'Graminées' : 'Grass', color: 'bg-green-500' },
-                  { key: 'ragweed', label: language === 'fr' ? 'Ambroisie' : 'Ragweed', color: 'bg-emerald-600' },
-                  { key: 'olive', label: language === 'fr' ? 'Olivier' : 'Olive', color: 'bg-lime-500' },
-                  { key: 'mugwort', label: language === 'fr' ? 'Armoise' : 'Mugwort', color: 'bg-teal-500' },
-                ].map(item => {
-                  // @ts-ignore
-                  const val = weather.current.pollen ? (weather.current.pollen[item.key] || 0) : 0;
-                  const percent = Math.min(val, 100);
-                  return (
-                    <div key={item.key}>
-                      <div className="flex justify-between text-sm mb-1 font-medium text-gray-700">
-                        <span>{item.label}</span>
-                        <span>{val} <span className="text-xs text-gray-400 font-normal">/ 100</span></span>
-                      </div>
-                      <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${val > 50 ? 'bg-red-500' : item.color}`}
-                          style={{ width: `${percent}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="h-48 flex items-end gap-1 mb-2">
-                {(() => {
-                  const rawData = getTodayData(activeGraph === 'uv' ? 'uv_index' : 'european_aqi');
-                  const data = rawData.length > 0 ? rawData : Array(24).fill(0);
-                  const max = Math.max(...data, 10); // Min max to avoid huge bars for small values
-
-                  return data.map((val, i) => (
-                    <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative">
-                      {/* Tooltip */}
-                      <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black text-white text-[9px] px-1 rounded pointer-events-none whitespace-nowrap z-10">
-                        {i}h: {val.toFixed(0)}
-                      </div>
-                      <div
-                        className={`w-full rounded-t-sm transition-all ${activeGraph === 'uv' ? 'bg-orange-400' : 'bg-blue-400'}`}
-                        style={{ height: `${(val / max) * 100}%`, minHeight: '4px' }}
-                      ></div>
-                    </div>
-                  ));
-                })()}
-              </div>
-            )}
-            {/* X Axis */}
-            <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1">
-              <span>00h</span>
-              <span>06h</span>
-              <span>12h</span>
-              <span>18h</span>
-              <span>23h</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-
       {/* Hourly Forecast */}
       <div className="border-t border-gray-100 pt-6">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('weather.hourly')}</h3>
-          {/* Small Badge for Tier Debug/Info */}
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${userTier === UserTier.FREE ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}`}>
-            {userTier === UserTier.FREE ? 'BASIC' : userTier}
-          </span>
-        </div>
-
+        <h3 className="text-xs font-bold text-gray-400 uppercase mb-4 tracking-wider">{t('weather.hourly')}</h3>
         <div className="flex overflow-x-auto gap-8 pb-2 scrollbar-hide">
-          {(() => {
-            // Logic: Standard/Ultimate get 24h, Free gets 3h
-            const isPremium = userTier === UserTier.STANDARD || userTier === UserTier.ULTIMATE;
-            const limit = isPremium ? 24 : 3;
-            const visibleItems = displayTimes.slice(0, limit);
-
+          {displayTimes.map((item, i) => {
             return (
-              <>
-                {visibleItems.map((item, i) => (
-                  <div key={i} className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[3rem]">
-                    <span className="text-sm font-medium text-gray-500">
-                      {item.label === 'sunrise' ? (language === 'fr' ? 'Lever' : 'Rise') :
-                        item.label === 'sunset' ? (language === 'fr' ? 'Coucher' : 'Set') :
-                          formatHour(item.time)}
-                    </span>
-                    <div className="my-1">
-                      {item.icon || getWeatherIcon(item.code, 24)}
-                    </div>
-                    <span className="text-lg font-bold text-foreground">{convertTemp(item.temp, unit)}°</span>
-                  </div>
-                ))}
-
-                {/* Lock Teaser - Explicitly show if not premium */}
-                {!isPremium && (
-                  <div className="flex flex-col items-center justify-center gap-2 flex-shrink-0 min-w-[3rem] opacity-60 cursor-pointer group" onClick={() => setShowPremium(true)}>
-                    <span className="text-sm font-medium text-gray-400">...</span>
-                    <div className="my-1 bg-gray-100 p-2 rounded-full group-hover:bg-yellow-100 transition-colors animate-pulse">
-                      <Lock size={16} className="text-gray-500 group-hover:text-yellow-600" />
-                    </div>
-                    <span className="text-xs font-bold text-gray-500 group-hover:text-yellow-600">+20h</span>
-                  </div>
-                )}
-              </>
+              <div key={i} className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[3rem]">
+                <span className="text-sm font-medium text-gray-500">
+                  {item.label === 'sunrise' ? (language === 'fr' ? 'Lever' : 'Rise') :
+                    item.label === 'sunset' ? (language === 'fr' ? 'Coucher' : 'Set') :
+                      formatHour(item.time)}
+                </span>
+                <div className="my-1">
+                  {item.icon || getWeatherIcon(item.code, 24)}
+                </div>
+                <span className="text-lg font-bold text-foreground">{convertTemp(item.temp, unit)}°</span>
+              </div>
             );
-          })()}
+          })}
         </div>
       </div>
     </Card>
@@ -864,9 +672,7 @@ const CommunityCarousel = () => {
 
 // --- Pages & Modals ---
 
-// --- Pages ---
-
-const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPremium: (show: boolean) => void }) => {
+const MapPage = () => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
@@ -1165,56 +971,36 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
       // 3. Affichage des Leaders uniquement
       consolidatedReports.forEach(report => {
-        // CHECK FREEMIUM STATUS
-        const isFree = userTier === UserTier.FREE;
-        // Optional: Allow seeing own reports? Assuming anonymous for now or purely location based.
-        // If we had user ID check: const isMine = report.userId === user.uid;
+        let iconsHtml = '';
 
-        let iconContent = '';
-        let className = 'bg-transparent overflow-visible';
+        report.conditions.forEach(cond => {
+          let type: any = 'sun';
+          let color = '#F59E0B'; // Default yellow
 
-        if (isFree) {
-          // --- LOCKED VIEW (Blurry + Lock) ---
-          iconContent = `
-            <div class="relative group cursor-pointer">
-              <div class="bg-gray-200/80 backdrop-blur-md rounded-full shadow-sm px-3 py-2 flex items-center justify-center gap-2 transform transition-transform hover:scale-110">
-                 <div class="text-gray-500 opacity-50 blur-[2px]">
-                    ${getIconSvg('cloud', '#6B7280', 24)}
-                 </div>
-                 <div class="absolute inset-0 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                 </div>
-              </div>
-            </div>
-          `;
-        } else {
-          // --- STANDARD VIEW (Details) ---
-          let iconsHtml = '';
-          report.conditions.forEach(cond => {
-            let type: any = 'sun';
-            let color = '#F59E0B'; // Default yellow
+          // Requirement: Colored icons on community map as well
+          // Requirement: All icons WHITE on community map for better contrast on violet
+          switch (cond) {
+            case 'Sunny': type = 'sun'; color = '#FFFFFF'; break;
+            case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break;
+            case 'Rain': type = 'rain'; color = '#FFFFFF'; break;
+            case 'Windy': type = 'wind'; color = '#FFFFFF'; break;
+            case 'Snow': type = 'snow'; color = '#FFFFFF'; break;
+            case 'Storm': type = 'storm'; color = '#FFFFFF'; break;
+            default: type = 'sun'; color = '#FFFFFF';
+          }
 
-            switch (cond) {
-              case 'Sunny': type = 'sun'; color = '#FFFFFF'; break;
-              case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break;
-              case 'Rain': type = 'rain'; color = '#FFFFFF'; break;
-              case 'Windy': type = 'wind'; color = '#FFFFFF'; break;
-              case 'Snow': type = 'snow'; color = '#FFFFFF'; break;
-              case 'Storm': type = 'storm'; color = '#FFFFFF'; break;
-              default: type = 'sun'; color = '#FFFFFF';
-            }
+          iconsHtml += `<div class="flex-shrink-0">${getIconSvg(type, color, 18)}</div>`;
+        });
 
-            iconsHtml += `<div class="flex-shrink-0">${getIconSvg(type, color, 18)}</div>`;
-          });
+        const tempDisplay = report.temp ? `${convertTemp(report.temp, unit)}°` : '';
+        const countBadge = (report.count && report.count > 1)
+          ? `<div class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white shadow-sm z-50">${report.count}</div>`
+          : '';
 
-          const hasTemp = report.temp !== undefined && report.temp !== null;
-          const tempDisplay = hasTemp ? `${convertTemp(report.temp!, unit)}°` : '';
-
-          const countBadge = (report.count && report.count > 1)
-            ? `<div class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white shadow-sm z-50">${report.count}</div>`
-            : '';
-
-          iconContent = `
+        // Requirement: Violet Pill (bg-violet-400), No Border, White Temp Text
+        const el = L.divIcon({
+          className: 'bg-transparent overflow-visible', // overflow-visible pour le badge
+          html: `
             <div class="relative">
               <div class="bg-violet-400 rounded-full shadow-md px-3 py-1.5 h-10 flex items-center justify-center gap-2 transform hover:scale-110 transition-transform whitespace-nowrap">
                 <div class="flex gap-1 items-center">
@@ -1224,31 +1010,15 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
               </div>
               ${countBadge}
             </div>
-          `;
-        }
-
-
-        const el = L.divIcon({
-          className: className,
-          html: iconContent,
-          iconSize: isFree ? [40, 40] : [Math.max(50, 30 + (report.conditions.length * 22) + ((report.temp !== undefined && report.temp !== null) ? 25 : 0)), 40],
-          iconAnchor: isFree ? [20, 20] : [Math.max(50, 30 + (report.conditions.length * 22) + ((report.temp !== undefined && report.temp !== null) ? 25 : 0)) / 2, 20]
+          `,
+          iconSize: [Math.max(50, 30 + (report.conditions.length * 22) + (tempDisplay ? 25 : 0)), 40],
+          iconAnchor: [Math.max(50, 30 + (report.conditions.length * 22) + (tempDisplay ? 25 : 0)) / 2, 20]
         });
-
-        const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
-
-        // Add click handler for Free tier
-        if (isFree) {
-          marker.on('click', () => {
-            setShowPremium(true);
-          });
-        }
-
-        markersRef.current.push(marker);
+        markersRef.current.push(L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current));
       });
     }
 
-  }, [viewMode, location, weather, communityReports, majorCitiesWeather, userPosition, unit, userTier, setShowPremium]);
+  }, [viewMode, location, weather, communityReports, majorCitiesWeather, userPosition, unit]);
 
   return (
     <div className="relative w-full h-full">
@@ -1445,7 +1215,7 @@ const ContributionModal = ({ onClose, initialSelection }: { onClose: () => void,
   }
 
   return (
-    <div className="fixed inset-0 z-[20000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
       <Card className="w-full max-w-sm bg-white relative flex flex-col max-h-[90vh]">
         <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 z-10">
           <X size={24} />
@@ -1528,298 +1298,18 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
       </div>
 
     </div>
-  );
-};
-
-const PremiumModal = ({ onClose }: { onClose: () => void }) => {
-  const { language, simulateSubscription, user, userTier } = useContext(AppContext)!;
-  const [billing, setBilling] = useState<'monthly' | 'yearly'>('yearly');
-
-  const tiers = [
-    {
-      name: language === 'fr' ? 'Gratuit' : 'Free',
-      price: 'CHF 0.-',
-      period: '',
-      color: 'from-gray-100 to-gray-200',
-      textColor: 'text-gray-700',
-      features: [
-        language === 'fr' ? 'Météo actuelle + 3h' : 'Current weather + 3h',
-        language === 'fr' ? 'Alertes vitales uniquement' : 'Price alerts only', // Wait, previous trans was inaccurate?
-        language === 'fr' ? 'Poster des rapports' : 'Post reports',
-        language === 'fr' ? '❌ Carte communautaire floutée' : '❌ Blurred community map',
-        language === 'fr' ? '❌ Données Santé masquées' : '❌ Masked Health Data'
-      ],
-      cta: language === 'fr' ? 'Basique' : 'Basic',
-      disabled: true
-    },
-    {
-      name: 'Standard',
-      price: billing === 'yearly' ? 'CHF 20.-' : 'CHF 2.-',
-      period: billing === 'yearly' ? (language === 'fr' ? '/ an' : '/ year') : (language === 'fr' ? '/ mois' : '/ month'),
-      savings: billing === 'yearly' ? '-17%' : null,
-      color: 'from-blue-400 to-blue-600',
-      textColor: 'text-white',
-      features: [
-        language === 'fr' ? 'Prévisions 12h' : '12h forecast',
-        language === 'fr' ? 'Carte communautaire active' : 'Active community map',
-        language === 'fr' ? 'Données Santé (UV, Pollen, Pollution)' : 'Health Data (UV, Pollen, Pollution)',
-        language === 'fr' ? 'Alertes confort (Pluie...)' : 'Comfort alerts (Rain...)',
-        language === 'fr' ? 'Expérience complète' : 'Full experience'
-      ],
-      cta: language === 'fr' ? 'Choisir Standard' : 'Choose Standard',
-      disabled: false
-    },
-    {
-      name: 'Ultimate',
-      price: billing === 'yearly' ? 'CHF 45.-' : 'CHF 5.-',
-      period: billing === 'yearly' ? (language === 'fr' ? '/ an' : '/ year') : (language === 'fr' ? '/ mois' : '/ month'),
-      savings: billing === 'yearly' ? '-25%' : null,
-      color: 'from-yellow-400 via-orange-500 to-red-500',
-      textColor: 'text-white',
-      features: [
-        language === 'fr' ? 'Tout du Standard' : 'Everything in Standard',
-        language === 'fr' ? 'Détails Experts (Graphiques)' : 'Expert Details (Graphs)',
-        language === 'fr' ? 'Indices Qualité Air détaillés' : 'Detailed Air Quality indices',
-        language === 'fr' ? 'Comparaison J-1' : 'Yesterday comparison',
-        language === 'fr' ? 'Expérience Expert' : 'Expert Experience'
-      ],
-      cta: language === 'fr' ? 'Choisir Ultimate' : 'Choose Ultimate',
-      disabled: false
-    }
-  ];
-
-  const handleSubscribe = (tierIndex: number) => {
-    if (tierIndex === 0) return;
-
-    // Determine which link to use
-    const isStandard = tierIndex === 1;
-    const isYearly = billing === 'yearly';
-    let url = "";
-
-    if (isStandard) {
-      // Standard Links
-      url = isYearly
-        ? "https://buy.stripe.com/test_fZu3cuaeI0wI8J0gQ80RG02" // Standard Yearly
-        : "https://buy.stripe.com/test_00w9ASgD6bbm4sK6bu0RG00"; // Standard Monthly
-    } else {
-      // Ultimate Links
-      url = isYearly
-        ? "https://buy.stripe.com/test_14A7sKeuYcfq7EWgQ80RG04" // Ultimate Yearly
-        : "https://buy.stripe.com/test_3cIfZgbiM4MY8J0czS0RG03"; // Ultimate Monthly
-    }
-
-    // Append Client Reference ID (CRITICAL for Webhook activation)
-    if (user && user.uid) {
-      // Check if URL already has query params (Stripe links usually don't but to be safe)
-      const separator = url.includes('?') ? '&' : '?';
-      url += `${separator}client_reference_id=${user.uid}`;
-
-      // Optional: Prefill email if we have it (Anonymous users don't have email usually)
-      if (user.email) {
-        url += `&prefilled_email=${encodeURIComponent(user.email)}`;
-      }
-    } else {
-      console.warn("User ID missing during subscription attempt. Webhook may fail to identify user.");
-      // We let them proceed but activation might need manual support without UID
-    }
-
-    // Redirect to Stripe
-    window.location.href = url;
-  };
-
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in transition-opacity" onClick={onClose}>
-      <div
-        className="w-full max-h-[90vh] sm:h-auto sm:max-w-5xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-300"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header Compact */}
-        <div className="p-5 pb-2 text-center relative shrink-0">
-          <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-900 transition-colors p-2 bg-gray-50 rounded-full z-20">
-            <X size={20} />
-          </button>
-
-          <Crown size={40} className="mx-auto mb-2 text-yellow-500" />
-          <h2 className="text-2xl font-extrabold text-gray-900 leading-tight">
-            {language === 'fr' ? 'Passez à Premium' : 'Upgrade to Premium'}
-          </h2>
-        </div>
-
-        {/* Billing Toggle - Compact */}
-        <div className="flex justify-center mb-4 shrink-0 px-4">
-          <div className="bg-gray-100 p-1 rounded-full flex relative">
-            <button
-              onClick={() => setBilling('monthly')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all z-10 ${billing === 'monthly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              {language === 'fr' ? 'Mensuel' : 'Monthly'}
-            </button>
-            <button
-              onClick={() => setBilling('yearly')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all z-10 flex items-center gap-1 ${billing === 'yearly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              {language === 'fr' ? 'Annuel' : 'Yearly'}
-              <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full ml-1">
-                -20%
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Cards Container - Horizontal Scroll / Grid */}
-        <div className="flex-1 overflow-x-auto overflow-y-auto sm:overflow-visible p-4 pt-0">
-          <div className="flex sm:grid sm:grid-cols-3 gap-4 min-w-max sm:min-w-0 mx-auto px-2 sm:px-0 h-full items-stretch snap-x snap-mandatory">
-            {tiers.map((tier, index) => (
-              <div
-                key={tier.name}
-                className={`snap-center w-[85vw] sm:w-auto flex flex-col rounded-2xl relative overflow-hidden transition-all duration-300 border ${tier.name === 'Ultimate' ? 'border-yellow-400 ring-2 ring-yellow-400/20 shadow-lg scale-[1.02] z-10' : 'border-gray-200 shadow-md'} bg-white`}
-              >
-                {/* Header Card */}
-                <div className={`p-4 bg-gradient-to-br ${tier.color} ${tier.textColor} relative shrink-0`}>
-                  {tier.savings && (
-                    <div className="absolute top-3 right-3 bg-white/20 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-bold text-white border border-white/30">
-                      {tier.savings}
-                    </div>
-                  )}
-                  <h3 className="text-xl font-bold">{tier.name}</h3>
-                  <div className="flex items-baseline mt-1">
-                    <span className="text-2xl font-extrabold">{tier.price}</span>
-                    {tier.period && <span className="text-xs opacity-80 ml-1 font-medium">{tier.period}</span>}
-                  </div>
-                </div>
-
-                {/* Body Card */}
-                <div className="p-4 flex flex-col flex-1 bg-white">
-                  <ul className="space-y-2.5 mb-4 flex-1">
-                    {tier.features.map((feature, i) => (
-                      <li key={i} className="flex items-start gap-2.5 text-sm text-gray-600 leading-snug">
-                        {feature.startsWith('❌') ? (
-                          <span className="text-gray-400">{feature.substring(2)}</span>
-                        ) : (
-                          <>
-                            <div className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${tier.name === 'Free' ? 'bg-gray-100' : 'bg-green-100'}`}>
-                              <Check size={10} className={tier.name === 'Free' ? 'text-gray-400' : 'text-green-600'} />
-                            </div>
-                            <span>{feature}</span>
-                          </>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <button
-                    onClick={() => handleSubscribe(index)}
-                    disabled={tier.disabled || (index === 0 && userTier === UserTier.FREE) || (index === 1 && userTier === UserTier.STANDARD) || (index === 2 && userTier === UserTier.ULTIMATE)}
-                    className={`w-full py-2.5 px-4 rounded-xl font-bold text-sm transition-all mt-auto active:scale-95 ${((index === 0 && userTier === UserTier.FREE) || (index === 1 && userTier === UserTier.STANDARD) || (index === 2 && userTier === UserTier.ULTIMATE))
-                      ? 'bg-green-100 text-green-700 border-2 border-green-200 cursor-default shadow-none pointer-events-none'
-                      : tier.disabled
-                        ? 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed'
-                        : 'bg-gray-900 text-white hover:bg-black shadow-md'
-                      }`}
-                  >
-                    {((index === 0 && userTier === UserTier.FREE) || (index === 1 && userTier === UserTier.STANDARD) || (index === 2 && userTier === UserTier.ULTIMATE))
-                      ? (language === 'fr' ? 'Plan Actuel' : 'Current Plan')
-                      : tier.cta}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="bg-gray-50 p-3 text-center text-[10px] text-gray-400 shrink-0 border-t border-gray-100">
-          {language === 'fr' ? 'Annulez à tout moment • Paiement sécurisé via Stripe' : 'Cancel anytime • Secure payment via Stripe'}
-        </div>
-      </div>
-    </div>
-  );
-};
+  )
+}
 
 // --- App Layout ---
-
-const SettingsModal = ({ onClose }: { onClose: () => void }) => {
-  const { userTier, language, t, testPush } = useContext(AppContext)!;
-
-  const planLabel = userTier === UserTier.FREE ? (language === 'fr' ? 'Pack Gratuit' : 'Free Pack') :
-    userTier === UserTier.STANDARD ? (language === 'fr' ? 'Pack Standard' : 'Standard Pack') :
-      (language === 'fr' ? 'Pack Ultimate' : 'Ultimate Pack');
-
-  return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={onClose}>
-      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 relative overflow-y-auto max-h-[85vh] animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute right-5 top-5 text-gray-400 hover:text-gray-600 transition-colors">
-          <X size={24} />
-        </button>
-
-        <h2 className="text-2xl font-bold text-center text-gray-900 mb-6 mt-2">Settings</h2>
-
-        <div className="space-y-4">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Subscription</h3>
-          <div className="bg-gray-50 rounded-2xl p-4 space-y-3 border border-gray-100">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 font-medium text-sm">Plan</span>
-              <span className="bg-white text-gray-800 border border-gray-100 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide shadow-sm">
-                {planLabel}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 font-medium text-sm">Status</span>
-              <span className="text-green-600 font-bold text-sm bg-green-50 px-2 py-0.5 rounded">Active</span>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 font-medium text-sm">Renewal</span>
-              <span className="font-bold text-gray-900 text-sm">03/02/2026</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-8">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Feedback</h3>
-          <div className="space-y-2">
-            <a href="mailto:hello@wiseweatherapp.xyz?subject=Bug Report - Wise Weather" className="flex items-center gap-3 p-3 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 transition-colors group">
-              <div className="bg-white p-1.5 rounded-lg shadow-sm group-hover:scale-110 transition-transform">
-                <Bug size={18} />
-              </div>
-              <span className="text-sm font-semibold">{t('feedback.bug') || 'Report a Bug'}</span>
-            </a>
-            <a href="mailto:hello@wiseweatherapp.xyz?subject=Feature Request - Wise Weather" className="flex items-center gap-3 p-3 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors group">
-              <div className="bg-white p-1.5 rounded-lg shadow-sm group-hover:scale-110 transition-transform">
-                <Wand2 size={18} />
-              </div>
-              <span className="text-sm font-semibold">{t('feedback.feature') || 'Suggest Feature'}</span>
-            </a>
-            <button onClick={() => { testPush(); onClose(); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-left group">
-              <div className="bg-white p-1.5 rounded-lg shadow-sm group-hover:scale-110 transition-transform">
-                <Bell size={18} />
-              </div>
-              <span className="text-sm font-semibold">{t('feedback.push_notification') || 'Test Notification'}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-8 pt-6 border-t border-gray-100">
-          <button
-            className="w-full py-3 rounded-full border border-red-100 text-red-400 font-semibold hover:bg-red-50 hover:text-red-500 transition-colors text-sm"
-            onClick={() => alert("Subscription cancellation logic needed")}
-          >
-            Cancel Subscription
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const App = () => {
 
   const [page, setPage] = useState<'home' | 'map'>('home');
   const [showContribution, setShowContribution] = useState(false);
   const [initialSelection, setInitialSelection] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user, userTier, showPremium, setShowPremium } = useContext(AppContext)!;
+  const [showFeedback, setShowFeedback] = useState(false);
+  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user } = useContext(AppContext)!;
 
   // Handle Notification Clicks & Auto-Open
   useEffect(() => {
@@ -1874,18 +1364,6 @@ const App = () => {
         </button>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowPremium(true)}
-            className={`w-8 h-8 rounded-full flex items-center justify-center mr-1 relative overflow-hidden group transition-all ${userTier === UserTier.FREE
-              ? 'bg-yellow-50 border border-yellow-200 text-yellow-600 hover:bg-yellow-100'
-              : 'bg-gradient-to-br from-yellow-400 to-orange-500 text-white shadow-md border-orange-400'
-              }`}
-          >
-            {userTier === UserTier.FREE && (
-              <div className="absolute inset-0 bg-yellow-400/20 animate-pulse rounded-full"></div>
-            )}
-            <Crown size={18} className="relative z-10" />
-          </button>
-          <button
             onClick={() => setUnit(unit === 'celsius' ? 'fahrenheit' : 'celsius')}
             className="w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50"
           >
@@ -1898,18 +1376,17 @@ const App = () => {
             {language.toUpperCase()}
           </button>
 
+
+
+
+
+          {/* Feedback Button moved to Header */}
           <button
-            onClick={() => setShowSettings(true)}
-            className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-700 flex items-center justify-center hover:bg-gray-50 transition-colors"
+            onClick={() => setShowFeedback(true)}
+            className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-700 flex items-center justify-center hover:bg-gray-50"
           >
-            <Settings size={16} />
+            <MessageSquare size={16} />
           </button>
-
-
-
-
-
-
         </div>
       </header>
 
@@ -2015,7 +1492,7 @@ const App = () => {
           </div>
         )}
 
-        {page === 'map' && <MapPage userTier={userTier} setShowPremium={setShowPremium} />}
+        {page === 'map' && <MapPage />}
       </main>
 
       {/* Bottom Navigation */}
@@ -2054,8 +1531,7 @@ const App = () => {
       {/* Modals */}
       {/* Modals */}
       {showContribution && <ContributionModal onClose={() => { setShowContribution(false); setInitialSelection(null); }} initialSelection={initialSelection} />}
-      {showPremium && <PremiumModal onClose={() => setShowPremium(false)} />}
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
 
     </div>
   );

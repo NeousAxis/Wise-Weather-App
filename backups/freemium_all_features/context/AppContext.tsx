@@ -2,7 +2,7 @@ import React, { createContext, useState, useEffect } from 'react';
 import { auth, db, functions } from '../firebase';
 import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
 import { getMessaging, getToken, onMessage } from "firebase/messaging"; // Import Messaging
-import { doc, onSnapshot, getFirestore, enableIndexedDbPersistence, collection, writeBatch, Timestamp, GeoPoint, getDoc, setDoc, query, orderBy, limit, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, Timestamp, setDoc, doc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { Language, Unit, WeatherData, CommunityReport, SearchResult, DailyQuote, UserTier } from '../types';
 import { TRANSLATIONS } from '../constants';
@@ -190,43 +190,13 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         const data = docSnapshot.data();
         if (data.tier) {
           console.log("Synced tier from Firestore:", data.tier);
-
-          // CRITICAL FIX: Normalize tier case (Firestore might have "Ultimate" instead of "ULTIMATE")
-          const normalizedTier = data.tier.toUpperCase();
-          setUserTier(normalizedTier as UserTier);
+          setUserTier(data.tier as UserTier);
         }
       }
     });
 
     return () => unsub();
   }, [user]);
-
-  // Force sync on App Resume (Auto-Refresh Subscription)
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && user) {
-        console.log("App resumed. Checking subscription...");
-        try {
-          const snap = await getDoc(doc(db, "users", user.uid));
-          if (snap.exists()) {
-            const data = snap.data();
-            if (data.tier && data.tier !== userTier) {
-              console.log("Updated tier detected on resume:", data.tier);
-              setUserTier(data.tier as UserTier);
-              // Simple feedback to confirm activation
-              const msg = language === 'fr' ? "Abonnement activé ! Bienvenue." : "Subscription activated! Welcome.";
-              alert(msg);
-            }
-          }
-        } catch (e) {
-          console.error("Error refreshing profile:", e);
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [user, userTier, language]);
 
   const registerForPushNotifications = async (loc?: { lat: number, lng: number }) => {
     const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
@@ -423,8 +393,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
       // Check Manifest Accessibility (Debug for Notifications)
       fetch('/manifest.json').then(r => {
-        // if (!r.ok) alert("DEBUG: manifest.json missing! (" + r.status + ")");
-      }).catch(e => { /* alert("DEBUG: manifest fetch error: " + e) */ });
+        if (!r.ok) alert("DEBUG: manifest.json missing! (" + r.status + ")");
+      }).catch(e => alert("DEBUG: manifest fetch error: " + e));
 
       // Call Cloud Function
       try {
@@ -446,7 +416,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       } catch (e: any) {
         console.error("Quote generation failed (UI):", e);
         // Alert the user about the CLIENT-SIDE error (Network, CORS, etc.)
-        // alert("DEBUG: Client-Side Fetch Error!\n" + e.message);
+        alert("DEBUG: Client-Side Fetch Error!\n" + e.message);
 
         // Rotating Client-Side Fallback
         const fallbackQuotes = [
@@ -660,18 +630,15 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       let pollenData = undefined;
       let airDetails = undefined;
       let hourlyAir = undefined;
-      let hourlyEuropeanAqi: number[] | undefined = undefined;
       try {
-        const pollenRes = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=alder_pollen,birch_pollen,grass_pollen,ragweed_pollen,olive_pollen,mugwort_pollen,pm10,pm2_5,nitrogen_dioxide,ozone,european_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,european_aqi&timezone=auto`);
+        const pollenRes = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=alder_pollen,birch_pollen,grass_pollen,ragweed_pollen,olive_pollen,pm10,pm2_5,nitrogen_dioxide,ozone&hourly=pm10,pm2_5,nitrogen_dioxide,ozone&timezone=auto`);
         const pollenJson = await pollenRes.json();
         if (pollenJson.current) {
           pollenData = {
-            alder: pollenJson.current.alder_pollen || 0,
-            birch: pollenJson.current.birch_pollen || 0,
-            grass: pollenJson.current.grass_pollen || 0,
-            ragweed: pollenJson.current.ragweed_pollen || 0,
-            olive: pollenJson.current.olive_pollen || 0,
-            mugwort: pollenJson.current.mugwort_pollen || 0
+            birch: pollenJson.current.birch_pollen,
+            grass: pollenJson.current.grass_pollen,
+            ragweed: pollenJson.current.ragweed_pollen,
+            olive: pollenJson.current.olive_pollen
           };
           airDetails = {
             pm2_5: pollenJson.current.pm2_5,
@@ -688,7 +655,6 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
             no2: pollenJson.hourly.nitrogen_dioxide,
             o3: pollenJson.hourly.ozone
           };
-          hourlyEuropeanAqi = pollenJson.hourly.european_aqi;
         }
       } catch (e) {
         console.error("Pollen/Air fetch failed", e);
@@ -696,20 +662,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
       // Find current hour index for UV
       const currentHourIso = new Date().toISOString().slice(0, 13); // YYYY-MM-DDTHH matches closest
-      let hourIndex = data.hourly.time.findIndex((t: string) => t.startsWith(currentHourIso));
-
-      // CRITICAL FIX: If hour not found, use a safe fallback (middle of array, NOT 0 which could be yesterday)
-      if (hourIndex === -1) {
-        hourIndex = Math.floor(data.hourly.time.length / 2);
-      }
-
-      // Get UV from hourly data
-      let currentUV = data.hourly.uv_index ? data.hourly.uv_index[hourIndex] : 0;
-
-      // CRITICAL FIX: UV CANNOT exist at night! Force to 0 if isDay=0
-      if (data.current.is_day === 0) {
-        currentUV = 0;
-      }
+      const hourIndex = data.hourly.time.findIndex((t: string) => t.startsWith(currentHourIso)) || 0;
+      const currentUV = data.hourly.uv_index ? data.hourly.uv_index[hourIndex] : 0;
 
       const mappedWeather: WeatherData = {
         current: {
@@ -728,9 +682,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         hourly: {
           time: data.hourly.time,
           temperature_2m: data.hourly.temperature_2m,
-          weather_code: data.hourly.weather_code,
-          uv_index: data.hourly.uv_index,
-          european_aqi: hourlyEuropeanAqi
+          weather_code: data.hourly.weather_code
         },
         daily: {
           temperature_2m_max: data.daily.temperature_2m_max,
@@ -832,7 +784,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         lat: location.lat,
         lng: location.lng,
         userId: user?.uid || 'anonymous',
-        temp: currentTemp !== undefined ? currentTemp : null
+        temp: currentTemp || null
       });
       console.log("Report added successfully! Rank:", rank, "Precision Gain:", precisionIncrease);
       return { gain: precisionIncrease, rank: rank };
@@ -858,19 +810,6 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         );
       }
     }
-  }, [location]);
-
-  // Auto-refresh weather data every hour to keep forecasts accurate
-  useEffect(() => {
-    if (!location) return;
-
-    const HOURLY_REFRESH = 60 * 60 * 1000; // 60 minutes in milliseconds
-    const intervalId = setInterval(() => {
-      console.log('[Weather Refresh] Auto-refreshing weather data...');
-      fetchWeather(location.lat, location.lng);
-    }, HOURLY_REFRESH);
-
-    return () => clearInterval(intervalId);
   }, [location]);
 
   return (

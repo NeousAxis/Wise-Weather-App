@@ -1,4 +1,4 @@
-import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+import { onCall, onRequest } from "firebase-functions/v2/https";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { initializeApp } from "firebase-admin/app";
@@ -6,7 +6,6 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { defineSecret } from "firebase-functions/params";
 import OpenAI from "openai";
-import Stripe from "stripe";
 
 initializeApp();
 
@@ -1118,124 +1117,3 @@ export const checkCommunityReport = onDocumentCreated(
       console.error("Error sending verification notifications", e);
     }
   });
-
-// --- STRIPE INTEGRATION ---
-
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-if (!stripeSecretKey) {
-  throw new Error("STRIPE_SECRET_KEY environment variable is not set");
-}
-
-export const createStripeCheckout = onCall(async (request) => {
-  const userId = request.auth?.uid;
-  const { priceId, successUrl, cancelUrl } = request.data;
-
-  if (!userId) {
-    throw new HttpsError('unauthenticated', 'User must be logged in');
-  }
-
-  const stripe = new Stripe(stripeSecretKey);
-
-  try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata: { firebaseUid: userId }, // Critical: Link payment to user
-      allow_promotion_codes: true,
-    });
-
-    return { url: session.url };
-  } catch (e: any) {
-    console.error("Stripe Checkout Error:", e);
-    throw new HttpsError('internal', e.message);
-  }
-});
-
-export const stripeWebhook = onRequest(async (req, res) => {
-  // const stripe = new Stripe(stripeSecretKey); // Unused in simplified version
-
-  // SIMPLIFIED WEBHOOK FOR TESTING (No Signature Check)
-  // In Prod, configure STRIPE_WEBHOOK_SECRET and uncomment construction logic
-
-  // const sig = req.headers['stripe-signature'];
-  // const endpointSecret = stripeWebhookSecret.value();
-
-  let event;
-
-  try {
-    // Direct parsing for permissiveness
-    event = req.body;
-  } catch (err: any) {
-    console.error(`Webhook Error: ${err.message}`);
-    res.status(400).send(`Webhook Error: ${err.message}`);
-    return;
-  }
-
-  // Handle the event
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as Stripe.Checkout.Session;
-
-    // Support BOTH methods: Payment Links (client_reference_id) & API (metadata.firebaseUid)
-    const uid = session.client_reference_id || session.metadata?.firebaseUid;
-
-    if (uid) {
-      console.log(`Payment successful for user ${uid}. Activating Ultimate.`);
-
-      // Tier Determination Logic
-      // For now, any payment = ULTIMATE as per request logic.
-      // (Or Standard if amount fits, but currently we activate Ultimate/Standard with same flag or check logic)
-      // Ideally we should check session.amount_total to distinguish Standard vs Ultimate if database requires differenciation.
-      // But userTier enum has Standard/Ultimate.
-      // Simple logic:
-      // If amount < 3000 (CHF 30.00) -> Standard (2.- or 20.-)
-      // If amount >= 3000 -> Ultimate (5.- or 45.-)
-
-      let targetTier = 'ULTIMATE';
-      // Fix: Check for null/undefined explicitly because 0 is falsy in JS
-      if (session.amount_total !== null && session.amount_total !== undefined && session.amount_total < 3000) { // 30.00 CHF
-        targetTier = 'STANDARD';
-      }
-
-      // Using Admin SDK directly (initialized at top)
-      const db = getFirestore();
-      await db.collection("users").doc(uid).set({
-        tier: targetTier, // Correctly set Standard or Ultimate
-        subscriptionStatus: 'active',
-        subscriptionId: session.subscription,
-        updatedAt: new Date()
-      }, { merge: true });
-    } else {
-      console.error("Webhook received but no User ID found (client_reference_id or metadata).");
-    }
-  }
-
-  // Handle Subscription Deletion (Cancel)
-  if (event.type === 'customer.subscription.deleted') {
-    const subscription = event.data.object as Stripe.Subscription;
-    // We need to find the user by subscriptionId if possible, 
-    // OR rely on metadata if it's preserved on subscription object (sometimes not).
-    // For now, simpler: Checkout session metadata is reliable for activation.
-    // Deactivation is harder without searching user by subID.
-    // Let's implement Search by SubID later if needed.
-    console.log("Subscription deleted:", subscription.id);
-
-    const db = getFirestore();
-    const usersRef = db.collection('users');
-    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();
-
-    if (!snapshot.empty) {
-      snapshot.forEach(doc => {
-        doc.ref.update({
-          tier: 'FREE',
-          subscriptionStatus: 'canceled'
-        });
-        console.log(`Downgraded user ${doc.id} to FREE.`);
-      });
-    }
-  }
-
-  res.json({ received: true });
-});

@@ -13,27 +13,17 @@ export interface WeatherData {
     aqi?: number; // WAQI index
     uvIndex?: number;
     pollen?: {
-      alder?: number;      // Aulne (hiver)
-      birch?: number;      // Bouleau (printemps)
-      grass?: number;      // Graminées (été)
-      ragweed?: number;    // Ambroisie (fin été)
-      olive?: number;      // Olivier (printemps)
-      mugwort?: number;    // Armoise (été/automne)
+      ragweed?: number;
+      grass?: number;
+      birch?: number;
+      olive?: number;
     }; // Grains/m3
     precipitation?: number;
-    airQualityDetails?: {
-      pm2_5: number;
-      pm10: number;
-      no2: number;
-      o3: number;
-    };
   };
   hourly: {
     time: string[];
     temperature_2m: number[];
     weather_code: number[];
-    uv_index?: number[];
-    european_aqi?: number[];
   };
   daily: {
     temperature_2m_max: number[];
@@ -41,22 +31,6 @@ export interface WeatherData {
     sunrise: string[];
     sunset: string[];
     time: string[];
-  };
-  hourlyAirQuality?: {
-    pm2_5: number[];
-    pm10: number[];
-    no2: number[];
-    o3: number[];
-    time: string[];
-  };
-  yesterday?: {
-    tempMax: number;
-    weatherCode?: number;
-    details?: {
-      morning: { temp: number; code: number };
-      noon: { temp: number; code: number };
-      evening: { temp: number; code: number };
-    };
   };
 }
 
@@ -93,19 +67,4 @@ export interface DailyQuote {
     text: string;
     author: string;
   };
-}
-
-export enum UserTier {
-  FREE = 'FREE',
-  STANDARD = 'STANDARD',
-  ULTIMATE = 'ULTIMATE'
-}
-
-export interface UserProfile {
-  uid: string;
-  email: string | null;
-  tier: UserTier;
-  // Futureproofing for "Mécène" status or other badges
-  badges?: string[];
-  createdAt: number;
 }

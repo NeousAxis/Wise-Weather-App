@@ -13,12 +13,10 @@ export interface WeatherData {
     aqi?: number; // WAQI index
     uvIndex?: number;
     pollen?: {
-      alder?: number;      // Aulne (hiver)
-      birch?: number;      // Bouleau (printemps)
-      grass?: number;      // Graminées (été)
-      ragweed?: number;    // Ambroisie (fin été)
-      olive?: number;      // Olivier (printemps)
-      mugwort?: number;    // Armoise (été/automne)
+      ragweed?: number;
+      grass?: number;
+      birch?: number;
+      olive?: number;
     }; // Grains/m3
     precipitation?: number;
     airQualityDetails?: {
@@ -32,8 +30,6 @@ export interface WeatherData {
     time: string[];
     temperature_2m: number[];
     weather_code: number[];
-    uv_index?: number[];
-    european_aqi?: number[];
   };
   daily: {
     temperature_2m_max: number[];
@@ -96,9 +92,9 @@ export interface DailyQuote {
 }
 
 export enum UserTier {
-  FREE = 'FREE',
-  STANDARD = 'STANDARD',
-  ULTIMATE = 'ULTIMATE'
+  FREE = 'Free',
+  STANDARD = 'Standard',
+  ULTIMATE = 'Ultimate'
 }
 
 export interface UserProfile {
