@@ -82,7 +82,9 @@ const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
 
   // Detailed mapping for WMO codes
   if (code === 0) return <Sun size={size} className={`text-yellow-500 ${className}`} />;
-  if (code >= 1 && code <= 3) return <Cloud size={size} className={`text-gray-400 ${className}`} />;
+  if (code === 1) return <Sun size={size} className={`text-yellow-500 ${className}`} />; // Mainly Clear -> Sun
+  if (code === 2) return <CloudSun size={size} className={`text-yellow-500 ${className}`} />; // Partly Cloudy -> Sun + Cloud
+  if (code === 3) return <Cloud size={size} className={`text-gray-400 ${className}`} />; // Overcast -> Cloud
   if (code === 45 || code === 48) return <CloudFog size={size} className={`text-gray-400 ${className}`} />;
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return <CloudRain size={size} className={`text-blue-500 ${className}`} />;
   if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <Snowflake size={size} className={`text-cyan-400 ${className}`} />;
@@ -107,6 +109,9 @@ const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
     case 'Storm': return <CloudLightning size={size} className={`text-purple-500 ${className}`} />;
     case 'Fog': return <CloudFog size={size} className={`text-gray-400 ${className}`} />;
     case 'Hail': return <CloudRain size={size} className={`text-indigo-400 ${className}`} />;
+    case 'Mist': return <CloudFog size={size} className={`text-gray-300 ${className}`} />;
+    case 'Whiteout': return <Wind size={size} className={`text-gray-200 ${className}`} />;
+    case 'Ice': return <Snowflake size={size} className={`text-blue-200 ${className}`} />;
     default: return <Cloud size={size} className={`text-gray-400 ${className}`} />;
   }
 };
@@ -180,9 +185,35 @@ const WeatherDashboard = () => {
 
   // Helper for 24h Data (for Expert Graph)
   const getTodayData = (key: 'uv_index' | 'european_aqi') => {
-    if (weather && weather.hourly && weather.hourly[key]) {
-      return weather.hourly[key].slice(0, 24);
+    // Dynamic Date Matching to ensure "Happening Today" accuracy
+    const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+
+    // Select Source Array
+    let sourceTime: string[] = [];
+    let sourceData: number[] = [];
+
+    if (key === 'european_aqi') {
+      sourceTime = weather?.hourlyAirQuality?.time || [];
+      sourceData = weather?.hourly?.european_aqi || [];
+    } else {
+      sourceTime = weather?.hourly?.time || [];
+      sourceData = weather?.hourly?.[key] || [];
     }
+
+    // Find Indice
+    if (sourceTime.length > 0 && sourceData.length > 0) {
+      const index = sourceTime.findIndex((t: string) => t.startsWith(todayStr));
+      if (index !== -1) {
+        return sourceData.slice(index, index + 24);
+      }
+    }
+
+    // Fallback: Use manual offset [24..48] if strict match fails but data exists
+    // (Assuming past_days=1 structure: Yesterday, Today, Tomorrow)
+    if (sourceData.length >= 48) {
+      return sourceData.slice(24, 48);
+    }
+
     return Array(24).fill(0);
   };
 
@@ -239,7 +270,7 @@ const WeatherDashboard = () => {
   const nowDate = new Date();
 
   // Build smart hourly forecast that includes sunrise and sunset
-  const criticalTimes: Array<{ time: string, temp: number, code: number, label?: string, icon?: any }> = [];
+  const criticalTimes: Array<{ time: string, temp: number, code: number, label?: string, icon?: any, isDay?: number }> = [];
 
   // Find sunrise index
   const sunriseIndex = weather.hourly.time.findIndex(t => {
@@ -271,14 +302,45 @@ const WeatherDashboard = () => {
       const idx = safeIndex + i + 1;
       if (idx < weather.hourly.time.length) {
         const timeVal = weather.hourly.time[idx];
+        const slotTime = new Date(timeVal);
+
         // Skip if too close to sunrise or sunset (within 1 hour)
-        const timeMs = new Date(timeVal).getTime();
-        if (Math.abs(timeMs - sunriseTime.getTime()) > 60 * 60 * 1000 &&
-          Math.abs(timeMs - sunsetTime.getTime()) > 60 * 60 * 1000) {
+        if (Math.abs(slotTime.getTime() - sunriseTime.getTime()) > 60 * 60 * 1000 &&
+          Math.abs(slotTime.getTime() - sunsetTime.getTime()) > 60 * 60 * 1000) {
+
+          let isSlotDay = 1;
+
+          try {
+            // Robust Date String extraction (avoiding timezone shifts from toISOString)
+            // timeVal is "YYYY-MM-DDTHH:mm"
+            const dateStr = timeVal.split('T')[0];
+            const dailyIdx = weather.daily.time.findIndex((t: string) => t.startsWith(dateStr));
+
+            if (dailyIdx !== -1 && weather.daily.sunrise[dailyIdx] && weather.daily.sunset[dailyIdx]) {
+              const sr = new Date(weather.daily.sunrise[dailyIdx]);
+              const ss = new Date(weather.daily.sunset[dailyIdx]);
+              // Use timestamps for accurate comparison
+              isSlotDay = (slotTime.getTime() >= sr.getTime() && slotTime.getTime() < ss.getTime()) ? 1 : 0;
+            } else {
+              // Fallback if daily data missing: Simple hour check (6am - 6pm generally, or reuse today's times)
+              const hour = slotTime.getHours();
+              // Best fallback: Check against Today's sunrise/sunset times (shifted to day-neutral comparison)
+              const srHour = sunriseTime.getHours();
+              const ssHour = sunsetTime.getHours();
+              isSlotDay = (hour >= srHour && hour < ssHour) ? 1 : 0;
+            }
+          } catch (e) {
+            console.error("Error calculating isDay for slot", e);
+            // Emergency fallback
+            const h = new Date(timeVal).getHours();
+            isSlotDay = (h >= 6 && h < 18) ? 1 : 0;
+          }
+
           criticalTimes.push({
             time: timeVal,
             temp: weather.hourly.temperature_2m[idx],
-            code: weather.hourly.weather_code[idx]
+            code: weather.hourly.weather_code[idx],
+            isDay: isSlotDay
           });
         }
       }
@@ -415,6 +477,55 @@ const WeatherDashboard = () => {
         </div>
       </div >
 
+      {/* Hourly Forecast - Moved above Stats */}
+      <div className="border-b border-gray-100 pb-6 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('weather.hourly')}</h3>
+          {/* Small Badge for Tier Debug/Info */}
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${userTier === UserTier.FREE ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}`}>
+            {userTier === UserTier.FREE ? 'BASIC' : userTier}
+          </span>
+        </div>
+
+        <div className="flex overflow-x-auto gap-8 pb-2 scrollbar-hide">
+          {(() => {
+            // Logic: Standard/Ultimate get 24h, Free gets 3h
+            const isPremium = userTier === UserTier.STANDARD || userTier === UserTier.ULTIMATE;
+            const limit = isPremium ? 24 : 3;
+            const visibleItems = displayTimes.slice(0, limit);
+
+            return (
+              <>
+                {visibleItems.map((item, i) => (
+                  <div key={i} className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[3rem]">
+                    <span className="text-sm font-medium text-gray-500">
+                      {item.label === 'sunrise' ? (language === 'fr' ? 'Lever' : 'Rise') :
+                        item.label === 'sunset' ? (language === 'fr' ? 'Coucher' : 'Set') :
+                          formatHour(item.time)}
+                    </span>
+                    <div className="my-1">
+                      {item.icon || getWeatherIcon(item.code, 24, "", item.isDay ?? 1)}
+                    </div>
+                    <span className="text-lg font-bold text-foreground">{convertTemp(item.temp, unit)}°</span>
+                  </div>
+                ))}
+
+                {/* Lock Teaser - Explicitly show if not premium */}
+                {!isPremium && (
+                  <div className="flex flex-col items-center justify-center gap-2 flex-shrink-0 min-w-[3rem] opacity-60 cursor-pointer group" onClick={() => setShowPremium(true)}>
+                    <span className="text-sm font-medium text-gray-400">...</span>
+                    <div className="my-1 bg-gray-100 p-2 rounded-full group-hover:bg-yellow-100 transition-colors animate-pulse">
+                      <Lock size={16} className="text-gray-500 group-hover:text-yellow-600" />
+                    </div>
+                    <span className="text-xs font-bold text-gray-500 group-hover:text-yellow-600">+20h</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      </div>
+
       {/* Stats Grid - Unified Layout */}
       <div className="grid grid-cols-2 gap-y-6 gap-x-8 mb-8">
         {/* Sunrise */}
@@ -480,22 +591,39 @@ const WeatherDashboard = () => {
             className={`flex items-center gap-3 transition-all rounded-xl p-2 -m-2 ${userTier === UserTier.ULTIMATE ? 'cursor-pointer hover:bg-orange-50/50 active:scale-95' : ''}`}
             onClick={() => userTier === UserTier.ULTIMATE && setActiveGraph('uv')}
           >
-            <div className="p-2 bg-orange-50 rounded-full text-orange-600 relative">
-              {(weather.current.uvIndex || 0) > 5 && (
-                <span className={`absolute inset-0 rounded-full animate-ping opacity-75 ${(weather.current.uvIndex || 0) > 7 ? 'bg-red-400' : 'bg-orange-400'}`}></span>
-              )}
-              <Sun size={20} className="relative z-10" />
-              {userTier === UserTier.ULTIMATE && <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-orange-100 z-20"><BarChart2 size={8} className="text-orange-400" /></div>}
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{language === 'fr' ? 'Index UV' : 'UV Index'}</p>
-              <PremiumValue isLocked={userTier === UserTier.FREE}>
-                <div className="flex items-baseline gap-1">
-                  <span className="font-semibold text-gray-700">{weather.current.uvIndex?.toFixed(0)}</span>
-                  <span className="text-[10px] text-gray-400 font-medium">/ 11</span>
-                </div>
-              </PremiumValue>
-            </div>
+            {/* Sync Logic: Use Hourly UV if available to match Graph */}
+            {(() => {
+              const todayUV = getTodayData('uv_index');
+              const currentHour = new Date().getHours();
+              // Prioritize REALTIME current value for Main Display, but fallback to hourly if current is 0 (API bug or lag).
+              // This is more accurate than hourly forecast and aligns with the Graph "NOW" bar.
+              const hourlyUV = (todayUV && todayUV.length > currentHour) ? todayUV[currentHour] : 0;
+              const currentUV = weather.current.uvIndex;
+
+              // Logic: If currentUV is defined and > 0, use it. If it's 0 or undefined, use hourly (which handles 0 correctly at night).
+              const displayUV = (currentUV !== undefined && currentUV > 0) ? currentUV : hourlyUV;
+
+              return (
+                <>
+                  <div className="p-2 bg-orange-50 rounded-full text-orange-600 relative">
+                    {displayUV > 2 && (
+                      <span className={`absolute inset-0 rounded-full animate-ping opacity-75 ${displayUV > 7 ? 'bg-red-400' : (displayUV > 5 ? 'bg-orange-400' : 'bg-yellow-400')}`}></span>
+                    )}
+                    <Sun size={20} className="relative z-10" />
+                    {userTier === UserTier.ULTIMATE && <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-orange-100 z-20"><BarChart2 size={8} className="text-orange-400" /></div>}
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{language === 'fr' ? 'Index UV' : 'UV Index'}</p>
+                    <PremiumValue isLocked={false}>
+                      <div className="flex items-baseline gap-1">
+                        <span className="font-semibold text-gray-700">{displayUV.toFixed(0)}</span>
+                        <span className="text-[10px] text-gray-400 font-medium">/ 11</span>
+                      </div>
+                    </PremiumValue>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -522,7 +650,7 @@ const WeatherDashboard = () => {
             </div>
             <div>
               <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{language === 'fr' ? 'Qualité Air' : 'Air Quality'}</p>
-              <PremiumValue isLocked={userTier === UserTier.FREE}>
+              <PremiumValue isLocked={false}>
                 <div className="flex items-baseline gap-1">
                   <span className="font-semibold text-gray-700">{weather.current.aqi?.toFixed(0)}</span>
                   <span className="text-[10px] text-gray-400 font-medium">/ 500</span>
@@ -551,14 +679,15 @@ const WeatherDashboard = () => {
               // Find dominant pollen
               const dominant = pollens.reduce((prev, curr) => (curr.val > prev.val ? curr : prev), pollens[0]);
               const maxPollen = dominant.val;
-              const isHigh = maxPollen > 50;
+              // Google Pollen Index (UPI) is 0-5
+              const isHigh = maxPollen >= 3;
 
-              // Risk Label
+              // Risk Label (Mapped for UPI 0-5)
               let riskLabel = '';
-              if (maxPollen <= 20) riskLabel = isFr ? 'Faible' : 'Low';
-              else if (maxPollen <= 50) riskLabel = isFr ? 'Modéré' : 'Moderate';
-              else if (maxPollen <= 100) riskLabel = isFr ? 'Élevé' : 'High';
-              else riskLabel = isFr ? 'Extrême' : 'Extreme';
+              if (maxPollen <= 1) riskLabel = isFr ? 'Faible' : 'Low';
+              else if (maxPollen === 2) riskLabel = isFr ? 'Modéré' : 'Moderate';
+              else if (maxPollen === 3) riskLabel = isFr ? 'Élevé' : 'High';
+              else riskLabel = isFr ? 'Extrême' : 'Extreme'; // 4 and 5
 
               return (
                 <>
@@ -575,10 +704,10 @@ const WeatherDashboard = () => {
                       <div>
                         <div className="flex items-baseline gap-1">
                           <span className="font-semibold text-gray-700">{maxPollen.toFixed(0)}</span>
-                          <span className="text-[10px] text-gray-400 font-medium">/ 100</span>
+                          <span className="text-[10px] text-gray-400 font-medium">/ 5</span>
                         </div>
                         <p className="text-[9px] font-bold text-gray-500 uppercase mt-0.5 truncate w-24">
-                          {maxPollen > 10 ? (
+                          {maxPollen > 1 ? (
                             <span className="text-blue-600">{dominant.label}</span>
                           ) : (
                             riskLabel
@@ -601,14 +730,17 @@ const WeatherDashboard = () => {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">
-                  {activeGraph === 'uv' ? (language === 'fr' ? 'Index UV (24h)' : 'UV Index (24h)') :
+                  {activeGraph === 'uv' ? (language === 'fr' ? 'Index UV' : 'UV Index') :
                     activeGraph === 'aqi' ? (language === 'fr' ? 'Pollution (AQI)' : 'Air Quality (AQI)') :
                       (language === 'fr' ? 'Détails Pollens' : 'Pollen Details')}
+                  <span className="ml-2 text-base font-normal text-gray-400 border-l border-gray-300 pl-2">
+                    {new Date().toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', { day: 'numeric', month: 'long' })}
+                  </span>
                 </h3>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-blue-500 font-medium mt-1">
                   {activeGraph === 'pollen'
                     ? (language === 'fr' ? 'Niveaux actuels par type' : 'Current levels by type')
-                    : (language === 'fr' ? 'Evolution sur la journée' : 'Forecast for today')}
+                    : (language === 'fr' ? 'Évolution de la journée (00h - Maintenant)' : 'Daily Evolution (00h - Now)')}
                 </p>
               </div>
               <button onClick={() => setActiveGraph(null)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
@@ -619,117 +751,215 @@ const WeatherDashboard = () => {
             {/* Graph or List Render */}
             {activeGraph === 'pollen' ? (
               <div className="space-y-4 py-2">
-                {[
-                  { key: 'alder', label: language === 'fr' ? 'Aulne' : 'Alder', color: 'bg-amber-400' },
-                  { key: 'birch', label: language === 'fr' ? 'Bouleau' : 'Birch', color: 'bg-yellow-400' },
-                  { key: 'grass', label: language === 'fr' ? 'Graminées' : 'Grass', color: 'bg-green-500' },
-                  { key: 'ragweed', label: language === 'fr' ? 'Ambroisie' : 'Ragweed', color: 'bg-emerald-600' },
-                  { key: 'olive', label: language === 'fr' ? 'Olivier' : 'Olive', color: 'bg-lime-500' },
-                  { key: 'mugwort', label: language === 'fr' ? 'Armoise' : 'Mugwort', color: 'bg-teal-500' },
-                ].map(item => {
-                  // @ts-ignore
-                  const val = weather.current.pollen ? (weather.current.pollen[item.key] || 0) : 0;
-                  const percent = Math.min(val, 100);
-                  return (
-                    <div key={item.key}>
-                      <div className="flex justify-between text-sm mb-1 font-medium text-gray-700">
-                        <span>{item.label}</span>
-                        <span>{val} <span className="text-xs text-gray-400 font-normal">/ 100</span></span>
-                      </div>
-                      <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${val > 50 ? 'bg-red-500' : item.color}`}
-                          style={{ width: `${percent}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="h-48 flex items-end gap-1 mb-2">
                 {(() => {
-                  const rawData = getTodayData(activeGraph === 'uv' ? 'uv_index' : 'european_aqi');
-                  const data = rawData.length > 0 ? rawData : Array(24).fill(0);
-                  const max = Math.max(...data, 10); // Min max to avoid huge bars for small values
+                  // Translation Map for common Google Pollen Codes
+                  const translator: Record<string, string> = language === 'fr' ? {
+                    "ALDER": "Aulne", "ASH": "Frêne", "BIRCH": "Bouleau", "COTTONWOOD": "Peuplier",
+                    "ELM": "Orme", "HAZEL": "Noisetier", "JUNIPER": "Genévrier", "MAPLE": "Érable",
+                    "OAK": "Chêne", "PINE": "Pin", "POPLAR": "Peuplier", "WALNUT": "Noyer", "WILLOW": "Saule",
+                    "CYPRESS": "Cyprès", "ACACIA": "Acacia", "JAPANESE_CEDAR": "Cèdre du Japon",
+                    "GRASS": "Graminées (Herbes)", "MUGWORT": "Armoise", "OLIVE": "Olivier", "RAGWEED": "Ambroisie",
+                    "TREE": "Arbres (Général)", "WEED": "Herbacées (Général)", "CASUARINA": "Filao"
+                  } : {
+                    "GRASS": "Grass (General)", "TREE": "Tree (General)", "WEED": "Weed (General)"
+                  };
 
-                  return data.map((val, i) => (
-                    <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative">
-                      {/* Tooltip */}
-                      <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black text-white text-[9px] px-1 rounded pointer-events-none whitespace-nowrap z-10">
-                        {i}h: {val.toFixed(0)}
+                  // @ts-ignore
+                  const dynamicItems = weather.current.pollen?._dynamicItems as Array<{ code: string, value: number, category: string }>;
+                  // @ts-ignore
+                  const errorMsg = weather.current.pollen?._error as string;
+
+                  let itemsToRender = [];
+
+                  if (dynamicItems && dynamicItems.length > 0) {
+                    itemsToRender = [...dynamicItems]
+                      .sort((a, b) => b.value - a.value)
+                      .map(item => ({
+                        key: item.code,
+                        label: translator[item.code] || (item.code.charAt(0) + item.code.slice(1).toLowerCase().replace('_', ' ')),
+                        val: item.value,
+                        code: item.code
+                      }));
+                  } else if (dynamicItems && dynamicItems.length === 0 && !errorMsg) {
+                    // Valid response but no items (e.g. Winter or Desert) AND NO ERROR
+                    return (
+                      <div className="p-4 bg-blue-50 text-blue-600 rounded-xl text-center">
+                        <p className="font-medium text-sm">
+                          {language === 'fr' ? 'Aucun pollen actif détecté pour ce lieu.' : 'No active pollen detected for this location.'}
+                        </p>
+                        <p className="text-xs mt-2 opacity-70">Google Pollen API OK</p>
                       </div>
-                      <div
-                        className={`w-full rounded-t-sm transition-all ${activeGraph === 'uv' ? 'bg-orange-400' : 'bg-blue-400'}`}
-                        style={{ height: `${(val / max) * 100}%`, minHeight: '4px' }}
-                      ></div>
-                    </div>
-                  ));
+                    );
+                  } else {
+                    // Legacy Fallback (should not happen if cache key updated, unless error)
+                    itemsToRender = [
+                      { key: 'alder', label: language === 'fr' ? 'Aulne' : 'Alder', val: weather.current.pollen?.alder || 0 },
+                      { key: 'birch', label: language === 'fr' ? 'Bouleau' : 'Birch', val: weather.current.pollen?.birch || 0 },
+                      { key: 'grass', label: language === 'fr' ? 'Graminées' : 'Grass', val: weather.current.pollen?.grass || 0 },
+                      { key: 'ragweed', label: language === 'fr' ? 'Ambroisie' : 'Ragweed', val: weather.current.pollen?.ragweed || 0 },
+                      { key: 'olive', label: language === 'fr' ? 'Olivier' : 'Olive', val: weather.current.pollen?.olive || 0 },
+                      { key: 'mugwort', label: language === 'fr' ? 'Armoise' : 'Mugwort', val: weather.current.pollen?.mugwort || 0 },
+                    ];
+                  }
+
+                  return itemsToRender.map((item, idx) => {
+                    // Color logic
+                    const val = item.val;
+                    const percent = Math.min((val / 5) * 100, 100);
+                    const color = val >= 3 ? 'bg-red-500' : (val >= 2 ? 'bg-orange-400' : 'bg-green-500');
+
+                    return (
+                      <div key={idx}>
+                        <div className="flex justify-between text-sm mb-1 font-medium text-gray-700">
+                          <span>{item.label}</span>
+                          <span>{val} <span className="text-xs text-gray-400 font-normal">/ 5</span></span>
+                        </div>
+                        <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${color}`}
+                            style={{ width: `${percent}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    );
+                  });
                 })()}
               </div>
+            ) : (
+              <div className="flex gap-2 h-48 mb-2">
+                {/* Y Axis Labels */}
+                <div className="flex flex-col justify-between text-[9px] text-gray-400 font-medium py-1 w-6 text-right">
+                  {activeGraph === 'uv' ? (
+                    <>
+                      <span>12</span><span>9</span><span>6</span><span>3</span><span>0</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>500</span><span>375</span><span>250</span><span>125</span><span>0</span>
+                    </>
+                  )}
+                </div>
+
+                {/* Bars Area */}
+                <div className="flex-1 flex items-end gap-1 h-full border-l border-gray-100 pl-1">
+                  {(() => {
+                    const rawData = getTodayData(activeGraph === 'uv' ? 'uv_index' : 'european_aqi');
+                    const data = rawData.length > 0 ? rawData : Array(24).fill(0);
+
+                    // Strict Official Limits
+                    // AQI: 0-500
+                    // UV: 0-12 (technically can go higher rarely but 11+ is extreme)
+                    const strictMax = activeGraph === 'uv' ? 12 : 500;
+
+                    return data.map((val, i) => {
+                      const currentHour = new Date().getHours();
+                      // STRICT USER RULE: Future hours must be EMPTY.
+                      // Show only history from 00h to currentHour.
+                      const isFuture = i > currentHour;
+                      const isCurrent = i === currentHour;
+
+                      // SYNCHRONIZATION:
+                      // For the "NOW" bar, we override the hourly forecast value with the REALTIME current value.
+                      // This ensures the Graph's "current" bar matches the Main Dashboard indicator exactly.
+                      let displayVal = val;
+                      if (isCurrent) {
+                        if (activeGraph === 'uv') {
+                          // Fix: Only override if current > 0. If current is 0, trust hourly val (which comes from Today Data).
+                          if (weather.current.uvIndex !== undefined && weather.current.uvIndex > 0) {
+                            displayVal = weather.current.uvIndex;
+                          }
+                        } else if (activeGraph === 'aqi' && weather.current.aqi !== undefined) {
+                          displayVal = weather.current.aqi;
+                        }
+                      }
+
+                      if (isFuture) {
+                        // Render empty placeholder to keep spacing but show NO bar.
+                        return (
+                          <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative">
+                            <div className="w-full bg-gray-50 rounded-t-sm" style={{ height: '4px', opacity: 0.3 }}></div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative cursor-pointer">
+                          {/* Tooltip */}
+                          {(() => {
+                            const numericVal = Math.round(displayVal);
+                            let label = '';
+                            let status = '';
+
+                            if (activeGraph === 'uv') {
+                              label = 'UV';
+                              // UV Scale
+                              if (numericVal <= 2) status = language === 'fr' ? 'Faible' : 'Low';
+                              else if (numericVal <= 5) status = language === 'fr' ? 'Modéré' : 'Moderate';
+                              else if (numericVal <= 7) status = language === 'fr' ? 'Fort' : 'High';
+                              else if (numericVal <= 10) status = language === 'fr' ? 'Très Fort' : 'Very High';
+                              else status = language === 'fr' ? 'Extrême' : 'Extreme';
+                            } else {
+                              label = 'AQI';
+                              // AQI Scale (US EPA approx)
+                              if (numericVal <= 50) status = language === 'fr' ? 'Bon' : 'Good';
+                              else if (numericVal <= 100) status = language === 'fr' ? 'Moyen' : 'Moderate';
+                              else if (numericVal <= 150) status = language === 'fr' ? 'Mauvais' : 'Unhealthy';
+                              else status = language === 'fr' ? 'Très Mauvais' : 'Very Unhealthy';
+                            }
+
+                            return (
+                              <div className={`absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900/95 text-white p-2 rounded-lg pointer-events-none whitespace-nowrap z-20 flex flex-col items-center shadow-xl backdrop-blur-md ${isCurrent ? 'ring-1 ring-white/50' : ''} min-w-[80px]`}>
+                                {/* Time Header */}
+                                <div className="flex items-center gap-1 mb-1 border-b border-gray-700 pb-1 w-full justify-center">
+                                  <span className="text-[10px] font-medium text-gray-400">{i}h00</span>
+                                  {isCurrent && <span className="text-[9px] bg-blue-500 px-1 rounded text-white font-bold ml-1">NOW</span>}
+                                </div>
+
+                                {/* Value & Label */}
+                                <div className="flex flex-col items-center">
+                                  <span className="text-sm font-bold">{label}: {numericVal}</span>
+                                  <span className={`text-[10px] font-medium mt-0.5 ${status === 'Bon' || status === 'Good' || status === 'Faible' || status === 'Low' ? 'text-green-400' :
+                                    status === 'Modéré' || status === 'Moderate' || status === 'Moyen' ? 'text-yellow-400' :
+                                      status === 'Mauvais' || status === 'Unhealthy' || status === 'Fort' || status === 'High' ? 'text-orange-400' : 'text-red-400'
+                                    }`}>
+                                    {status}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          <div
+                            className={`w-full rounded-t-sm transition-all ${activeGraph === 'uv' ? 'bg-orange-400' : 'bg-blue-400'} ${isCurrent ? 'opacity-100 ring-1 ring-offset-0 ring-gray-400 brightness-110' : 'opacity-80'}`}
+                            style={{ height: `${Math.min((displayVal / strictMax) * 100, 100)}%`, minHeight: '2px' }}
+                          ></div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
             )}
-            {/* X Axis */}
-            <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1">
+
+            {/* X Axis (aligned with bars, offset by Y-axis width) */}
+            <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1 ml-8">
               <span>00h</span>
               <span>06h</span>
               <span>12h</span>
               <span>18h</span>
               <span>23h</span>
             </div>
+
+
+
+
           </div>
         </div>
       )}
 
 
-      {/* Hourly Forecast */}
-      <div className="border-t border-gray-100 pt-6">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('weather.hourly')}</h3>
-          {/* Small Badge for Tier Debug/Info */}
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${userTier === UserTier.FREE ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}`}>
-            {userTier === UserTier.FREE ? 'BASIC' : userTier}
-          </span>
-        </div>
 
-        <div className="flex overflow-x-auto gap-8 pb-2 scrollbar-hide">
-          {(() => {
-            // Logic: Standard/Ultimate get 24h, Free gets 3h
-            const isPremium = userTier === UserTier.STANDARD || userTier === UserTier.ULTIMATE;
-            const limit = isPremium ? 24 : 3;
-            const visibleItems = displayTimes.slice(0, limit);
-
-            return (
-              <>
-                {visibleItems.map((item, i) => (
-                  <div key={i} className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[3rem]">
-                    <span className="text-sm font-medium text-gray-500">
-                      {item.label === 'sunrise' ? (language === 'fr' ? 'Lever' : 'Rise') :
-                        item.label === 'sunset' ? (language === 'fr' ? 'Coucher' : 'Set') :
-                          formatHour(item.time)}
-                    </span>
-                    <div className="my-1">
-                      {item.icon || getWeatherIcon(item.code, 24)}
-                    </div>
-                    <span className="text-lg font-bold text-foreground">{convertTemp(item.temp, unit)}°</span>
-                  </div>
-                ))}
-
-                {/* Lock Teaser - Explicitly show if not premium */}
-                {!isPremium && (
-                  <div className="flex flex-col items-center justify-center gap-2 flex-shrink-0 min-w-[3rem] opacity-60 cursor-pointer group" onClick={() => setShowPremium(true)}>
-                    <span className="text-sm font-medium text-gray-400">...</span>
-                    <div className="my-1 bg-gray-100 p-2 rounded-full group-hover:bg-yellow-100 transition-colors animate-pulse">
-                      <Lock size={16} className="text-gray-500 group-hover:text-yellow-600" />
-                    </div>
-                    <span className="text-xs font-bold text-gray-500 group-hover:text-yellow-600">+20h</span>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      </div>
-    </Card>
+    </Card >
   );
 };
 
@@ -847,7 +1077,7 @@ const CommunityCarousel = () => {
                       ))}
                     </div>
                     <div className="mt-auto">
-                      <Badge label={t(`confidence.${confidence.toLowerCase()}`)} level={confidence} />
+                      <Badge label={`${t('community.confidence')} : ${t(`confidence.${confidence.toLowerCase()}`)}`} level={confidence} />
                     </div>
                   </>
                 ) : (
@@ -871,7 +1101,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
   const mapInstance = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const { location, userPosition, weather, cityName, communityReports, searchCity, updateLocation, majorCitiesWeather, unit, t } = useContext(AppContext)!;
-  const [viewMode, setViewMode] = useState<'official' | 'community'>('official');
+  const [viewMode, setViewMode] = useState<'official' | 'community'>('community');
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -1086,7 +1316,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
         else if ((code >= 71 && code <= 77) || code === 85 || code === 86) { iconType = 'snow'; iconColor = '#06B6D4'; }
         else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) { iconType = 'rain'; iconColor = '#3B82F6'; }
         else {
-          // Non-precipitating weather (Clear, Cloudy, Fog)
+          // No replacement, just reading. weather (Clear, Cloudy, Fog)
           if (city.isDay === 0) {
             // NIGHT -> Always MOON (unless precipitating) as per request
             iconType = 'moon';
@@ -1129,7 +1359,14 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
       // ALGORITHME "WAZE-LIKE" (Vérité Terrain)
       // 1. Trier par le plus récent (priorité absolue)
       const sortedReports = [...communityReports]
-        .filter(r => (Date.now() - r.timestamp) < (6 * 60 * 60 * 1000)) // Garder 6h max comme la liste
+        .filter(r => {
+          // EXCEPTION: Avalanche Risk alerte remains effectively visible for 12 HOURS
+          if (r.avalancheRisk && r.avalancheRisk > 0) {
+            return (Date.now() - r.timestamp) < (12 * 60 * 60 * 1000);
+          }
+          // Standard Reports: 1 Hour max
+          return (Date.now() - r.timestamp) < (1 * 60 * 60 * 1000);
+        })
         .sort((a, b) => b.timestamp - a.timestamp);
 
       const consolidatedReports: (CommunityReport & { count?: number })[] = [];
@@ -1164,25 +1401,41 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
       });
 
       // 3. Affichage des Leaders uniquement
+      // Extraire le nom de ville principal pour comparaison (FREE)
+      const userMainCity = cityName.includes('(') ? cityName.split('(')[0].trim() : cityName;
+
       consolidatedReports.forEach(report => {
         // CHECK FREEMIUM STATUS
         const isFree = userTier === UserTier.FREE;
-        // Optional: Allow seeing own reports? Assuming anonymous for now or purely location based.
-        // If we had user ID check: const isMine = report.userId === user.uid;
+        // Check if Mountain Report (Avalanche or Snow)
+        const isMountain = (report.avalancheRisk != null) || (report.snowLevel != null);
+
+        // Pour FREE: Vérifier si le rapport est dans la même ville
+        const reportCity = report.cityName || '';
+        const isSameCity = reportCity.toLowerCase() === userMainCity.toLowerCase();
+        // FREE voit les rapports de sa ville, les autres tiers voient tout
+        const shouldShowDetails = !isFree || isSameCity;
 
         let iconContent = '';
         let className = 'bg-transparent overflow-visible';
 
-        if (isFree) {
+        if (isFree && !isSameCity) {
           // --- LOCKED VIEW (Blurry + Lock) ---
+          // MOUNTAIN: px-3 py-2, SVG 24, Size 40
+          // GENERAL: px-2 py-1.5, SVG 20, Size 32
+          const pxClass = isMountain ? "px-3 py-2 gap-2" : "px-2 py-1.5 gap-1.5";
+          const svgSize = isMountain ? 24 : 20;
+          const lockSize = isMountain ? 16 : 14;
+          const blurClass = isMountain ? "blur-[2px]" : "blur-[1.5px]";
+
           iconContent = `
             <div class="relative group cursor-pointer">
-              <div class="bg-gray-200/80 backdrop-blur-md rounded-full shadow-sm px-3 py-2 flex items-center justify-center gap-2 transform transition-transform hover:scale-110">
-                 <div class="text-gray-500 opacity-50 blur-[2px]">
-                    ${getIconSvg('cloud', '#6B7280', 24)}
+              <div class="bg-gray-200/80 backdrop-blur-md rounded-full shadow-sm ${pxClass} flex items-center justify-center transform transition-transform hover:scale-110">
+                 <div class="text-gray-500 opacity-50 ${blurClass}">
+                    ${getIconSvg('cloud', '#6B7280', svgSize)}
                  </div>
                  <div class="absolute inset-0 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="${lockSize}" height="${lockSize}" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                  </div>
               </div>
             </div>
@@ -1190,7 +1443,17 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
         } else {
           // --- STANDARD VIEW (Details) ---
           let iconsHtml = '';
-          report.conditions.forEach(cond => {
+          // MOUNTAIN: SVG 18
+          // GENERAL: SVG 20 (Slightly smaller than 24 to fit compact bubble)
+          const svgSize = isMountain ? 18 : 20;
+
+          // Limit displayed icons:
+          // MOUNTAIN: Show all
+          // GENERAL: Show 1st Icon + separate visual indicator for others
+          const displayConditions = isMountain ? report.conditions : report.conditions.slice(0, 1);
+          const hiddenCount = (!isMountain && report.conditions.length > 1) ? report.conditions.length - 1 : 0;
+
+          displayConditions.forEach(cond => {
             let type: any = 'sun';
             let color = '#F59E0B'; // Default yellow
 
@@ -1201,50 +1464,195 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
               case 'Windy': type = 'wind'; color = '#FFFFFF'; break;
               case 'Snow': type = 'snow'; color = '#FFFFFF'; break;
               case 'Storm': type = 'storm'; color = '#FFFFFF'; break;
+              case 'Mist': type = 'cloud'; color = '#CBD5E1'; break; // Light Gray for Mist
+              case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break; // Very White for Whiteout
+              case 'Ice': type = 'snow'; color = '#7DD3FC'; break; // Light Blue for Ice
               default: type = 'sun'; color = '#FFFFFF';
             }
 
-            iconsHtml += `<div class="flex-shrink-0">${getIconSvg(type, color, 18)}</div>`;
+            iconsHtml += `<div class="flex-shrink-0">${getIconSvg(type, color, svgSize)}</div>`;
           });
+
+          // Add +N badge if hidden icons exist (General Only)
+          if (hiddenCount > 0) {
+            iconsHtml += `<div class="text-[10px] font-bold text-white bg-white/20 rounded-full w-5 h-5 flex items-center justify-center -ml-0.5 cursor-pointer">+${hiddenCount}</div>`;
+          }
 
           const hasTemp = report.temp !== undefined && report.temp !== null;
           const tempDisplay = hasTemp ? `${convertTemp(report.temp!, unit)}°` : '';
 
+          // MOUNTAIN BADGES
+          // Revert to original styling for Mountain badges if isMountain
+          const badgePy = isMountain ? "py-0.5" : "py-0.5"; // kept same
+          const badgePx = isMountain ? "px-1.5" : "px-1";
+
+          const avalancheBadge = (report.avalancheRisk != null) ? `<span class="bg-red-500 text-white text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm">⚠️ ${report.avalancheRisk}/5</span>` : '';
+          const snowBadge = (report.snowLevel != null) ? `<span class="bg-blue-500 text-white text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm">❄️ ${report.snowLevel}cm</span>` : '';
+
+          const countSize = isMountain ? "w-5 h-5 text-[10px]" : "w-4 h-4 text-[9px]";
           const countBadge = (report.count && report.count > 1)
-            ? `<div class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white shadow-sm z-50">${report.count}</div>`
+            ? `<div class="absolute -top-2 -right-2 bg-red-500 text-white ${countSize} font-bold rounded-full flex items-center justify-center border-2 border-white shadow-sm z-50">${report.count}</div>`
             : '';
 
-          iconContent = `
-            <div class="relative">
-              <div class="bg-violet-400 rounded-full shadow-md px-3 py-1.5 h-10 flex items-center justify-center gap-2 transform hover:scale-110 transition-transform whitespace-nowrap">
-                <div class="flex gap-1 items-center">
-                  ${iconsHtml}
-                </div>
-                ${tempDisplay ? `<span class="font-bold text-white text-base leading-none pt-0.5">${tempDisplay}</span>` : ''}
+          // Dynamic background based on mode
+          const bgClass = isMountain ? 'bg-slate-800' : 'bg-violet-400';
+
+          if (!isMountain) {
+            // --- GENERAL MODE: MATCH OFFICIAL FORECAST MARKER EXACTLY ---
+            // Use CSS absolute positioning + transform for auto-width centering
+            // Wrapper: absolute bottom-3 left-0 -translate-x-1/2 (Same as Major Cities)
+            // Bubble: rounded-full shadow-lg border items-center gap-2
+
+            // Icon Size matching Official (22).
+            const genSvgSize = 22;
+            let genIconsHtml = '';
+
+            // Show 1st Icon + Badge
+            const firstCond = report.conditions[0] || 'Sunny';
+            const hiddenCount = Math.max(0, report.conditions.length - 1);
+
+            // Generate 1st icon
+            let type: any = 'sun';
+            let color = '#FFFFFF'; // White icons on colored bubble
+
+            const isNight = weather?.current?.isDay === 0;
+
+            switch (firstCond) {
+              case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
+              case 'Cloudy': type = 'cloud'; break;
+              case 'Rain': type = 'rain'; break;
+              case 'Windy': type = 'wind'; break;
+              case 'Snow': type = 'snow'; break;
+              case 'Storm': type = 'storm'; break;
+              case 'Mist': type = 'cloud'; color = '#CBD5E1'; break;
+              case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break;
+              case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
+              default: type = 'sun';
+            }
+            genIconsHtml += getIconSvg(type, color, genSvgSize);
+
+            // Badge if needed
+            if (hiddenCount > 0) {
+              genIconsHtml += `<div class="text-[10px] font-bold text-white bg-white/20 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer">+${hiddenCount}</div>`;
+            }
+
+            const temp = hasTemp ? `${convertTemp(report.temp!, unit)}°` : '';
+
+            iconContent = `
+              <div class="absolute bottom-4 left-0 -translate-x-1/2">
+                 <div class="${bgClass} rounded-full shadow-lg border border-white/20 px-3 py-2 flex items-center gap-2 whitespace-nowrap transform hover:scale-110 transition-transform">
+                    <div class="flex items-center gap-1.5">
+                      ${genIconsHtml}
+                    </div>
+                    ${temp ? `<span class="font-bold text-white text-sm pt-0.5 leading-none">${temp}</span>` : ''}
+                 </div>
+                 ${countBadge}
               </div>
-              ${countBadge}
-            </div>
-          `;
-        }
+            `;
 
+            // General Mode uses CSS centering, so Leaflet dimensions are 0/0
+            // This guarantees the width is exactly "content" width, just like the Official bubble
+            const el = L.divIcon({
+              className: className + ' overflow-visible', // Important for absolute child
+              html: iconContent,
+              iconSize: [0, 0],
+              iconAnchor: [0, 0]
+            });
+            // Generate FULL icons list for popup (to show on click)
+            let fullIconsHtml = '';
+            report.conditions.forEach(cond => {
+              let type: any = 'sun';
+              let color = '#FFFFFF';
+              switch (cond) {
+                case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
+                case 'Cloudy': type = 'cloud'; break;
+                case 'Rain': type = 'rain'; break;
+                case 'Windy': type = 'wind'; break;
+                case 'Snow': type = 'snow'; break;
+                case 'Storm': type = 'storm'; break;
+                case 'Mist': type = 'cloud'; color = '#CBD5E1'; break;
+                case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break;
+                case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
+                default: type = 'sun';
+              }
+              fullIconsHtml += `<div class="p-1">${getIconSvg(type, color, 24)}</div>`;
+            });
 
-        const el = L.divIcon({
-          className: className,
-          html: iconContent,
-          iconSize: isFree ? [40, 40] : [Math.max(50, 30 + (report.conditions.length * 22) + ((report.temp !== undefined && report.temp !== null) ? 25 : 0)), 40],
-          iconAnchor: isFree ? [20, 20] : [Math.max(50, 30 + (report.conditions.length * 22) + ((report.temp !== undefined && report.temp !== null) ? 25 : 0)) / 2, 20]
-        });
+            const popupContent = `
+              <div class="${bgClass} rounded-2xl shadow-xl border-2 border-white/20 px-3 py-2 flex items-center justify-center gap-2">
+                 <div class="flex flex-wrap justify-center gap-1 max-w-[200px]">
+                   ${fullIconsHtml}
+                 </div>
+                 ${temp ? `<div class="font-bold text-white text-lg pl-2 border-l border-white/20">${temp}</div>` : ''}
+              </div>
+            `;
 
-        const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
+            const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
 
-        // Add click handler for Free tier
-        if (isFree) {
-          marker.on('click', () => {
-            setShowPremium(true);
-          });
-        }
+            if (isFree) {
+              marker.on('click', () => setShowPremium(true));
+            } else {
+              // Bind popup to show full details on click
+              marker.bindPopup(popupContent, {
+                closeButton: false,
+                className: 'custom-popup-no-bg', // See index.css or assume style relies on inner HTML
+                offset: [0, -20],
+                minWidth: 100
+              });
+            }
 
-        markersRef.current.push(marker);
+            markersRef.current.push(marker);
+
+          } else {
+            // --- MOUNTAIN MODE: RETAIN EXISTING CALCULATED LAYOUT ---
+
+            const containerClass = "px-3 py-1.5 h-10 gap-2";
+            const tempSize = "text-base";
+
+            iconContent = `
+              <div class="relative">
+                <div class="${bgClass} rounded-full shadow-md ${containerClass} flex items-center justify-center transform hover:scale-110 transition-transform whitespace-nowrap border-2 border-white/20">
+                  <div class="flex gap-1 items-center">
+                    ${iconsHtml}
+                  </div>
+                  ${avalancheBadge}
+                  ${snowBadge}
+                  ${tempDisplay ? `<span class="font-bold text-white ${tempSize} leading-none pt-0.5">${tempDisplay}</span>` : ''}
+                </div>
+                ${countBadge}
+              </div>
+            `;
+
+            // Dimensions Calculation (Mountain Only)
+            const baseW = 30;
+            const condW = 20;
+            const tempW = 25;
+            const avW = 45;
+            const snowW = 50;
+            const height = 40;
+
+            const calculatedW = Math.max(50, baseW
+              + (report.conditions.length * condW)
+              + ((report.temp !== undefined && report.temp !== null) ? tempW : 0)
+              + (report.avalancheRisk ? avW : 0)
+              + (report.snowLevel !== undefined ? snowW : 0)
+            );
+
+            const el = L.divIcon({
+              className: className,
+              html: iconContent,
+              iconSize: [calculatedW, height],
+              iconAnchor: [calculatedW / 2, height / 2]
+            });
+            const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
+
+            if (isFree) {
+              marker.on('click', () => setShowPremium(true));
+            }
+
+            markersRef.current.push(marker);
+          }
+        } // End Standard View Logic
       });
     }
 
@@ -1335,15 +1743,18 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
   );
 };
 
-const ContributionModal = ({ onClose, initialSelection }: { onClose: () => void, initialSelection?: string | null }) => {
-  const { addReport, t, notificationsEnabled, requestNotifications } = useContext(AppContext)!;
+const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode }: { onClose: () => void, initialSelection?: string | null, onOpenMountainMode?: () => void }) => {
+  const { addReport, t, notificationsEnabled, requestNotifications, loadingWeather } = useContext(AppContext)!;
   const [selected, setSelected] = useState<string[]>(initialSelection ? [initialSelection] : []);
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [precisionGain, setPrecisionGain] = useState(0);
 
+
+  const [snowLevel, setSnowLevel] = useState(0);
   const [contributionRank, setContributionRank] = useState(0);
+  const isStaging = typeof window !== 'undefined' && (window.location.hostname.includes('staging') || window.location.hostname.includes('localhost'));
 
   const toggle = (label: string) => {
     if (selected.includes(label)) {
@@ -1478,12 +1889,13 @@ const ContributionModal = ({ onClose, initialSelection }: { onClose: () => void,
               </button>
             ))}
           </div>
+
         </div>
 
         <div className="p-6 pt-2 border-t border-gray-100">
           <Button
             onClick={submit}
-            disabled={selected.length === 0 || isSubmitting}
+            disabled={selected.length === 0 || isSubmitting || loadingWeather}
             variant="secondary"
             className="w-full text-lg h-14 shadow-xl"
           >
@@ -1494,9 +1906,18 @@ const ContributionModal = ({ onClose, initialSelection }: { onClose: () => void,
               </span>
             ) : t('modal.submit')}
           </Button>
+          {onOpenMountainMode && (
+            <button
+              onClick={onOpenMountainMode}
+              className="w-full mt-3 py-3 rounded-xl bg-gray-100 text-gray-700 font-bold flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors"
+            >
+              <span>🏔️</span>
+              <span>{t('button.mountain_mode')}</span>
+            </button>
+          )}
         </div>
-      </Card>
-    </div>
+      </Card >
+    </div >
   );
 };
 
@@ -1532,7 +1953,7 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
 };
 
 const PremiumModal = ({ onClose }: { onClose: () => void }) => {
-  const { language, simulateSubscription, user, userTier } = useContext(AppContext)!;
+  const { language, simulateSubscription, user, userTier, userPlan } = useContext(AppContext)!;
   const [billing, setBilling] = useState<'monthly' | 'yearly'>('yearly');
 
   const tiers = [
@@ -1544,10 +1965,10 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       textColor: 'text-gray-700',
       features: [
         language === 'fr' ? 'Météo actuelle + 3h' : 'Current weather + 3h',
-        language === 'fr' ? 'Alertes vitales uniquement' : 'Price alerts only', // Wait, previous trans was inaccurate?
-        language === 'fr' ? 'Poster des rapports' : 'Post reports',
-        language === 'fr' ? '❌ Carte communautaire floutée' : '❌ Blurred community map',
-        language === 'fr' ? '❌ Données Santé masquées' : '❌ Masked Health Data'
+        language === 'fr' ? 'UV + Pollution' : 'UV + Pollution',
+        language === 'fr' ? 'Carte communautaire (votre ville)' : 'Community map (your city)',
+        language === 'fr' ? 'Alertes vitales uniquement' : 'Vital alerts only',
+        language === 'fr' ? 'Poster des rapports' : 'Post reports'
       ],
       cta: language === 'fr' ? 'Basique' : 'Basic',
       disabled: true
@@ -1561,8 +1982,8 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       textColor: 'text-white',
       features: [
         language === 'fr' ? 'Prévisions 12h' : '12h forecast',
-        language === 'fr' ? 'Carte communautaire active' : 'Active community map',
-        language === 'fr' ? 'Données Santé (UV, Pollen, Pollution)' : 'Health Data (UV, Pollen, Pollution)',
+        language === 'fr' ? 'Carte communautaire complète' : 'Full community map',
+        language === 'fr' ? 'Données Santé (UV, Pollution + Pollen)' : 'Health Data (UV, Pollution + Pollen)',
         language === 'fr' ? 'Alertes confort (Pluie...)' : 'Comfort alerts (Rain...)',
         language === 'fr' ? 'Expérience complète' : 'Full experience'
       ],
@@ -1577,13 +1998,29 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       color: 'from-yellow-400 via-orange-500 to-red-500',
       textColor: 'text-white',
       features: [
-        language === 'fr' ? 'Tout du Standard' : 'Everything in Standard',
+        language === 'fr' ? 'Pack Standard' : 'Standard Pack',
         language === 'fr' ? 'Détails Experts (Graphiques)' : 'Expert Details (Graphs)',
-        language === 'fr' ? 'Indices Qualité Air détaillés' : 'Detailed Air Quality indices',
+        language === 'fr' ? 'Indices AIR, UV, Pollens' : 'AIR, UV, Pollen Indices',
         language === 'fr' ? 'Comparaison J-1' : 'Yesterday comparison',
-        language === 'fr' ? 'Expérience Expert' : 'Expert Experience'
+        language === 'fr' ? 'Mode Montagne 🏔️' : 'Mountain Mode 🏔️'
       ],
       cta: language === 'fr' ? 'Choisir Ultimate' : 'Choose Ultimate',
+      disabled: false
+    },
+    {
+      name: 'Traveler',
+      price: 'CHF 4.-',
+      period: language === 'fr' ? '/ semaine' : '/ week',
+      savings: null,
+      color: 'from-purple-500 to-indigo-600',
+      textColor: 'text-white',
+      features: [
+        language === 'fr' ? 'Valable 1 semaine' : 'Valid for 1 week',
+        language === 'fr' ? 'Idéal pour les vacances' : 'Perfect for holidays',
+        language === 'fr' ? 'Fonctionnalités Ultimate' : 'Ultimate Features',
+        language === 'fr' ? 'Sans engagement' : 'No long commitment'
+      ],
+      cta: language === 'fr' ? 'Choisir Traveler' : 'Choose Traveler',
       disabled: false
     }
   ];
@@ -1601,11 +2038,14 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       url = isYearly
         ? "https://buy.stripe.com/test_fZu3cuaeI0wI8J0gQ80RG02" // Standard Yearly
         : "https://buy.stripe.com/test_00w9ASgD6bbm4sK6bu0RG00"; // Standard Monthly
-    } else {
+    } else if (tierIndex === 2) {
       // Ultimate Links
       url = isYearly
         ? "https://buy.stripe.com/test_14A7sKeuYcfq7EWgQ80RG04" // Ultimate Yearly
         : "https://buy.stripe.com/test_3cIfZgbiM4MY8J0czS0RG03"; // Ultimate Monthly
+    } else if (tierIndex === 3) {
+      // Traveler (Weekly)
+      url = "https://buy.stripe.com/test_7sYeVc4Uo4MY7EW8jC0RG05";
     }
 
     // Append Client Reference ID (CRITICAL for Webhook activation)
@@ -1709,15 +2149,36 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
 
                   <button
                     onClick={() => handleSubscribe(index)}
-                    disabled={tier.disabled || (index === 0 && userTier === UserTier.FREE) || (index === 1 && userTier === UserTier.STANDARD) || (index === 2 && userTier === UserTier.ULTIMATE)}
-                    className={`w-full py-2.5 px-4 rounded-xl font-bold text-sm transition-all mt-auto active:scale-95 ${((index === 0 && userTier === UserTier.FREE) || (index === 1 && userTier === UserTier.STANDARD) || (index === 2 && userTier === UserTier.ULTIMATE))
+                    disabled={tier.disabled || (() => {
+                      // Current Plan Check Helpers
+                      if (index === 0 && userTier === UserTier.FREE) return true;
+                      if (index === 1 && userTier === UserTier.STANDARD) return true;
+                      // Ultimate check: Must be Tier Ultimate AND NOT Traveler plan
+                      if (index === 2 && userTier === UserTier.ULTIMATE && userPlan !== 'traveler') return true;
+                      // Traveler check: Must be Traveler plan
+                      if (index === 3 && userPlan === 'traveler') return true;
+                      return false;
+                    })()}
+                    className={`w-full py-2.5 px-4 rounded-xl font-bold text-sm transition-all mt-auto active:scale-95 ${(() => {
+                      if (index === 0 && userTier === UserTier.FREE) return true;
+                      if (index === 1 && userTier === UserTier.STANDARD) return true;
+                      if (index === 2 && userTier === UserTier.ULTIMATE && userPlan !== 'traveler') return true;
+                      if (index === 3 && userPlan === 'traveler') return true;
+                      return false;
+                    })()
                       ? 'bg-green-100 text-green-700 border-2 border-green-200 cursor-default shadow-none pointer-events-none'
                       : tier.disabled
                         ? 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed'
                         : 'bg-gray-900 text-white hover:bg-black shadow-md'
                       }`}
                   >
-                    {((index === 0 && userTier === UserTier.FREE) || (index === 1 && userTier === UserTier.STANDARD) || (index === 2 && userTier === UserTier.ULTIMATE))
+                    {(() => {
+                      if (index === 0 && userTier === UserTier.FREE) return true;
+                      if (index === 1 && userTier === UserTier.STANDARD) return true;
+                      if (index === 2 && userTier === UserTier.ULTIMATE && userPlan !== 'traveler') return true;
+                      if (index === 3 && userPlan === 'traveler') return true;
+                      return false;
+                    })()
                       ? (language === 'fr' ? 'Plan Actuel' : 'Current Plan')
                       : tier.cta}
                   </button>
@@ -1813,13 +2274,205 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
   );
 };
 
+const MountainModal = ({ onClose }: { onClose: () => void }) => {
+  const { addReport, t, loadingWeather } = useContext(AppContext)!;
+  const [selected, setSelected] = useState<string[]>([]);
+  const [snowLevel, setSnowLevel] = useState(0);
+  const [avalancheRisk, setAvalancheRisk] = useState(1);
+  const [visibility, setVisibility] = useState(100);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  const [avalancheUnlocked, setAvalancheUnlocked] = useState(false);
+
+  const toggle = (label: string) => {
+    if (selected.includes(label)) {
+      setSelected(s => s.filter(i => i !== label));
+    } else {
+      if (selected.length < 3) setSelected(s => [...s, label]);
+    }
+  };
+
+  const submit = async () => {
+    if (selected.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      await addReport(selected, {
+        snowLevel,
+        // Only send avalanche risk if explicitly unlocked by the user
+        avalancheRisk: avalancheUnlocked ? avalancheRisk : undefined,
+        visibilityDist: visibility,
+        windExposure: 'ridge' // Defaulting to ridge for now or add selector if needed
+      });
+      setIsSubmitting(false);
+      setShowSuccess(true);
+    } catch (e) {
+      setIsSubmitting(false);
+      alert("Error sending report.");
+    }
+  };
+
+  if (showSuccess) {
+    return (
+      <div className="fixed inset-0 z-[20000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <Card className="w-full max-w-sm p-8 bg-white relative text-center">
+          <div className="mb-6 flex justify-center">
+            <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+              <Check size={40} strokeWidth={3} />
+            </div>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 mb-4">{t('mountain.success.title')}</h3>
+          <p className="text-gray-500 mb-6">{t('mountain.success.desc')}</p>
+          <Button onClick={onClose} variant="secondary" className="w-full text-lg shadow-xl">{t('mountain.back')}</Button>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[20000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+      <Card className="w-full max-w-md bg-white relative flex flex-col max-h-[90vh] overflow-hidden">
+        <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 z-10">
+          <X size={24} />
+        </button>
+
+        <div className="p-6 pb-2 text-center bg-gray-50 border-b border-gray-100">
+          <h3 className="text-2xl font-bold text-gray-900 mb-1 flex items-center justify-center gap-2">
+            {t('mountain.title')}
+          </h3>
+          <p className="text-sm text-gray-500">{t('mountain.desc')}</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+
+          {/* Conditions */}
+          <div>
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 block">{t('mountain.conditions')}</label>
+            <div className="grid grid-cols-3 gap-2">
+              {['Sunny', 'Snow', 'Windy', 'Mist', 'Whiteout', 'Ice'].map((cond) => (
+                <button
+                  key={cond}
+                  onClick={() => toggle(cond)}
+                  className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${selected.includes(cond)
+                    ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                    : 'border-gray-100 bg-white text-gray-600 hover:bg-gray-50'
+                    }`}
+                >
+                  <div className="scale-75 mb-1">{getWeatherIconFromLabel(cond, 24)}</div>
+                  <span className="text-xs font-medium">{t(`condition.${cond}`)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Snow Level */}
+          <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+            <label className="text-sm font-bold text-blue-800 block mb-3 flex items-center justify-between">
+              <span>{t('mountain.snow')}</span>
+              <span className="bg-blue-200 text-blue-800 px-2 py-0.5 rounded-md text-xs font-bold">{snowLevel} cm</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="150"
+              step="5"
+              value={snowLevel}
+              onChange={(e) => setSnowLevel(parseInt(e.target.value))}
+              className="w-full accent-blue-500 h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer"
+            />
+          </div>
+
+          {/* Visibility */}
+          <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+            <label className="text-sm font-bold text-gray-700 block mb-3 flex items-center justify-between">
+              <span>{t('mountain.visibility')}</span>
+              <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded-md text-xs font-bold">{visibility < 20 ? `< 20m` : visibility > 200 ? `> 200m` : `${visibility}m`}</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="250"
+              step="10"
+              value={visibility}
+              onChange={(e) => setVisibility(parseInt(e.target.value))}
+              className="w-full accent-gray-500 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-gray-400 mt-1 font-medium">
+              <span>{t('mountain.visibility.fog')}</span>
+              <span>{t('mountain.visibility.haze')}</span>
+              <span>{t('mountain.visibility.clear')}</span>
+            </div>
+          </div>
+
+          {/* Avalanche Risk */}
+          <div className={`p-4 rounded-xl border transition-all duration-300 ${avalancheUnlocked ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-200'}`}>
+            <label className="text-sm font-bold text-red-800 block mb-3 flex items-center justify-between">
+              <span className={avalancheUnlocked ? '' : 'text-gray-400'}>{t('mountain.avalanche')}</span>
+              {avalancheUnlocked && <span className="bg-red-200 text-red-800 px-2 py-0.5 rounded-md text-xs font-black">{avalancheRisk}/5</span>}
+            </label>
+
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="1"
+              value={avalancheRisk}
+              onChange={(e) => setAvalancheRisk(parseInt(e.target.value))}
+              disabled={!avalancheUnlocked}
+              className={`w-full h-2 rounded-lg appearance-none cursor-pointer mb-2 transition-all ${avalancheUnlocked ? 'bg-red-200 accent-red-600' : 'bg-gray-200 accent-gray-400'}`}
+            />
+
+            <div className={`flex justify-between text-[10px] mt-1 font-bold ${avalancheUnlocked ? 'text-red-400' : 'text-gray-300'}`}>
+              <span>{t('mountain.avalanche.low')}</span>
+              <span>{t('mountain.avalanche.moderate')}</span>
+              <span>{t('mountain.avalanche.considerable')}</span>
+              <span>{t('mountain.avalanche.high')}</span>
+              <span>{t('mountain.avalanche.extreme')}</span>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-gray-200/50">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="avalanche-confirm"
+                  checked={avalancheUnlocked}
+                  onChange={(e) => setAvalancheUnlocked(e.target.checked)}
+                  className="mt-1 w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500 cursor-pointer"
+                />
+                <label htmlFor="avalanche-confirm" className="text-xs text-gray-600 leading-snug cursor-pointer select-none">
+                  <span className="font-bold block text-red-700 mb-0.5">{t('mountain.avalanche.warning')}</span>
+                  {t('mountain.avalanche.confirm')}
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 pt-2 border-t border-gray-100 bg-gray-50">
+          <Button
+            onClick={submit}
+            disabled={selected.length === 0 || isSubmitting || loadingWeather}
+            variant="primary"
+            className="w-full text-lg h-12 shadow-md bg-gray-900 hover:bg-black text-white"
+          >
+            {isSubmitting ? 'Sending...' : t('modal.submit')}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
 const App = () => {
 
   const [page, setPage] = useState<'home' | 'map'>('home');
   const [showContribution, setShowContribution] = useState(false);
   const [initialSelection, setInitialSelection] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user, userTier, showPremium, setShowPremium } = useContext(AppContext)!;
+  const [showMountainModal, setShowMountainModal] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0); // 0 = off, 1 = contrib, 2 = lang/unit, 3 = map
+  const isStaging = typeof window !== 'undefined' && (window.location.hostname.includes('staging') || window.location.hostname.includes('localhost'));
+  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user, userTier, userPlan, showPremium, setShowPremium } = useContext(AppContext)!;
 
   // Handle Notification Clicks & Auto-Open
   useEffect(() => {
@@ -1838,23 +2491,72 @@ const App = () => {
 
     // 1. Check on Mount
     handleUrlParams();
+    // setTimeout to ensure params are read even if hydration delays
+    setTimeout(handleUrlParams, 500);
+
+    // Initial Coach Mark check (v2 for new multi-step)
+    const hasSeenTuto = localStorage.getItem('has_seen_tuto_v2');
+    if (!hasSeenTuto) {
+      // Small delay to ensure UI is ready
+      setTimeout(() => setTutorialStep(1), 1000);
+    }
 
     // 2. Check when App comes to Foreground (for background instances)
     const handleFocus = () => {
-      // Small delay to ensure URL is updated by browser navigation
+      // Small delay to ensure URL is updated by browser navigation or deep link intent
       setTimeout(handleUrlParams, 500);
+
+      // Fallback: Check if we have a pending action stored in localStorage (if deep link failed but opened app)
+      const pendingAction = localStorage.getItem('pending_notification_action');
+      if (pendingAction) {
+        try {
+          const action = JSON.parse(pendingAction);
+          if (action.type === 'contribution') {
+            if (action.select) setInitialSelection(action.select);
+            setShowContribution(true);
+            localStorage.removeItem('pending_notification_action');
+          }
+        } catch (e) { console.error("Error parsing pending action", e); }
+      }
     };
 
     window.addEventListener('focus', handleFocus);
-    window.addEventListener('visibilitychange', () => {
+    document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         handleFocus();
       }
     });
 
+    // 3. Listen for SW Messages (Reliable for Background -> Foreground)
+    const handleSWMessage = (event: MessageEvent) => {
+      console.log("SW Message received:", event.data);
+      if (event.data && event.data.type === 'OPEN_CONTRIBUTION') {
+        if (event.data.select) setInitialSelection(event.data.select);
+        setShowContribution(true);
+      }
+    };
+
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener('message', handleSWMessage);
+    }
+
+    // 4. broadcastChannel (Even MORE Reliable for inter-context comms)
+    const channel = new BroadcastChannel('weather_channel');
+    channel.onmessage = (event) => {
+      console.log("Broadcast Channel Message:", event.data);
+      if (event.data && event.data.type === 'OPEN_CONTRIBUTION') {
+        if (event.data.select) setInitialSelection(event.data.select);
+        setShowContribution(true);
+      }
+    };
+
     return () => {
       window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('visibilitychange', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      channel.close();
+      if (navigator.serviceWorker) {
+        navigator.serviceWorker.removeEventListener('message', handleSWMessage);
+      }
     };
   }, []);
 
@@ -1887,13 +2589,13 @@ const App = () => {
           </button>
           <button
             onClick={() => setUnit(unit === 'celsius' ? 'fahrenheit' : 'celsius')}
-            className="w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50"
+            className={`w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50 ${tutorialStep === 2 ? 'relative z-[70] ring-4 ring-white ring-offset-4 ring-offset-black/50' : ''}`}
           >
             °{unit === 'celsius' ? 'C' : 'F'}
           </button>
           <button
             onClick={() => setLanguage(language === 'en' ? 'fr' : 'en')}
-            className="w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50"
+            className={`w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50 ${tutorialStep === 2 ? 'relative z-[70] ring-4 ring-white ring-offset-4 ring-offset-black/50' : ''}`}
           >
             {language.toUpperCase()}
           </button>
@@ -1916,7 +2618,7 @@ const App = () => {
       {/* Notification Banner */}
       {/* Notification Banner */}
       {lastNotification && (
-        <div className="fixed top-24 left-4 right-4 z-[9999] animate-in slide-in-from-top-4 duration-500 pointer-events-none flex justify-center">
+        <div className="fixed top-24 left-4 right-4 z-[99999] animate-in slide-in-from-top-4 duration-500 pointer-events-none flex justify-center">
           <div
             onClick={() => setShowContribution(true)}
             className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl p-5 border border-blue-100 w-full max-w-2xl pointer-events-auto ring-1 ring-black/5 flex flex-col gap-4 cursor-pointer hover:bg-white transition-colors max-h-[70vh] overflow-y-auto"
@@ -2032,10 +2734,11 @@ const App = () => {
         </button>
 
         {/* Contribution FAB in Center */}
-        <div className="relative -top-6">
+        {/* Contribution FAB in Center */}
+        <div className="relative -top-6 flex items-center justify-center">
           <button
             onClick={() => setShowContribution(true)}
-            className="w-20 h-20 rounded-full bg-[linear-gradient(0deg,#FCAF45,#FF0080,#FF8C00,#FD1D1D,#FCAF45)] animate-radiant bg-[length:100%_200%] flex items-center justify-center shadow-lg shadow-pink-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white"
+            className={`relative z-50 w-20 h-20 rounded-full bg-[linear-gradient(0deg,#FCAF45,#FF0080,#FF8C00,#FD1D1D,#FCAF45)] animate-radiant bg-[length:100%_200%] flex items-center justify-center shadow-lg shadow-pink-200 hover:scale-105 active:scale-95 transition-transform border-4 border-white ${tutorialStep === 1 ? 'ring-4 ring-white ring-offset-4 ring-offset-black/80 z-[70]' : ''}`}
           >
             <CloudSun className="text-white" size={40} />
           </button>
@@ -2044,18 +2747,107 @@ const App = () => {
         {/* Map Button moved to Right */}
         <button
           onClick={() => setPage('map')}
-          className={`flex flex-col items-center gap-1 transition-colors ${page === 'map' ? 'text-primary' : 'hover:text-gray-600'}`}
+          className={`flex flex-col items-center gap-1 transition-colors ${page === 'map' ? 'text-primary' : 'hover:text-gray-600'} ${tutorialStep === 3 ? 'relative z-[70] bg-white p-1 rounded-lg ring-4 ring-white ring-offset-4 ring-offset-black/80' : ''}`}
         >
           <MapIcon size={28} strokeWidth={page === 'map' ? 2.5 : 2} />
           <span>{t('nav.map')}</span>
         </button>
       </nav>
 
+      {/* Tutorial Overlay (Multi-Step) */}
+      {tutorialStep > 0 && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 animate-in fade-in duration-500"
+          onClick={() => {
+            if (tutorialStep < 3) {
+              setTutorialStep(tutorialStep + 1);
+            } else {
+              setTutorialStep(0);
+              localStorage.setItem('has_seen_tuto_v2', 'true');
+            }
+          }}
+        >
+          {/* Step 1: Contribution (Bottom Center) */}
+          {tutorialStep === 1 && (
+            <div className="absolute bottom-32 left-0 right-0 flex flex-col items-center text-center text-white px-8 animate-bounce">
+              <h3 className="text-2xl font-bold mb-2">
+                {language === 'fr' ? 'Participez à la communauté !' : 'Join the community!'}
+              </h3>
+              <p className="text-lg opacity-90">
+                {language === 'fr'
+                  ? 'Appuyez ici pour signaler la météo en temps réel.'
+                  : 'Tap here to report live weather.'}
+              </p>
+              <ArrowDown size={40} className="mt-4 mx-auto text-white/50" />
+            </div>
+          )}
+
+          {/* Step 2: Language & Unit (Top Right) */}
+          {tutorialStep === 2 && (
+            <div className="absolute top-20 right-4 max-w-[250px] flex flex-col items-end text-right text-white animate-pulse">
+              <ArrowUp size={40} className="mb-4 mr-8 text-white/50" />
+              <h3 className="text-xl font-bold mb-1">
+                {language === 'fr' ? 'Personnalisez votre expérience' : 'Customize your view'}
+              </h3>
+              <p className="text-sm opacity-90">
+                {language === 'fr'
+                  ? 'Changez la langue (FR/EN) et les unités (°C/°F) ici.'
+                  : 'Switch language and units here.'}
+              </p>
+            </div>
+          )}
+
+          {/* Step 3: Map (Bottom Right) */}
+          {tutorialStep === 3 && (
+            <div className="absolute bottom-24 right-4 max-w-[200px] flex flex-col items-end text-right text-white animate-bounce">
+              <h3 className="text-xl font-bold mb-1">
+                {language === 'fr' ? 'Carte Communautaire' : 'Community Map'}
+              </h3>
+              <p className="text-sm opacity-90">
+                {language === 'fr'
+                  ? 'Voyez les signalements des autres utilisateurs ici.'
+                  : 'See what others are reporting nearby.'}
+              </p>
+              <ArrowDown size={40} className="mt-4 mr-8 text-white/50" />
+            </div>
+          )}
+
+          {/* Navigation/Skip */}
+          <div className="absolute bottom-8 left-0 right-0 flex justify-center pointer-events-none z-[90]">
+            {/* Step indicator or instructions to tap to continue */}
+            <p className="text-white/60 text-xs font-bold uppercase tracking-widest bg-black/40 px-4 py-2 rounded-full backdrop-blur-md border border-white/10">
+              {language === 'fr' ? 'Toucher pour continuer' : 'Tap to continue'} ({tutorialStep}/3)
+            </p>
+          </div>
+
+          <button
+            className="absolute top-6 left-6 text-white/80 hover:text-white font-bold text-xs pointer-events-auto z-[90] bg-black/20 px-3 py-1 rounded-full backdrop-blur-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setTutorialStep(0);
+              localStorage.setItem('has_seen_tuto_v2', 'true');
+            }}
+          >
+            {language === 'fr' ? 'PASSER' : 'SKIP'}
+          </button>
+        </div>
+      )}
+
       {/* Modals */}
       {/* Modals */}
-      {showContribution && <ContributionModal onClose={() => { setShowContribution(false); setInitialSelection(null); }} initialSelection={initialSelection} />}
+      {showContribution && (
+        <ContributionModal
+          onClose={() => { setShowContribution(false); setInitialSelection(null); }}
+          initialSelection={initialSelection}
+          onOpenMountainMode={() => {
+            setShowContribution(false);
+            setShowMountainModal(true);
+          }}
+        />
+      )}
       {showPremium && <PremiumModal onClose={() => setShowPremium(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showMountainModal && <MountainModal onClose={() => setShowMountainModal(false)} />}
 
     </div>
   );

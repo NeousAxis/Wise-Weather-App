@@ -5,10 +5,10 @@
     "changes": [
         "Fixed UV/AQI graph visibility (h-full + justify-end CSS)",
         "Normalized Ultimate tier (Firestore 'Ultimate' → 'ULTIMATE')",
-        "Added pollen types: Alder (winter), Mugwort",
+        "Added pollen types support in code: Alder, Mugwort (Note: Open-Meteo API currently returns 0 for winter pollens)",
         "Restored precipitation logic (force display if >= 0.1mm)",
         "Secured Stripe key (moved to environment variable)",
-        "Removed fallback simulated pollen data"
+        "Removed misleading simulated pollen fallback - awaiting Ambee integration"
     ],
     "notes": "STRIPE_SECRET_KEY must be set in Firebase Functions environment variables"
 }

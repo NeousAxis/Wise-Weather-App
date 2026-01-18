@@ -19,7 +19,7 @@ interface AppContextType {
   weather: WeatherData | null;
   loadingWeather: boolean;
   communityReports: CommunityReport[];
-  addReport: (conditions: string[]) => Promise<{ gain: number, rank: number }>;
+  addReport: (conditions: string[], details?: { snowLevel?: number, avalancheRisk?: number, visibilityDist?: number, isoLimit?: number, windExposure?: 'ridge' | 'valley' }) => Promise<{ gain: number, rank: number }>;
   searchCity: (query: string) => Promise<SearchResult[]>;
   majorCitiesWeather: any[];
   alertsCount: number;
@@ -31,12 +31,28 @@ interface AppContextType {
   lastNotification: { title: string, body: string, data?: any } | null;
   user: User | null;
   userTier: UserTier;
+  userPlan: string; // New field for specific plan (e.g. 'traveler')
   simulateSubscription: (tier: UserTier) => void;
   showPremium: boolean;
   setShowPremium: (show: boolean) => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
+
+// ... (Major Cities Arrays kept as is) ...
+// (Skipping to AppProvider implementation for brevity in tool input, but must safeguard surrounding code)
+// WAIT, I need to match valid replacement block.
+
+// Let's target the interface and AppProvider start.
+// AND the state/useEffect.
+
+// Actually I will do it in 2 chunks to be safe if file is huge between interface and provider.
+// But here they are close.
+// I will just replace the Interface and then the State/Effect part separately.
+
+// Chunk 1: Interface
+// Chunk 2: State & Effect
+
 
 // Database of major cities by country (Expanded)
 const COUNTRY_MAJOR_CITIES: Record<string, { name: string, lat: number, lng: number }[]> = {
@@ -150,6 +166,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [lastNotification, setLastNotification] = useState<{ title: string, body: string, data?: any } | null>(null);
   const [userTier, setUserTier] = useState<UserTier>(UserTier.FREE);
+  const [userPlan, setUserPlan] = useState<string>(''); // Default empty
   const [showPremium, setShowPremium] = useState(false);
 
   const simulateSubscription = async (tier: UserTier) => {
@@ -195,38 +212,272 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           const normalizedTier = data.tier.toUpperCase();
           setUserTier(normalizedTier as UserTier);
         }
+        if (data.plan) {
+          setUserPlan(data.plan);
+        }
       }
     });
 
     return () => unsub();
   }, [user]);
 
-  // Force sync on App Resume (Auto-Refresh Subscription)
+  const fetchWeather = React.useCallback(async (lat: number, lng: number) => {
+    setLoadingWeather(true);
+    try {
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility,precipitation&hourly=temperature_2m,weather_code,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
+      );
+      const data = await res.json();
+
+      // Fetch Air Quality from WAQI
+      let aqiValue = undefined;
+      try {
+        const aqiRes = await fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`);
+        const aqiData = await aqiRes.json();
+        if (aqiData.status === 'ok') {
+          aqiValue = aqiData.data.aqi;
+        }
+      } catch (e) {
+        console.error("AQI fetch failed", e);
+      }
+
+      // Fetch Pollen & Air Quality Details
+      let pollenData = undefined;
+      let airDetails = undefined;
+      let hourlyAir = undefined;
+      let hourlyEuropeanAqi: number[] | undefined = undefined;
+
+      try {
+        // Optimization: Pollen Cache (3 fresh updates: 6am, 11am, 5pm)
+        const now = new Date();
+        const hour = now.getHours();
+
+        let effectiveDate = new Date(now);
+        // Shift logic: Before 6am, we use yesterday's data
+        if (hour < 6) {
+          effectiveDate.setDate(now.getDate() - 1);
+        }
+
+        // Robust YYYY-MM-DD construction (No Intl dependency)
+        const year = effectiveDate.getFullYear();
+        const month = String(effectiveDate.getMonth() + 1).padStart(2, '0');
+        const day = String(effectiveDate.getDate()).padStart(2, '0');
+        const dateKey = `${year}-${month}-${day}`;
+
+        let timeSlot = '';
+        if (hour < 6) timeSlot = 'evening_5pm'; // Previous day evening
+        else if (hour < 11) timeSlot = 'morning_6am';
+        else if (hour < 17) timeSlot = 'noon_11am';
+        else timeSlot = 'evening_5pm';
+
+        const cacheKey = `wise_pollen_v5_${dateKey}_${timeSlot}_${lat.toFixed(2)}_${lng.toFixed(2)}`;
+
+        let pollenPromise: Promise<any>;
+        const cachedPollen = localStorage.getItem(cacheKey);
+
+        if (cachedPollen) {
+          console.log("Using cached pollen data");
+          pollenPromise = Promise.resolve({ success: true, data: JSON.parse(cachedPollen) });
+        } else {
+          pollenPromise = (async () => {
+            try {
+              const fn = httpsCallable(functions, 'getPollenForecast');
+              // Pass language for localized results
+              const res = await fn({ lat, lng, lang: language });
+              const result = res.data as any;
+              if (result.success && result.data) {
+                localStorage.setItem(cacheKey, JSON.stringify(result.data));
+              }
+              return result;
+            } catch (e) {
+              console.error("Google Pollen Cloud Function Failed:", e);
+              return { success: false, error: e instanceof Error ? e.message : 'Detailed Fetch Error' };
+            }
+          })();
+        }
+
+        // Parallel: Fetch Air Quality (Open-Meteo) and Pollen
+        const [airRes, pollenResult] = await Promise.all([
+          fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`),
+          pollenPromise
+        ]);
+
+        const airJson = await airRes.json();
+
+        // Process Air Quality
+        if (airJson.current) {
+          // USER REQUEST: Use Open-Meteo US AQI (same as graph) for Dashboard consistency
+          // Overwrites WAQI if available
+          if (airJson.current.us_aqi !== undefined) {
+            aqiValue = airJson.current.us_aqi;
+          }
+
+          airDetails = {
+            pm2_5: airJson.current.pm2_5,
+            pm10: airJson.current.pm10,
+            no2: airJson.current.nitrogen_dioxide,
+            o3: airJson.current.ozone
+          };
+        }
+        if (airJson.hourly) {
+          hourlyAir = {
+            time: airJson.hourly.time,
+            pm2_5: airJson.hourly.pm2_5,
+            pm10: airJson.hourly.pm10,
+            no2: airJson.hourly.nitrogen_dioxide,
+            o3: airJson.hourly.ozone
+          };
+          hourlyEuropeanAqi = airJson.hourly.us_aqi;
+        }
+
+        // Process Pollen (Google API - Dynamic)
+        if (pollenResult && pollenResult.success && pollenResult.data && pollenResult.data.items) {
+          // We have a dynamic list of items. We need to store this for the UI.
+          // For mapping to the 'old' schema (the pill in the dashboard), we try to extract common types.
+          // But mostly we attach the raw items to be used in the Modal.
+
+          const items = pollenResult.data.items;
+
+          // Legacy Mapping for Dashboard Pill (Dominant Type logic)
+          const getVal = (code: string) => items.find((i: any) => i.code === code)?.value || 0;
+
+          pollenData = {
+            alder: getVal('ALDER'),
+            birch: getVal('BIRCH'),
+            grass: getVal('GRASS'),
+            ragweed: getVal('RAGWEED'),
+            olive: getVal('OLIVE'),
+            mugwort: getVal('MUGWORT'),
+            // Attach the full list for the Modal
+            _dynamicItems: items
+          } as any;
+
+        } else if (pollenResult && pollenResult.success && pollenResult.data && !pollenResult.data.items) {
+          // Handle legacy cache format (v3/v2) if any slips through (unlikely with v4 key)
+          pollenData = pollenResult.data;
+        } else {
+          console.warn("Pollen data unavailable (or Error).");
+          pollenData = {
+            alder: 0, birch: 0, grass: 0, ragweed: 0, olive: 0, mugwort: 0,
+            _dynamicItems: [],
+            _error: pollenResult?.error || "Unknown Error" // Pass error to UI
+          } as any;
+        }
+
+      } catch (e) {
+        console.error("Pollen/Air fetch failed", e);
+      }
+
+      // Find current hour index for UV
+      // FIX: Use API's current time (Local) instead of System UTC time to avoid timezone mismatch
+      // data.current.time is "YYYY-MM-DDTHH:mm" in Local Time (due to timezone=auto).
+      // data.hourly.time is "YYYY-MM-DDTHH:00" in Local Time.
+      const currentApiTime = data.current.time as string;
+      const currentHourPrefix = currentApiTime.slice(0, 13); // Match YYYY-MM-DDTHH
+      let hourIndex = data.hourly.time.findIndex((t: string) => t.startsWith(currentHourPrefix));
+
+      // CRITICAL FIX: If hour not found, use a safe fallback (middle of array)
+      if (hourIndex === -1) {
+        hourIndex = Math.floor(data.hourly.time.length / 2);
+      }
+
+      // Get UV from hourly data
+      let currentUV = data.hourly.uv_index ? data.hourly.uv_index[hourIndex] : 0;
+
+      // CRITICAL FIX: UV CANNOT exist at night! Force to 0 if isDay=0
+      if (data.current.is_day === 0) {
+        currentUV = 0;
+      }
+
+      const mappedWeather: WeatherData = {
+        current: {
+          temperature: data.current.temperature_2m,
+          weatherCode: data.current.weather_code,
+          windSpeed: data.current.wind_speed_10m,
+          isDay: data.current.is_day,
+          relativeHumidity: data.current.relative_humidity_2m,
+          visibility: data.current.visibility,
+          aqi: aqiValue,
+          uvIndex: currentUV,
+          pollen: pollenData,
+          airQualityDetails: airDetails,
+          precipitation: data.current.precipitation
+        },
+        hourly: {
+          time: data.hourly.time,
+          temperature_2m: data.hourly.temperature_2m,
+          weather_code: data.hourly.weather_code,
+          uv_index: data.hourly.uv_index,
+          european_aqi: hourlyEuropeanAqi
+        },
+        daily: {
+          temperature_2m_max: data.daily.temperature_2m_max,
+          temperature_2m_min: data.daily.temperature_2m_min,
+          sunrise: data.daily.sunrise,
+          sunset: data.daily.sunset,
+          time: data.daily.time
+        },
+        hourlyAirQuality: hourlyAir,
+        yesterday: {
+          tempMax: data.daily.temperature_2m_max ? data.daily.temperature_2m_max[0] : undefined,
+          weatherCode: data.daily.weather_code ? data.daily.weather_code[0] : undefined,
+          details: (data.hourly && data.hourly.temperature_2m) ? {
+            morning: { temp: data.hourly.temperature_2m[8], code: data.hourly.weather_code[8] },
+            noon: { temp: data.hourly.temperature_2m[13], code: data.hourly.weather_code[13] },
+            evening: { temp: data.hourly.temperature_2m[19], code: data.hourly.weather_code[19] }
+          } : undefined
+        }
+      };
+      setWeather(mappedWeather);
+
+      if (data.current.weather_code >= 95 || data.current.wind_speed_10m > 80) {
+        setAlertsCount(prev => prev + 1);
+      } else {
+        setAlertsCount(0);
+      }
+    } catch (error) {
+      console.error("Weather fetch failed", error);
+    } finally {
+      setLoadingWeather(false);
+    }
+  }, [language]);
+
+  // Force sync on App Resume (Auto-Refresh Subscription & Data)
   useEffect(() => {
     const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && user) {
-        console.log("App resumed. Checking subscription...");
-        try {
-          const snap = await getDoc(doc(db, "users", user.uid));
-          if (snap.exists()) {
-            const data = snap.data();
-            if (data.tier && data.tier !== userTier) {
-              console.log("Updated tier detected on resume:", data.tier);
-              setUserTier(data.tier as UserTier);
-              // Simple feedback to confirm activation
-              const msg = language === 'fr' ? "Abonnement activé ! Bienvenue." : "Subscription activated! Welcome.";
-              alert(msg);
+      if (document.visibilityState === 'visible') {
+        console.log("App resumed. Checking updates...");
+
+        // 1. Refresh Weather Data (if location is set)
+        if (location) {
+          console.log("Refreshing weather data...");
+          fetchWeather(location.lat, location.lng);
+        }
+
+        // 2. Refresh Subscription
+        if (user) {
+          try {
+            const snap = await getDoc(doc(db, "users", user.uid));
+            if (snap.exists()) {
+              const data = snap.data();
+              if (data.tier && data.tier !== userTier) {
+                console.log("Updated tier detected on resume:", data.tier);
+                setUserTier(data.tier as UserTier);
+                // Simple feedback to confirm activation
+                const msg = language === 'fr' ? "Abonnement activé ! Bienvenue." : "Subscription activated! Welcome.";
+                alert(msg);
+              }
             }
+          } catch (e) {
+            console.error("Error refreshing profile:", e);
           }
-        } catch (e) {
-          console.error("Error refreshing profile:", e);
         }
       }
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [user, userTier, language]);
+  }, [user, userTier, language, location, fetchWeather]);
 
   const registerForPushNotifications = async (loc?: { lat: number, lng: number }) => {
     const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
@@ -636,136 +887,10 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     }
   };
 
-  const fetchWeather = async (lat: number, lng: number) => {
-    setLoadingWeather(true);
-    try {
-      const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility,precipitation&hourly=temperature_2m,weather_code,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
-      );
-      const data = await res.json();
 
-      // Fetch Air Quality from WAQI
-      let aqiValue = undefined;
-      try {
-        const aqiRes = await fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`);
-        const aqiData = await aqiRes.json();
-        if (aqiData.status === 'ok') {
-          aqiValue = aqiData.data.aqi;
-        }
-      } catch (e) {
-        console.error("AQI fetch failed", e);
-      }
-
-      // Fetch Pollen & Air Quality Details (Air Quality API)
-      let pollenData = undefined;
-      let airDetails = undefined;
-      let hourlyAir = undefined;
-      let hourlyEuropeanAqi: number[] | undefined = undefined;
-      try {
-        const pollenRes = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=alder_pollen,birch_pollen,grass_pollen,ragweed_pollen,olive_pollen,mugwort_pollen,pm10,pm2_5,nitrogen_dioxide,ozone,european_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,european_aqi&timezone=auto`);
-        const pollenJson = await pollenRes.json();
-        if (pollenJson.current) {
-          pollenData = {
-            alder: pollenJson.current.alder_pollen || 0,
-            birch: pollenJson.current.birch_pollen || 0,
-            grass: pollenJson.current.grass_pollen || 0,
-            ragweed: pollenJson.current.ragweed_pollen || 0,
-            olive: pollenJson.current.olive_pollen || 0,
-            mugwort: pollenJson.current.mugwort_pollen || 0
-          };
-          airDetails = {
-            pm2_5: pollenJson.current.pm2_5,
-            pm10: pollenJson.current.pm10,
-            no2: pollenJson.current.nitrogen_dioxide,
-            o3: pollenJson.current.ozone
-          };
-        }
-        if (pollenJson.hourly) {
-          hourlyAir = {
-            time: pollenJson.hourly.time,
-            pm2_5: pollenJson.hourly.pm2_5,
-            pm10: pollenJson.hourly.pm10,
-            no2: pollenJson.hourly.nitrogen_dioxide,
-            o3: pollenJson.hourly.ozone
-          };
-          hourlyEuropeanAqi = pollenJson.hourly.european_aqi;
-        }
-      } catch (e) {
-        console.error("Pollen/Air fetch failed", e);
-      }
-
-      // Find current hour index for UV
-      const currentHourIso = new Date().toISOString().slice(0, 13); // YYYY-MM-DDTHH matches closest
-      let hourIndex = data.hourly.time.findIndex((t: string) => t.startsWith(currentHourIso));
-
-      // CRITICAL FIX: If hour not found, use a safe fallback (middle of array, NOT 0 which could be yesterday)
-      if (hourIndex === -1) {
-        hourIndex = Math.floor(data.hourly.time.length / 2);
-      }
-
-      // Get UV from hourly data
-      let currentUV = data.hourly.uv_index ? data.hourly.uv_index[hourIndex] : 0;
-
-      // CRITICAL FIX: UV CANNOT exist at night! Force to 0 if isDay=0
-      if (data.current.is_day === 0) {
-        currentUV = 0;
-      }
-
-      const mappedWeather: WeatherData = {
-        current: {
-          temperature: data.current.temperature_2m,
-          weatherCode: data.current.weather_code,
-          windSpeed: data.current.wind_speed_10m,
-          isDay: data.current.is_day,
-          relativeHumidity: data.current.relative_humidity_2m,
-          visibility: data.current.visibility,
-          aqi: aqiValue,
-          uvIndex: currentUV,
-          pollen: pollenData,
-          airQualityDetails: airDetails,
-          precipitation: data.current.precipitation
-        },
-        hourly: {
-          time: data.hourly.time,
-          temperature_2m: data.hourly.temperature_2m,
-          weather_code: data.hourly.weather_code,
-          uv_index: data.hourly.uv_index,
-          european_aqi: hourlyEuropeanAqi
-        },
-        daily: {
-          temperature_2m_max: data.daily.temperature_2m_max,
-          temperature_2m_min: data.daily.temperature_2m_min,
-          sunrise: data.daily.sunrise,
-          sunset: data.daily.sunset,
-          time: data.daily.time
-        },
-        hourlyAirQuality: hourlyAir,
-        yesterday: {
-          tempMax: data.daily.temperature_2m_max ? data.daily.temperature_2m_max[0] : undefined,
-          weatherCode: data.daily.weather_code ? data.daily.weather_code[0] : undefined,
-          details: (data.hourly && data.hourly.temperature_2m) ? {
-            morning: { temp: data.hourly.temperature_2m[8], code: data.hourly.weather_code[8] },
-            noon: { temp: data.hourly.temperature_2m[13], code: data.hourly.weather_code[13] },
-            evening: { temp: data.hourly.temperature_2m[19], code: data.hourly.weather_code[19] }
-          } : undefined
-        }
-      };
-      setWeather(mappedWeather);
-
-      if (data.current.weather_code >= 95 || data.current.wind_speed_10m > 80) {
-        setAlertsCount(prev => prev + 1);
-      } else {
-        setAlertsCount(0);
-      }
-    } catch (error) {
-      console.error("Weather fetch failed", error);
-    } finally {
-      setLoadingWeather(false);
-    }
-  };
 
   // Add Report to Firestore
-  const addReport = async (conditions: string[]): Promise<{ gain: number, rank: number }> => {
+  const addReport = async (conditions: string[], details?: { snowLevel?: number, avalancheRisk?: number, visibilityDist?: number, isoLimit?: number, windExposure?: 'ridge' | 'valley' }): Promise<{ gain: number, rank: number }> => {
     if (!location) {
       console.error("Cannot add report: Location is missing");
       return { gain: 0, rank: 0 };
@@ -825,14 +950,23 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     }
 
     try {
-      console.log("Adding report...", conditions, location);
+      // Extraire le nom de ville principal (sans le détail entre parenthèses)
+      const mainCityName = cityName.includes('(') ? cityName.split('(')[0].trim() : cityName;
+
+      console.log("Adding report...", conditions, location, "City:", mainCityName);
       await addDoc(collection(db, "reports"), {
         timestamp: serverTimestamp(),
         conditions,
         lat: location.lat,
         lng: location.lng,
         userId: user?.uid || 'anonymous',
-        temp: currentTemp !== undefined ? currentTemp : null
+        cityName: mainCityName, // Stocker le nom de ville pour filtrage FREE
+        temp: currentTemp !== undefined ? currentTemp : null,
+        snowLevel: details?.snowLevel !== undefined ? details.snowLevel : null,
+        avalancheRisk: details?.avalancheRisk !== undefined ? details.avalancheRisk : null,
+        visibilityDist: details?.visibilityDist !== undefined ? details.visibilityDist : null,
+        isoLimit: details?.isoLimit !== undefined ? details.isoLimit : null,
+        windExposure: details?.windExposure !== undefined ? details.windExposure : null
       });
       console.log("Report added successfully! Rank:", rank, "Precision Gain:", precisionIncrease);
       return { gain: precisionIncrease, rank: rank };
@@ -891,6 +1025,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       lastNotification,
       user,
       userTier,
+      userPlan,
       simulateSubscription,
       showPremium,
       setShowPremium

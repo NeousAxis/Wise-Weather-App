@@ -11,6 +11,7 @@ import Stripe from "stripe";
 initializeApp();
 
 const openRouterApiKey = defineSecret("OPENROUTER_API_KEY_SECURE");
+const googlePollenApiKey = defineSecret("GOOGLE_POLLEN_API_KEY");
 
 /**
  * Helper to get the theme for the day of the week.
@@ -43,21 +44,12 @@ function getThemeForDay(day: number): string {
 async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
   const theme = getThemeForDay(dayOfWeek);
 
-  const authors = [
-    "Rumi", "Lao Tzu", "Thich Nhat Hanh", "Marcus Aurelius", "Seneca",
-    "Confucius", "Khalil Gibran", "Ralph Waldo Emerson", "Walt Whitman",
-    "Rabindranath Tagore", "Albert Einstein", "Marie Curie", "Dalai Lama",
-    "Mother Teresa", "Gandhi", "Martin Luther King Jr.", "Nelson Mandela",
-    "Maya Angelou", "Antoine de Saint-Exupéry", "Victor Hugo", "Voltaire",
-    "René Descartes", "Socrates", "Plato", "Aristotle",
-  ];
-
   const today = new Date().toDateString();
   const prompt = `Context: Today is ${today}. ` +
     "Generate a SINGLE, SHORT inspiring quote (MAX 25 WORDS) " +
     `based on the theme: "${theme}". ` +
     "CRITICAL INSTRUCTIONS:\n" +
-    `1. The 'author' MUST be one of these: ${authors.join(", ")}.\n` +
+    "1. Select an inspiring author relevant to the theme. Ensure great diversity in authors (philosophers, scientists, poets, leaders, etc.).\n" +
     "2. Prioritize variety. Mix well-known quotes with deeper, " +
     "lesser-known ones to keep it fresh.\n" +
     "3. Provide the quote in both English ('en') and French ('fr').\n" +
@@ -284,60 +276,7 @@ export const sendHourlyNotifications = onSchedule({
   // Fetch all tokens
   const snapshot = await db.collection("push_tokens").get();
 
-  // CRITICAL FIX: Universal Quote System
-  // Everyone in the world gets the SAME quote on the same calendar day
-  // We use UTC+14 (furthest ahead timezone) as the "global day" reference
-  // This ensures Paris, NYC, Da Nang, Singapore all get the same quote
-  // when it's the same calendar date for them
-  const utcPlus14 = new Date(now.getTime() + (14 * 60 * 60 * 1000));
-  const universalDateKey = utcPlus14.toISOString().split("T")[0];
-  const slotKey = `${universalDateKey}-all-day-v6`;
-
-  // We only send the quote notification at 7am local time.
-  // We can pre-fetch the morning quote.
-  let globalQuote: any = null;
-  try {
-    globalQuote = await getOrGenerateQuote(
-      slotKey,
-      utcPlus14.getDay(), // Use UTC+14 day for theme consistency
-      openRouterApiKey.value()
-    );
-  } catch (e) {
-    console.error("Quote gen failed", e);
-    // Explicitly set fallback if gen failed
-    if (!globalQuote) {
-      // Re-use fallback logic (manual for now to be safe in this scope)
-      globalQuote = {
-        en: {
-          text: "The future belongs to those who believe " +
-            "in the beauty of their dreams.",
-          author: "Eleanor Roosevelt",
-        },
-        fr: {
-          text: "L'avenir appartient à ceux qui croient " +
-            "à la beauté de leurs rêves.",
-          author: "Eleanor Roosevelt",
-        },
-      };
-    }
-  }
-
-  const messages: any[] = [];
-  const updates = new Map<string, { ref: any, data: any }>();
-
-  // Helper to coalesce updates
-  const addUpdate = (ref: any, newData: any) => {
-    const path = ref.path;
-    const existing = updates.get(path);
-    if (existing) {
-      updates.set(path, { ref, data: { ...existing.data, ...newData } });
-    } else {
-      updates.set(path, { ref, data: newData });
-    }
-  };
-
-  // --- DEDUPLICATION LOGIC START ---
-  // Filter tokens to keep only the latest one per User ID
+  // --- DEDUPLICATION LOGIC ---
   const allDocs = snapshot.docs.map((d) => ({ ref: d.ref, data: d.data() }));
 
   // Sort by updatedAt DESC (newest first)
@@ -352,143 +291,163 @@ export const sendHourlyNotifications = onSchedule({
 
   for (const item of allDocs) {
     const uid = item.data.userId;
-    // If we have a user ID, ensure we only process the FIRST (newest) one we see
     if (uid) {
       if (processedUserIds.has(uid)) continue;
       processedUserIds.add(uid);
     }
-    // If no userId, we assume it's a unique anonymous device (or legacy), so keep it.
-    // (Or we could dedup by token string, but that's implicit since docs are unique)
     uniqueDocs.push(item);
   }
 
   console.log(`[DEDUP] Processing ${uniqueDocs.length} unique devices (from ${snapshot.size} total).`);
-  // --- DEDUPLICATION LOGIC END ---
 
-  const sentQuoteUserIds = new Set<string>(); // Keep for extra safety on quotes
+  // --- PREPARE GLOBAL QUOTE ---
+  const utcPlus14 = new Date(now.getTime() + (14 * 60 * 60 * 1000));
+  const universalDateKey = utcPlus14.toISOString().split("T")[0];
+  const slotKey = `${universalDateKey}-all-day-v6`;
+
+  let globalQuote: any = null;
+  try {
+    globalQuote = await getOrGenerateQuote(
+      slotKey,
+      utcPlus14.getDay(),
+      openRouterApiKey.value()
+    );
+  } catch (e) {
+    console.error("Quote gen failed", e);
+  }
+
+  if (!globalQuote) {
+    globalQuote = {
+      en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
+      fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" },
+    };
+  }
+
+  // --- PHASE 1: QUOTES (PRIORITY & FAST) ---
+  // We execute this FIRST and commit to DB immediately to avoid race conditions.
+  const quoteUpdates: { ref: any, data: any }[] = [];
+  const quoteMessages: any[] = [];
+  const sentQuoteUserIds = new Set<string>();
 
   for (const docObj of uniqueDocs) {
     const data = docObj.data;
-    const docRef = docObj.ref; // Use this for updates
     const tz = data.timezone || "UTC";
 
-    // Local Time
-    const localDate = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+    let localDate;
+    try { localDate = new Date(now.toLocaleString("en-US", { timeZone: tz })); }
+    catch (e) { localDate = new Date(); }
+
     const localHour = localDate.getHours();
-
-    // Use local date string (M/D/YYYY) as unique key for "Today"
-    const currentLocalDay = localDate.toLocaleDateString(
-      "en-US",
-      { timeZone: tz }
-    );
-
-    // --- 1. MORNING QUOTE (07:00+) ---
-    // Robust Logic: Send if > 7am AND not sent yet today.
+    const currentLocalDay = localDate.toLocaleDateString("en-US", { timeZone: tz });
     const lastQuoteDay = data.lastQuoteDate || "";
 
-    if (localHour === 7 && lastQuoteDay !== currentLocalDay) {
-      // Deduplication by User ID
-      if (data.userId && sentQuoteUserIds.has(data.userId)) {
-        console.log(`[QUOTE] Skipping duplicate for user ${data.userId}`);
-      } else {
-        if (data.userId) sentQuoteUserIds.add(data.userId); // Mark user as sent
+    // Rule: Send if 7 AM AND it is the top of the hour (minutes < 12)
+    // This prevents the 7:15/7:30/7:45 executions from resending if the first one failed to persist state
+    if (localHour === 7 && localDate.getMinutes() < 12 && lastQuoteDay !== currentLocalDay) {
+      if (data.userId && sentQuoteUserIds.has(data.userId)) continue;
+      if (data.userId) sentQuoteUserIds.add(data.userId);
 
-        if (globalQuote) {
-          // Localized Quote
-          const lang = data.language || "en";
-          const qContent = lang === "fr" ? globalQuote.fr : globalQuote.en;
-          const qTitle = lang === "fr" ?
-            "Inspiration Quotidienne" :
-            "Daily Inspiration";
+      const lang = data.language || "en";
+      const qContent = lang === "fr" ? globalQuote.fr : globalQuote.en;
+      const qTitle = lang === "fr" ? "Inspiration Quotidienne" : "Daily Inspiration";
+      const titleSun = lang === "fr" ? "☀️ Soleil" : "☀️ Sun";
+      const titleRain = lang === "fr" ? "🌧️ Pluie" : "🌧️ Rain";
 
-          const titleSun = lang === "fr" ? "☀️ Soleil" : "☀️ Sun";
-          const titleRain = lang === "fr" ? "🌧️ Pluie" : "🌧️ Rain";
+      quoteMessages.push({
+        token: data.token,
+        notification: {
+          title: qTitle,
+          body: `"${qContent.text}"\n— ${qContent.author}`,
+        },
+        data: {
+          type: "quote",
+          quote: JSON.stringify(globalQuote),
+          click_action: "FLUTTER_NOTIFICATION_CLICK",
+        },
+        webpush: {
+          notification: { actions: [{ action: "report_sun", title: titleSun }, { action: "report_rain", title: titleRain }] },
+          fcm_options: { link: "/?action=contribution" },
+        },
+      });
 
-          messages.push({
-            token: data.token,
-            notification: {
-              title: qTitle,
-              body: `"${qContent.text}"\n— ${qContent.author}`,
-            },
-            data: {
-              type: "quote",
-              quote: JSON.stringify(globalQuote),
-              click_action: "FLUTTER_NOTIFICATION_CLICK",
-            },
-            webpush: {
-              notification: {
-                actions: [
-                  { action: "report_sun", title: titleSun },
-                  { action: "report_rain", title: titleRain },
-                ],
-              },
-              fcm_options: {
-                link: "/?action=contribution",
-              },
-            },
-          });
-
-          // Mark as sent for today
-          addUpdate(docRef, {
-            lastQuoteDate: currentLocalDay,
-          });
-        }
-      }
+      quoteUpdates.push({ ref: docObj.ref, data: { lastQuoteDate: currentLocalDay } });
     }
+  }
 
-    // --- 2. CONTEXTUAL WEATHER NOTIFICATIONS (24/7) ---
-    // Removed Time Windows logic to support 24/7 alerts for dangerous weather.
+  // COMMIT QUOTES
+  if (quoteUpdates.length > 0) {
+    console.log(`[QUOTE] Updating DB for ${quoteUpdates.length} users (Phase 1)...`);
+    const batches = [];
+    let batch = db.batch();
+    let count = 0;
+    for (const up of quoteUpdates) {
+      batch.set(up.ref, up.data, { merge: true });
+      count++;
+      if (count === 490) { batches.push(batch.commit()); batch = db.batch(); count = 0; }
+    }
+    if (count > 0) batches.push(batch.commit());
+    await Promise.all(batches);
+    console.log(`[QUOTE] DB Updates Committed.`);
 
-    // Check if user has location
+    // Send messages (Non-blocking)
+    const mChunks = [];
+    for (let i = 0; i < quoteMessages.length; i += 500) mChunks.push(quoteMessages.slice(i, i + 500));
+    for (const ch of mChunks) {
+      try { await messaging.sendEach(ch); } catch (e) { console.error("Quote send error", e); }
+    }
+    console.log(`[QUOTE] Sent ${quoteMessages.length} quote notifications.`);
+  }
+
+
+  // --- PHASE 2: WEATHER ALERTS (SLOW) ---
+  const weatherUpdates = new Map<string, { ref: any, data: any }>();
+  const weatherMessages: any[] = [];
+
+  const addUpdate = (ref: any, newData: any) => {
+    const path = ref.path;
+    const existing = weatherUpdates.get(path);
+    if (existing) weatherUpdates.set(path, { ref, data: { ...existing.data, ...newData } });
+    else weatherUpdates.set(path, { ref, data: newData });
+  };
+
+  for (const docObj of uniqueDocs) {
+    const data = docObj.data;
+    const docRef = docObj.ref;
+    const tz = data.timezone || "UTC";
+
+    // Check Weather
     if (data.lat && data.lng) {
-      // Always allowing check, but limiting sends via logic below
       const canSend = true;
-
-      // CRITICAL FIX: Normalize lastWeatherNotif to Date
-      // Firestore stores dates as Timestamps with toDate() method
       let lastSent: Date | null = null;
-
       try {
         if (data.lastWeatherNotif) {
           // Firestore Timestamp has toDate() method
           if (typeof data.lastWeatherNotif.toDate === "function") {
             lastSent = data.lastWeatherNotif.toDate();
           } else {
-            // Fallback for legacy formats
             const attemptedDate = new Date(data.lastWeatherNotif);
-            if (!isNaN(attemptedDate.getTime())) {
-              lastSent = attemptedDate;
-            }
+            if (!isNaN(attemptedDate.getTime())) lastSent = attemptedDate;
           }
         }
-      } catch (e) {
-        // If conversion fails, treat as null (first time)
-        console.log("[WEATHER CHECK] Failed to parse lastWeatherNotif:", e);
-        lastSent = null;
-      }
+      } catch (e) { lastSent = null; }
 
       const sentTodayCount = data.weatherNotifCountToday || 0;
 
+      let localDate;
+      try { localDate = new Date(now.toLocaleString("en-US", { timeZone: tz })); } catch (e) { localDate = new Date(); }
+      const currentLocalDay = localDate.toLocaleDateString("en-US", { timeZone: tz });
+
       let lastSentDay = "";
       if (lastSent) {
-        lastSentDay = lastSent.toLocaleDateString(
-          "en-US",
-          { timeZone: tz },
-        );
+        lastSentDay = lastSent.toLocaleDateString("en-US", { timeZone: tz });
       }
 
-      // Reset counter if new day
       const newCount = (lastSentDay !== currentLocalDay) ? 0 : sentTodayCount;
 
       if (canSend) {
-        // Fetch Weather
         try {
-          console.log(`[WEATHER CHECK] User token: ${data.token.substring(0, 20)}...`);
-          console.log(`[WEATHER CHECK] Location: ${data.lat}, ${data.lng}`);
-
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          // 5 second timeout
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
           const wUrl = "https://api.open-meteo.com/v1/forecast?latitude=" +
             `${data.lat}&longitude=${data.lng}` +
             "&current=weather_code,temperature_2m," +
@@ -498,227 +457,112 @@ export const sendHourlyNotifications = onSchedule({
             "gfs_seamless,jma_seamless,gem_seamless,icon_seamless," +
             "cma_grapes_global,bom_access_global";
 
-          console.log(`[WEATHER CHECK] Fetching: ${wUrl}`);
           const weatherRes = await fetch(wUrl, { signal: controller.signal });
           clearTimeout(timeoutId);
-          const wData: {
-            current?: {
-              weather_code: number;
-              temperature_2m: number;
-              wind_speed_10m: number;
-              wind_gusts_10m?: number;
-              precipitation?: number;
-            };
-            minutely_15?: {
-              weather_code: number[];
-            };
-          } = await weatherRes.json();
+          const wData: any = await weatherRes.json();
           const current = wData.current;
           const minutely15 = wData.minutely_15;
 
-          console.log("[WEATHER CHECK] Current weather:", JSON.stringify(current));
-          console.log(`[WEATHER CHECK] Minutely15 available: ${!!minutely15}`);
-
           if (current) {
-            const lastState = data.lastWeatherState;
-            console.log("[WEATHER CHECK] Last state:", JSON.stringify(lastState));
-
             let ruptureDetected = false;
             let msgBody = "";
-            let msgTitle = ""; // Dynamic title
-            let forceSend = false; // Bypass limits for danger
-            let isForecastAlert = false; // Is this a future prediction?
+            let msgTitle = "";
+            let forceSend = false;
+            let isForecastAlert = false;
 
             const isCurrentlyDangerous = (current.weather_code >= 51) ||
               [95, 96, 99].includes(current.weather_code) ||
               (current.wind_speed_10m > 70);
 
-            // 0. FORECAST CHECK (Proactive - CRITICAL!)
-            // Alert users BEFORE dangerous weather arrives
-            const forecast = getDangerousForecast(
-              minutely15,
-              current.weather_code,
-              current
-            );
+            const forecast = getDangerousForecast(minutely15, current.weather_code, current);
             const lang = data.language || "en";
 
             if (forecast) {
-              // FORECAST FOUND! Alert the community BEFORE it hits
               isForecastAlert = true;
               ruptureDetected = true;
-              forceSend = true; // Always warn about coming danger
-
-              // Customize message based on danger type
+              forceSend = true;
               if (forecast.type === "storm") {
-                if (lang === "fr") {
-                  msgTitle = "⛈️ ALERTE ORAGE";
-                  msgBody = `DANGER ! Orage prévu dans ~${forecast.start} ` +
-                    `min (durée: ${forecast.duration} min). Mettez-vous ` +
-                    "à l'abri !";
-                } else {
-                  msgTitle = "⛈️ STORM ALERT";
-                  msgBody = `DANGER! Storm expected in ~${forecast.start} ` +
-                    `min (duration: ${forecast.duration} min). Take ` +
-                    "shelter!";
-                }
+                if (lang === "fr") { msgTitle = "⛈️ ALERTE ORAGE"; msgBody = `DANGER ! Orage prévu dans ~${forecast.start} min (durée: ${forecast.duration} min). Mettez-vous à l'abri !`; }
+                else { msgTitle = "⛈️ STORM ALERT"; msgBody = `DANGER! Storm expected in ~${forecast.start} min (duration: ${forecast.duration} min). Take shelter!`; }
               } else if (forecast.type === "snow") {
-                if (lang === "fr") {
-                  msgTitle = "❄️ Alerte Neige";
-                  msgBody = `Neige prévue dans ~${forecast.start} min ` +
-                    `(durée: ${forecast.duration} min). Préparez-vous !`;
-                } else {
-                  msgTitle = "❄️ Snow Alert";
-                  msgBody = `Snow expected in ~${forecast.start} min ` +
-                    `(duration: ${forecast.duration} min). Get ready!`;
-                }
+                if (lang === "fr") { msgTitle = "❄️ Alerte Neige"; msgBody = `Neige prévue dans ~${forecast.start} min (durée: ${forecast.duration} min). Préparez-vous !`; }
+                else { msgTitle = "❄️ Snow Alert"; msgBody = `Snow expected in ~${forecast.start} min (duration: ${forecast.duration} min). Get ready!`; }
               } else {
-                // Rain
-                if (lang === "fr") {
-                  msgTitle = "🌧️ Prévision Pluie";
-                  msgBody = `Pluie prévue dans ~${forecast.start} min ` +
-                    `(durée estimée: ${forecast.duration} min).`;
-                } else {
-                  msgTitle = "🌧️ Rain Forecast";
-                  msgBody = `Rain expected in ~${forecast.start} min ` +
-                    `(duration: ${forecast.duration} min).`;
-                }
+                if (lang === "fr") { msgTitle = "🌧️ Prévision Pluie"; msgBody = `Pluie prévue dans ~${forecast.start} min (durée estimée: ${forecast.duration} min).`; }
+                else { msgTitle = "🌧️ Rain Forecast"; msgBody = `Rain expected in ~${forecast.start} min (duration: ${forecast.duration} min).`; }
               }
             } else if (isCurrentlyDangerous) {
-              // 1. IMMEDIATE ONSET & ONGOING DURATION
-              // Logic: It is raining NOW.
-              // Action: Find when it stops.
               ruptureDetected = true;
               forceSend = true;
-
               const code = current.weather_code;
               let type = "rain";
               if (code >= 95) type = "storm";
               else if (code >= 71 && code <= 77) type = "snow";
-              else if (code === 85 || code === 86) type = "snow"; // Snow showers
+              else if (code === 85 || code === 86) type = "snow";
 
-              // Calculate Duration (When does it stop?)
               let remainingMin = 0;
               let foundEnd = false;
               if (minutely15 && minutely15.weather_code) {
                 const codes = minutely15.weather_code;
-                // Look ahead 2 hours max (8 slots)
                 for (let i = 0; i < 8 && i < codes.length; i++) {
                   const c = codes[i];
-                  // Check if it's still "bad"
-                  // Storm, Rain, Snow, Drizzle, Showers
-                  const isBad = (c >= 51 && c <= 67) || (c >= 71 && c <= 77) ||
-                    (c >= 80 && c <= 82) || (c >= 85 && c <= 86) || (c >= 95);
-
-                  if (isBad) {
-                    remainingMin += 15;
-                  } else {
-                    // Found a clear slot!
-                    foundEnd = true;
-                    break;
-                  }
+                  const isBad = (c >= 51 && c <= 67) || (c >= 71 && c <= 77) || (c >= 80 && c <= 82) || (c >= 85 && c <= 86) || (c >= 95);
+                  if (isBad) remainingMin += 15;
+                  else { foundEnd = true; break; }
                 }
               }
 
-              // Helper for > 2h message
               const longDurationFr = "sera encore présente pour les deux prochaines heures.";
               const longDurationFrMasc = "sera encore présent pour les deux prochaines heures.";
-
               const longDurationEn = "will be present for the next two hours.";
 
               if (lang === "fr") {
                 if (type === "storm") {
                   msgTitle = "⛈️ ORAGE EN COURS";
-                  const suffix = foundEnd
-                    ? `devrait s'arrêter dans ${remainingMin} minutes environ.`
-                    : longDurationFrMasc;
+                  const suffix = foundEnd ? `devrait s'arrêter dans ${remainingMin} minutes environ.` : longDurationFrMasc;
                   msgBody = `Un orage est en cours. Il ${suffix}`;
                 } else if (type === "snow") {
                   msgTitle = "❄️ IL NEIGE";
-                  const suffix = foundEnd
-                    ? `devrait s'arrêter dans ${remainingMin} minutes environ.`
-                    : longDurationFr;
+                  const suffix = foundEnd ? `devrait s'arrêter dans ${remainingMin} minutes environ.` : longDurationFr;
                   msgBody = `La neige ${suffix}`;
                 } else {
-                  // Rain
                   msgTitle = "🌧️ IL PLEUT";
-                  const suffix = foundEnd
-                    ? `devrait s'arrêter dans ${remainingMin} minutes environ.`
-                    : longDurationFr;
+                  const suffix = foundEnd ? `devrait s'arrêter dans ${remainingMin} minutes environ.` : longDurationFr;
                   msgBody = `La pluie ${suffix}`;
                 }
               } else {
-                const suffix = foundEnd
-                  ? `should stop in about ${remainingMin} minutes.`
-                  : longDurationEn;
-
-                if (type === "storm") {
-                  msgTitle = "⛈️ STORM ACTIVE";
-                  msgBody = `Storm is active. It ${suffix}`;
-                } else if (type === "snow") {
-                  msgTitle = "❄️ SNOWING";
-                  msgBody = `Snow ${suffix}`;
-                } else {
-                  msgTitle = "🌧️ RAINING";
-                  msgBody = `Rain ${suffix}`;
-                }
+                const suffix = foundEnd ? `should stop in about ${remainingMin} minutes.` : longDurationEn;
+                if (type === "storm") { msgTitle = "⛈️ STORM ACTIVE"; msgBody = `Storm is active. It ${suffix}`; }
+                else if (type === "snow") { msgTitle = "❄️ SNOWING"; msgBody = `Snow ${suffix}`; }
+                else { msgTitle = "🌧️ RAINING"; msgBody = `Rain ${suffix}`; }
               }
             }
 
-
-            // CHECK LIMITS
-            const minutesSinceLast = lastSent ?
-              (now.getTime() - lastSent.getTime()) / (1000 * 60) :
-              Infinity; // First time = always allow
-
-            const withinLimits = (newCount < 2 && minutesSinceLast >= 240); // 4 hours for normal updates
-
-            console.log(`[ALERT CHECK] Rupture detected: ${ruptureDetected}`);
-            console.log(`[ALERT CHECK] Force send: ${forceSend}`);
-            console.log(`[ALERT CHECK] New count today: ${newCount}`);
-            console.log(`[ALERT CHECK] Minutes since last: ${minutesSinceLast.toFixed(0)}`);
+            const minutesSinceLast = lastSent ? (now.getTime() - lastSent.getTime()) / (1000 * 60) : Infinity;
+            const withinLimits = (newCount < 2 && minutesSinceLast >= 240); // 4 hours
 
             let finalCanSend = false;
-            // logic: If danger (forceSend), we allow it up to 10 times/day
-            // BUT we enforce a 30-minute Clean-Up Period to prevent duplicate execution spam
             if (forceSend) {
               if (newCount < 10 && minutesSinceLast >= 30) finalCanSend = true;
             } else {
               if (withinLimits) finalCanSend = true;
             }
 
-            console.log(`[ALERT CHECK] Final can send: ${finalCanSend}`);
-            console.log(`[ALERT CHECK] Message title: ${msgTitle}`);
-            console.log(`[ALERT CHECK] Message body: ${msgBody}`);
-
-            // Only proceed if rupture AND allowed
             if (ruptureDetected && finalCanSend) {
-              console.log(`[ALERT SEND] ✅ SENDING ALERT to ${data.token.substring(0, 20)}...`);
-              // If not set by loop
-              if (!msgTitle) {
-                const title = lang === "fr" ?
-                  "Point Météo" : "Weather Update";
-                msgTitle = title;
-              }
+              if (!msgTitle) msgTitle = lang === "fr" ? "Point Météo" : "Weather Update";
 
-              messages.push({
+              weatherMessages.push({
                 token: data.token,
                 notification: { title: msgTitle, body: msgBody },
-                data: {
-                  type: isForecastAlert ? "weather_forecast" : "weather_alert",
-                },
-                webpush: {
-                  fcm_options: {
-                    link: "/?action=contribution",
-                  },
-                },
+                data: { type: isForecastAlert ? "weather_forecast" : "weather_alert" },
+                webpush: { fcm_options: { link: "/?action=contribution" } },
               });
-              // Update notification trackers
+
               addUpdate(docRef, {
                 lastWeatherNotif: new Date(),
                 weatherNotifCountToday: newCount + 1,
               });
             }
-            // Save new state (always save, even if no notification sent)
             addUpdate(docRef, {
               lastWeatherState: {
                 code: current.weather_code,
@@ -730,60 +574,42 @@ export const sendHourlyNotifications = onSchedule({
               lastWeatherCheck: new Date(),
             });
           }
-        } catch (err) {
-          console.error("Weather check failed", err);
-        }
+        } catch (err) { console.error("Weather check failed", err); }
       }
     }
   }
 
-  // Execute updates using Batches (Max 500 per batch)
+  // COMMIT WEATHER UPDATES
   const writeBatches: any[] = [];
   let currentBatch = db.batch();
   let operationCounter = 0;
 
-  for (const up of updates.values()) {
+  for (const up of weatherUpdates.values()) {
     currentBatch.set(up.ref, up.data, { merge: true });
     operationCounter++;
-
     if (operationCounter === 500) {
       writeBatches.push(currentBatch.commit());
       currentBatch = db.batch();
       operationCounter = 0;
     }
   }
-  // Push remaining ops
-  if (operationCounter > 0) {
-    writeBatches.push(currentBatch.commit());
-  }
-
+  if (operationCounter > 0) writeBatches.push(currentBatch.commit());
   await Promise.all(writeBatches);
 
-  // Send Messages
-  if (messages.length > 0) {
-    // ENHANCED DEDUPLICATION: Ensure unique (token + type) combinations
-    // This prevents the same user from receiving duplicate weather alerts
+  // SEND WEATHER MESSAGES
+  if (weatherMessages.length > 0) {
     const seenCombos = new Set<string>();
-    const uniqueMessages = messages.filter(msg => {
+    const uniqueMessages = weatherMessages.filter(msg => {
       const combo = `${msg.token}:${msg.data?.type || 'unknown'}`;
-      if (seenCombos.has(combo)) {
-        console.log(`[DEDUP] Blocked duplicate: ${combo.substring(0, 40)}...`);
-        return false;
-      }
+      if (seenCombos.has(combo)) return false;
       seenCombos.add(combo);
       return true;
     });
 
-    console.log(`[SEND] Original: ${messages.length}, After dedup: ${uniqueMessages.length}`);
-
     const chunks = [];
-    for (let i = 0; i < uniqueMessages.length; i += 500) {
-      chunks.push(uniqueMessages.slice(i, i + 500));
-    }
-    for (const chunk of chunks) {
-      await messaging.sendEach(chunk);
-    }
-    console.log(`Sent ${uniqueMessages.length} notifications (${messages.length - uniqueMessages.length} duplicates blocked).`);
+    for (let i = 0; i < uniqueMessages.length; i += 500) chunks.push(uniqueMessages.slice(i, i + 500));
+    for (const chunk of chunks) await messaging.sendEach(chunk);
+    console.log(`[WEATHER] Sent ${uniqueMessages.length} alerts.`);
   }
 });
 
@@ -944,6 +770,89 @@ export const triggerTestNotification = onRequest(async (req: any, res: any) => {
   }
 });
 
+// Google Pollen API Proxy
+export const getPollenForecast = onCall({ secrets: [googlePollenApiKey] }, async (request) => {
+  const { lat, lng } = request.data;
+
+  if (!lat || !lng) {
+    return { success: false, error: "Missing location data" };
+  }
+
+  const apiKey = googlePollenApiKey.value();
+  if (!apiKey) {
+    return { success: false, error: "API Key not configured" };
+  }
+
+  try {
+    // Request for 1 day (today)
+    // We request the language code from the client or default to 'en'
+    const lang = request.data.lang || 'en';
+    const response = await fetch(
+      `https://pollen.googleapis.com/v1/forecast:lookup?key=${apiKey}&location.latitude=${lat}&location.longitude=${lng}&days=1&languageCode=${lang}`
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("Google Pollen API Error Details:", errText);
+      // Return the specific error to the client for debugging
+      return { success: false, error: `API Error: ${response.status} - ${errText}` };
+    }
+
+    const data: any = await response.json();
+    const todayInfo = data.dailyInfo?.[0];
+
+    if (!todayInfo) {
+      return { success: false, error: "No pollen data available" };
+    }
+
+    // Dynamic Mapping for "Geographic Relevance"
+    // We returned a LIST of relevant pollens, not a fixed schema.
+    const activePollens: { code: string, value: number, category: string }[] = [];
+
+    // 1. Categories (Always relevant as summary)
+    if (todayInfo.pollenTypeInfo) {
+      todayInfo.pollenTypeInfo.forEach((type: any) => {
+        const val = type.indexInfo?.value || 0;
+        // Return ALL categories relevant to the API response
+        activePollens.push({
+          code: type.code, // GRASS, TREE, WEED
+          value: val,
+          category: type.code
+        });
+      });
+    }
+
+    // 2. Specific Plants (Only if present in this region)
+    if (todayInfo.plantInfo) {
+      todayInfo.plantInfo.forEach((plant: any) => {
+        const val = plant.indexInfo?.value || 0;
+        // Only return relevant plants (those that exist here, i.e., are in the list)
+        // Even if value is 0, it means it exists geographically but is inactive.
+        // However, to save UI space, maybe we focus on >0 or "in season"?
+        // User wants "geographic location" -> Show what is HERE.
+        // So we push ALL plants returned by Google for this location.
+
+        activePollens.push({
+          code: plant.code,
+          value: val,
+          category: plant.plantDescription?.type || 'UNKNOWN'
+        });
+      });
+    }
+
+    return {
+      success: true,
+      data: {
+        items: activePollens
+      }
+    };
+
+  } catch (error) {
+    console.error("Pollen Fetch Error:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+
 // Listen for new reports to verify accuracy
 export const checkCommunityReport = onDocumentCreated(
   "reports/{reportId}",
@@ -1021,23 +930,38 @@ export const checkCommunityReport = onDocumentCreated(
       return;
     }
 
-    // 2. Compare (Simplified Logic)
+    // 2. Compare (Significant Changes Only)
     let mismatch = false;
     const reportedLabel = conditions[0]; // Primary condition
 
-    // WMO Code Groups
-    // Rain: 51-67, 80-82
-    const isRainForecast = (forecastCode >= 51 && forecastCode <= 67) ||
-      (forecastCode >= 80 && forecastCode <= 82);
-    // Snow: 71-77, 85-86
-    const isSnowForecast = (forecastCode >= 71 && forecastCode <= 77) ||
-      forecastCode === 85 || forecastCode === 86;
-    // Sunny: 0, 1 (Clear/Mainly clear)
-    const isSunnyForecast = forecastCode === 0 || forecastCode === 1;
+    // Forecast Groups
+    const isRainForecast = (forecastCode >= 51 && forecastCode <= 67) || (forecastCode >= 80 && forecastCode <= 82);
+    const isSnowForecast = (forecastCode >= 71 && forecastCode <= 77) || forecastCode === 85 || forecastCode === 86;
+    const isStormForecast = forecastCode >= 95;
 
-    if (reportedLabel === "Rain" && !isRainForecast) mismatch = true;
-    if (reportedLabel === "Snow" && !isSnowForecast) mismatch = true;
-    if (reportedLabel === "Sunny" && !isSunnyForecast) mismatch = true;
+    // Determine Forecast "Type"
+    let forecastType = 'Dry'; // Default for Sun, Clouds, Fog, Wind
+    if (isRainForecast) forecastType = 'Rain';
+    if (isSnowForecast) forecastType = 'Snow';
+    if (isStormForecast) forecastType = 'Storm';
+
+    // Determine Report "Type"
+    let reportType = 'Dry';
+    if (reportedLabel === 'Rain') reportType = 'Rain';
+    else if (reportedLabel === 'Snow' || reportedLabel === 'Ice' || reportedLabel === 'Whiteout') reportType = 'Snow';
+    else if (reportedLabel === 'Storm') reportType = 'Storm';
+    // All others (Sunny, Cloudy, Windy, Mist, Fog) are considered 'Dry' for notification purposes
+
+    // LOGIC: Only notify if the TYPE mismatches.
+    // Examples:
+    // Forecast: Sun (Dry), Report: Cloud (Dry) -> No Notification
+    // Forecast: Sun (Dry), Report: Rain (Rain) -> Notification !
+    // Forecast: Rain (Rain), Report: Snow (Snow) -> Notification !
+    // Forecast: Rain (Rain), Report: Sun (Dry) -> Notification !
+
+    if (forecastType !== reportType) {
+      mismatch = true;
+    }
 
     if (!mismatch) return;
 
@@ -1151,8 +1075,8 @@ export const createStripeCheckout = onCall({ secrets: [stripeSecretKey] }, async
   }
 });
 
-export const stripeWebhook = onRequest(async (req, res) => {
-  // const stripe = new Stripe(stripeSecretKey); // Unused in simplified version
+export const stripeWebhook = onRequest({ secrets: [stripeSecretKey] }, async (req, res) => {
+  const stripe = new Stripe(stripeSecretKey.value());
 
   // SIMPLIFIED WEBHOOK FOR TESTING (No Signature Check)
   // In Prod, configure STRIPE_WEBHOOK_SECRET and uncomment construction logic
@@ -1173,33 +1097,68 @@ export const stripeWebhook = onRequest(async (req, res) => {
 
   // Handle the event
   if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as Stripe.Checkout.Session;
+    const sessionRaw = event.data.object as Stripe.Checkout.Session;
+
+    // Retrieve session with line_items to get the real price details
+    // (Crucial for 0-amount payments like trials or coupons)
+    let session: Stripe.Checkout.Session = sessionRaw;
+    let lineItems: Stripe.LineItem[] = [];
+
+    try {
+      const expanded = await stripe.checkout.sessions.retrieve(sessionRaw.id, {
+        expand: ['line_items']
+      });
+      session = expanded;
+      lineItems = expanded.line_items?.data || [];
+    } catch (e) {
+      console.error("Failed to expand session line_items", e);
+    }
 
     // Support BOTH methods: Payment Links (client_reference_id) & API (metadata.firebaseUid)
     const uid = session.client_reference_id || session.metadata?.firebaseUid;
 
     if (uid) {
-      console.log(`Payment successful for user ${uid}. Activating Ultimate.`);
+      console.log(`Payment successful for user ${uid}. Processing Subscription.`);
 
       // Tier Determination Logic
-      // For now, any payment = ULTIMATE as per request logic.
-      // (Or Standard if amount fits, but currently we activate Ultimate/Standard with same flag or check logic)
-      // Ideally we should check session.amount_total to distinguish Standard vs Ultimate if database requires differenciation.
-      // But userTier enum has Standard/Ultimate.
-      // Simple logic:
-      // If amount < 3000 (CHF 30.00) -> Standard (2.- or 20.-)
-      // If amount >= 3000 -> Ultimate (5.- or 45.-)
+      // Standard: 200 (2.-), 2000 (20.-)
+      // Ultimate: 500 (5.-), 4500 (45.-)
+      // Traveler: 400 (4.-) -> Gives Ultimate features
 
-      let targetTier = 'ULTIMATE';
-      // Fix: Check for null/undefined explicitly because 0 is falsy in JS
-      if (session.amount_total !== null && session.amount_total !== undefined && session.amount_total < 3000) { // 30.00 CHF
-        targetTier = 'STANDARD';
+      let targetTier = 'STANDARD';
+      let targetPlan = 'standard';
+
+      // Check based on Price Unit Amount (safer than session total)
+      // If we have line items, check the first one (usually simplified sub)
+      let priceAmount = 0;
+      if (lineItems.length > 0) {
+        priceAmount = lineItems[0].price?.unit_amount || 0;
+      } else {
+        priceAmount = session.amount_total || 0;
       }
+
+      if (priceAmount === 400) {
+        targetTier = 'ULTIMATE';
+        targetPlan = 'traveler';
+      } else if (priceAmount === 4500) {
+        targetTier = 'ULTIMATE';
+        targetPlan = 'ultimate_yearly';
+      } else if (priceAmount === 500) {
+        targetTier = 'ULTIMATE';
+        targetPlan = 'ultimate_monthly';
+      } else {
+        // Standard or other
+        targetTier = 'STANDARD';
+        targetPlan = 'standard';
+      }
+
+      console.log(`Determined Tier: ${targetTier}, Plan: ${targetPlan} for User: ${uid}`);
 
       // Using Admin SDK directly (initialized at top)
       const db = getFirestore();
       await db.collection("users").doc(uid).set({
         tier: targetTier, // Correctly set Standard or Ultimate
+        plan: targetPlan, // Detailed plan info
         subscriptionStatus: 'active',
         subscriptionId: session.subscription,
         updatedAt: new Date()

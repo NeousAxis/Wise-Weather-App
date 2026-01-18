@@ -54,12 +54,17 @@ self.addEventListener('notificationclick', function (event) {
     }
 
     // This looks for an open window and focuses it, navigating to the new URL
+    // Aggressive Simplification: JUST OPEN/NAVIGATE TO THE URL with params.
+    // Trust the React app to read the URL on load/focus.
+
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
-            for (var i = 0; i < windowClients.length; i++) {
-                var client = windowClients[i];
+            // Find ANY client for this scope
+            for (let i = 0; i < windowClients.length; i++) {
+                const client = windowClients[i];
                 if (client.url.indexOf(self.registration.scope) === 0 && 'focus' in client) {
                     client.focus();
+                    // Force navigation to the URL with the action (reloads the app, ensuring params are read)
                     return client.navigate(url);
                 }
             }

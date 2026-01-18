@@ -81,7 +81,13 @@ export interface CommunityReport {
   lat: number;
   lng: number;
   userId: string;
+  cityName?: string; // City name for FREE tier filtering
   temp?: number; // Snapshot of temperature at report time
+  snowLevel?: number; // Optional: Snow level in cm (Mountain Mode)
+  avalancheRisk?: number; // 1-5 (Mountain Mode)
+  visibilityDist?: number; // meters (Mountain Mode)
+  isoLimit?: number; // altitude in meters (Mountain Mode)
+  windExposure?: 'ridge' | 'valley'; // (Mountain Mode)
 }
 
 export interface DailyQuote {
