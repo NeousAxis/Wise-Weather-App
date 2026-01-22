@@ -8,7 +8,7 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
         {
             name: language === 'fr' ? 'Gratuit' : 'Free',
             price: language === 'fr' ? 'Gratuit' : 'Free',
-            color: 'from-gray-100 to-gray-200',
+            color: 'bg-gradient-to-br from-gray-100 to-gray-200',
             textColor: 'text-gray-700',
             features: [
                 language === 'fr' ? '✓ Météo actuelle' : '✓ Current weather',
@@ -18,12 +18,29 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
                 language === 'fr' ? '✗ Prévisions étendues' : '✗ Extended forecasts'
             ],
             cta: language === 'fr' ? 'Actuel' : 'Current',
-            disabled: true
+            disabled: true,
+            tierId: 'FREE'
+        },
+        {
+            name: language === 'fr' ? 'Contributeur' : 'Contributor',
+            price: language === 'fr' ? 'Gratuit (Donnant-Donnant)' : 'Free (Give-to-Get)',
+            color: 'bg-gradient-to-br from-green-400 to-emerald-600',
+            textColor: 'text-white',
+            features: [
+                language === 'fr' ? '✓ Toutes fonctionnalités ULTIMATE' : '✓ All ULTIMATE features',
+                language === 'fr' ? '✓ Carte Défloutée' : '✓ Unblurred Map',
+                language === 'fr' ? '⚠️ 2 Contributions / jour requises' : '⚠️ 2 Reports / day required',
+                language === 'fr' ? '⚠️ Bandeau Publicitaire' : '⚠️ Ad Banner',
+                language === 'fr' ? '❤️ Soutenez la communauté' : '❤️ Support community'
+            ],
+            cta: language === 'fr' ? 'Activer (Gratuit)' : 'Activate (Free)',
+            disabled: false,
+            tierId: 'CONTRIBUTOR'
         },
         {
             name: 'Standard',
             price: language === 'fr' ? '2.99€ / mois' : '$2.99 / month',
-            color: 'from-blue-400 to-blue-600',
+            color: 'bg-gradient-to-br from-blue-400 to-blue-600',
             textColor: 'text-white',
             features: [
                 language === 'fr' ? '✓ Tout du Gratuit' : '✓ Everything in Free',
@@ -33,12 +50,13 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
                 language === 'fr' ? '✓ Sans publicité' : '✓ Ad-free'
             ],
             cta: language === 'fr' ? 'Choisir Standard' : 'Choose Standard',
-            disabled: false
+            disabled: false,
+            tierId: 'STANDARD'
         },
         {
             name: 'Ultimate',
             price: language === 'fr' ? '5.99€ / mois' : '$5.99 / month',
-            color: 'from-yellow-400 via-orange-500 to-red-500',
+            color: 'bg-gradient-to-br from-yellow-400 via-orange-500 to-red-500',
             textColor: 'text-white',
             features: [
                 language === 'fr' ? '✓ Tout du Standard' : '✓ Everything in Standard',
@@ -48,13 +66,25 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
                 language === 'fr' ? '✓ Support prioritaire' : '✓ Priority support'
             ],
             cta: language === 'fr' ? 'Choisir Ultimate' : 'Choose Ultimate',
-            disabled: false
+            disabled: false,
+            tierId: 'ULTIMATE'
         }
     ];
 
     const handleSubscribe = (tierIndex: number) => {
-        if (tierIndex === 0) return; // Free tier
-        alert(`Subscription to ${tiers[tierIndex].name} - Integration Stripe upcoming`);
+        const tier = tiers[tierIndex];
+        if (tier.tierId === 'FREE') return;
+
+        if (tier.tierId === 'CONTRIBUTOR') {
+            // Activate Contributor Mode
+            // We need a way to call this from AppContext or check logic
+            alert(language === 'fr' ? "Mode Contributeur Activé ! N'oubliez pas vos 2 contributions par jour." : "Contributor Mode Activated! Don't forget your 2 daily reports.");
+            // TODO: Real activation logic linking to user profile
+            onClose();
+            return;
+        }
+
+        alert(`Subscription to ${tier.name} - Integration Stripe upcoming`);
     };
 
     return (
@@ -103,8 +133,8 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
                                         onClick={() => handleSubscribe(index)}
                                         disabled={tier.disabled}
                                         className={`w-full py-3 px-4 rounded-lg font-bold text-lg transition-all ${tier.disabled
-                                                ? 'bg-gray-400 cursor-not-allowed'
-                                                : 'bg-white text-gray-900 hover:bg-gray-100 shadow-lg hover:shadow-xl'
+                                            ? 'bg-gray-400 cursor-not-allowed'
+                                            : 'bg-white text-gray-900 hover:bg-gray-100 shadow-lg hover:shadow-xl'
                                             }`}
                                     >
                                         {tier.cta}
