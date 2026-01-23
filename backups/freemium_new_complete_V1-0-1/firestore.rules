@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Collection "users" (Privée)
+    // Seul l'utilisateur lui-même peut lire ou écrire ses propres données.
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // 2. Collection "reports" (Publique en lecture, Authentifiée en écriture)
+    // Tout le monde peut lire les rapports météo (pour afficher la carte).
+    // Seuls les utilisateurs authentifiés peuvent poster un rapport.
+    match /reports/{reportId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+  }
+}
