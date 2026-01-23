@@ -307,10 +307,18 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const fetchWeather = React.useCallback(async (lat: number, lng: number) => {
     setLoadingWeather(true);
     try {
-      const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility,precipitation&hourly=temperature_2m,weather_code,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
-      );
-      const data = await res.json();
+      // PROXY IMPLEMENTATION: Use Cloud Function for Unified Logic
+      const getWeatherForecastFn = httpsCallable(functions, 'getWeatherForecast');
+      console.log("Fetching weather via Proxy...");
+
+      const proxyRes: any = await getWeatherForecastFn({ lat, lng });
+      const proxyResult = proxyRes.data;
+
+      if (!proxyResult.success || !proxyResult.data) {
+        throw new Error(proxyResult.error || "Proxy returned no data");
+      }
+
+      const data = proxyResult.data;
 
       // Fetch Air Quality from WAQI
       let aqiValue = undefined;

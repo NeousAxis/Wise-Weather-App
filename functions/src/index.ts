@@ -686,26 +686,58 @@ function getDangerousForecast(
   for (let i = 0; i < 8 && i < codes.length; i++) {
     const code = codes[i];
 
-    // Detect ALL dangerous conditions
+    // Detect conditions with sensitivity logic
     let isDangerous = false;
     let detectedType = "";
+    let isHeavy = false; // New flag for intensity
 
     // STORM (Priority 1 - Most dangerous)
     if (code >= 95 && code <= 99) {
       isDangerous = true;
       detectedType = "storm";
+      isHeavy = true;
     }
     // SNOW (Priority 2)
-    else if ((code >= 71 && code <= 77) ||
-      code === 85 || code === 86) {
+    else if ((code >= 71 && code <= 77) || code === 85 || code === 86) {
       isDangerous = true;
       detectedType = "snow";
+      // Heavy snow: 73, 75, 86
+      if (code === 73 || code === 75 || code === 86) isHeavy = true;
     }
     // RAIN (Priority 3)
-    else if ((code >= 51 && code <= 67) ||
-      (code >= 80 && code <= 82)) {
+    else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
       isDangerous = true;
       detectedType = "rain";
+      // Heavy rain: 63, 65, 67 (Freezing heavy), 81, 82 (Showers)
+      // MODIFICATION: Include Code 80 (Slight Showers) as IMMEDIATE because showers are by definition "passing"
+      // and checking persistence (2 slots) might miss a short 15min shower.
+      if (code >= 63 || code >= 80) isHeavy = true;
+    }
+
+    // SMART FILTERING
+    if (isDangerous) {
+      // Rule 1: Heavy events trigger immediately (even 1 slot)
+      if (isHeavy) {
+        // Valid trigger
+      }
+      // Rule 2: Light events (drizzle, light rain) need confirmation
+      // We check if the NEXT slot also has rain (persistence)
+      // OR if the previous slot had rain.
+      else {
+        // Look ahead: i+1 must also be dangerous (any type)
+        // OR look behind: i-1 was dangerous
+        // This ensures we have at least 2 slots (30 min block) OR it's part of a sequence
+        const nextCode = codes[i + 1] || 0;
+        const prevCode = codes[i - 1] || 0;
+
+        const isNextBad = (nextCode >= 51);
+        const isPrevBad = (prevCode >= 51);
+
+        if (!isNextBad && !isPrevBad) {
+          // It's a isolated 15-min light drizzle. Ignore it as noise.
+          isDangerous = false;
+        }
+      }
     }
 
     if (isDangerous) {
@@ -1331,5 +1363,101 @@ export const checkExpiredTravelers = onSchedule("every 24 hours", async (event) 
 
   } catch (error) {
     console.error("[CRON] Error checking expired travelers:", error);
+  }
+});
+
+// Weather Proxy to Unify Frontend & Backend Data
+// This ensures the App displays the exact same "Safe" data used for notifications.
+// It also corrects the "Current" state if safety models detect a dangerous event invisible to the standard model.
+export const getWeatherForecast = onCall(async (request) => {
+  const { lat, lng } = request.data;
+  if (!lat || !lng) return { success: false, error: "Missing location" };
+
+  try {
+    // 1. Fetch Standard Data (for UI - Graphs, Hourly, etc.)
+    // We use the same fields as the frontend used to fetch directly
+    const uiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+      `&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility,precipitation` +
+      `&hourly=temperature_2m,weather_code,uv_index` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset` +
+      `&timezone=auto&past_days=1&forecast_days=2`;
+
+    // 2. Fetch Safety Data (Background Worker Logic)
+    // EXACT copy of the logic in 'checkWeatherNotifications'
+    const safetyUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+      `&current=weather_code,wind_speed_10m` +
+      `&minutely_15=weather_code` +
+      `&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04,gfs_seamless,jma_seamless,gem_seamless,icon_seamless,cma_grapes_global,bom_access_global`;
+
+    const [uiRes, safetyRes] = await Promise.all([
+      fetch(uiUrl),
+      fetch(safetyUrl)
+    ]);
+
+    const uiData: any = await uiRes.json();
+    const safetyData: any = await safetyRes.json();
+
+    if (!uiData.current || !safetyData.current) {
+      throw new Error("Invalid API response");
+    }
+
+    // 3. SAFETY OVERRIDE LOGIC (REFINED)
+    // We check if the Safety Models detect a dangerous event (Storm, Rain, Snow)
+    // that the Standard UI model might have missed.
+
+    // Re-use logic from 'getDangerousForecast'
+    const dangerousEvent = getDangerousForecast(
+      safetyData.minutely_15,
+      safetyData.current.weather_code,
+      safetyData.current
+    );
+
+    // If a dangerous event is detected via Multi-Models, we act to ensure consistency.
+    if (dangerousEvent) {
+      console.log(`[PROXY] Safety Override! Detected ${dangerousEvent.type} starting at +${dangerousEvent.start}min.`);
+
+      // Determine the overriding WMO code
+      let forceCode = uiData.current.weather_code;
+      if (dangerousEvent.type === 'storm') forceCode = 95;
+      else if (dangerousEvent.type === 'snow') forceCode = 71;
+      else if (dangerousEvent.type === 'rain') forceCode = 61;
+
+      // CASE A: IMMINENT DANGER (< 30 min)
+      // If the event is starting very soon (or now), we override the CURRENT display.
+      // This is what users check first when they get a notification.
+      if (dangerousEvent.start <= 30) {
+        // Only override if current is considered "safe/dry" (Codes < 50) and we have rain/storm
+        if (uiData.current.weather_code < 50) {
+          console.log(`[PROXY] Overriding CURRENT weather (was ${uiData.current.weather_code} -> now ${forceCode})`);
+          uiData.current.weather_code = forceCode;
+        }
+      }
+
+      // CASE B: HOURLY FORECAST CONSISTENCY
+      // If safety models see rain for the next hour(s), ensure the HOURLY array reflects this.
+      // The hourly array from UI model might say "Cloudy" at 9h while Safety says "Storm" at 9h.
+
+      // We look at the first few hours (indices 0, 1, 2 = Now, +1h, +2h approx)
+      // Note: 'hourly.time' is ISO strings. We need to match roughly with dangerousEvent duration.
+      // Simply put: If we have a detected event, we enforce it on the next 2 hourly slots if they are "dry".
+
+      if (uiData.hourly && uiData.hourly.weather_code) {
+        // Patch first 3 hours to be safe (cover the notification window)
+        for (let i = 0; i < 3; i++) {
+          if (uiData.hourly.weather_code[i] < 50) {
+            // Apply the safer code
+            uiData.hourly.weather_code[i] = forceCode;
+          }
+        }
+        console.log(`[PROXY] Patched first 3 hourly slots to match alert type: ${dangerousEvent.type}`);
+      }
+    }
+
+    // Return the (potentially patched) UI Data
+    return { success: true, data: uiData };
+
+  } catch (e) {
+    console.error("Weather Proxy Error:", e);
+    return { success: false, error: e instanceof Error ? e.message : "Proxy Failed" };
   }
 });
