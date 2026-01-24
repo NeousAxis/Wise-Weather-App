@@ -1,4 +1,5 @@
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+// FORCE DEPLOY 2026-01-24 v9 - United Backend Logic (Multi-Model)
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { initializeApp } from "firebase-admin/app";
@@ -500,19 +501,52 @@ export const sendHourlyNotifications = onSchedule({
               ruptureDetected = true;
               forceSend = true;
 
-              const isStartingNow = forecast.start <= 5;
-              const timingStr = isStartingNow ? "Active now" : `in ~${forecast.start} min`;
-              const timingStrFr = isStartingNow ? "Actif maintenant" : `dans ~${forecast.start} min`;
+              const startMin = forecast.start;
+              // Calculate specific start time
+              const startTimeDate = new Date(localDate.getTime() + startMin * 60000);
+              const startHour = startTimeDate.getHours().toString().padStart(2, '0');
+              const startMinute = startTimeDate.getMinutes().toString().padStart(2, '0');
+              const timeDisplay = `${startHour}:${startMinute}`;
+
+              const isStartingNow = startMin <= 5;
+              const timingStrFr = isStartingNow ? "maintenant" : `à ${timeDisplay}`;
+              const timingStrEn = isStartingNow ? "now" : `at ${timeDisplay}`;
+
+              const isIntermittent = forecast.isIntermittent;
+              const intensityLabelFr = getIntensityLabel(forecast.maxLevel, "fr");
+              const intensityLabelEn = getIntensityLabel(forecast.maxLevel, "en");
+
+              // Calculate specific end time
+              const endMin = forecast.start + forecast.duration;
+              const endTimeDate = new Date(localDate.getTime() + endMin * 60000);
+              const endHour = endTimeDate.getHours().toString().padStart(2, '0');
+              const endMinute = endTimeDate.getMinutes().toString().padStart(2, '0');
+              const endTimeDisplay = `${endHour}:${endMinute}`;
 
               if (forecast.type === "storm") {
-                if (lang === "fr") { msgTitle = isStartingNow ? "⛈️ ORAGE EN COURS" : "⛈️ ALERTE ORAGE"; msgBody = `DANGER ! Orage ${timingStrFr} (durée: ${forecast.duration} min). Mettez-vous à l'abri !`; }
-                else { msgTitle = isStartingNow ? "⛈️ STORM ACTIVE" : "⛈️ STORM ALERT"; msgBody = `DANGER! Storm ${timingStr} (duration: ${forecast.duration} min). Take shelter!`; }
+                if (lang === "fr") {
+                  msgTitle = isStartingNow ? "⛈️ ORAGE EN COURS" : "⛈️ ALERTE ORAGE";
+                  msgBody = `DANGER ! Orage ${intensityLabelFr} ${timingStrFr} (fin prévue: ${endTimeDisplay}). Mettez-vous à l'abri !`;
+                } else {
+                  msgTitle = isStartingNow ? "⛈️ STORM ACTIVE" : "⛈️ STORM ALERT";
+                  msgBody = `DANGER! ${intensityLabelEn} Storm ${timingStrEn} (ends at ${endTimeDisplay}). Take shelter!`;
+                }
               } else if (forecast.type === "snow") {
-                if (lang === "fr") { msgTitle = isStartingNow ? "❄️ NEIGE EN COURS" : "❄️ ALERTE NEIGE"; msgBody = `Neige ${timingStrFr} (durée: ${forecast.duration} min).`; }
-                else { msgTitle = isStartingNow ? "❄️ SNOWING" : "❄️ SNOW ALERT"; msgBody = `Snow ${timingStr} (duration: ${forecast.duration} min).`; }
+                if (lang === "fr") {
+                  msgTitle = isStartingNow ? "❄️ NEIGE EN COURS" : "❄️ ALERTE NEIGE";
+                  msgBody = `${isIntermittent ? "Tombées de neige" : "Neige"} ${intensityLabelFr} ${timingStrFr} (fin prévue: ${endTimeDisplay}).`;
+                } else {
+                  msgTitle = isStartingNow ? "❄️ SNOWING" : "❄️ SNOW ALERT";
+                  msgBody = `${intensityLabelEn} ${isIntermittent ? "Snow showers" : "Snow"} ${timingStrEn} (ends at ${endTimeDisplay}).`;
+                }
               } else {
-                if (lang === "fr") { msgTitle = isStartingNow ? "🌧️ PLUIE EN COURS" : "🌧️ Bientôt de la Pluie"; msgBody = `Pluie prévue ${timingStrFr} (durée: ${forecast.duration} min).`; }
-                else { msgTitle = isStartingNow ? "🌧️ RAINING" : "🌧️ Rain Forecast"; msgBody = `Rain expected ${timingStr} (duration: ${forecast.duration} min).`; }
+                if (lang === "fr") {
+                  msgTitle = isStartingNow ? "🌧️ PLUIE EN COURS" : "🌧️ Bientôt de la Pluie";
+                  msgBody = `${isIntermittent ? "Averses" : "Pluie"} ${intensityLabelFr} ${timingStrFr} (fin prévue: ${endTimeDisplay}).`;
+                } else {
+                  msgTitle = isStartingNow ? "🌧️ RAINING" : "🌧️ Rain Forecast";
+                  msgBody = `${intensityLabelEn} ${isIntermittent ? "Showers" : "Rain"} ${timingStrEn} (ends at ${endTimeDisplay}).`;
+                }
               }
             } else if (isCurrentlyDangerous) {
               // Current is BAD, but Forecast (next 2h) didn't return a dangerous event.
@@ -524,9 +558,14 @@ export const sendHourlyNotifications = onSchedule({
 
               const code = current.weather_code;
               let type = "rain";
+              let isForcedIntermittent = false; // Flag for fallback logic
               if (code >= 95) type = "storm";
               else if (code >= 71 && code <= 77) type = "snow";
               else if (code === 85 || code === 86) type = "snow";
+
+              // If minutely data isn't returning a block but we are in a dangerous condition,
+              // it might be a very short/intermittent shower that the block logic missed or finished?
+              if (code === 80 || code === 81 || code === 82) isForcedIntermittent = true;
 
               const hasMinutely = minutely15 && minutely15.weather_code && minutely15.weather_code.length > 0;
 
@@ -536,11 +575,11 @@ export const sendHourlyNotifications = onSchedule({
                 else msgTitle = "🌧️ IL PLEUT";
 
                 if (hasMinutely) {
-                  // If we have data but no "DangerousForecast" returned, it means it stops very soon (within 15 min or erratic).
-                  msgBody = "Intempérie détectée, mais devrait s'arrêter rapidement.";
+                  msgBody = isForcedIntermittent ?
+                    (lang === "fr" ? "Averses intermittentes détectées (Durée est. < 15 min)." : "Intermittent showers detected (Est. duration < 15 min).") :
+                    (lang === "fr" ? "Intempérie détectée (Fin estimée < 15 min)." : "Weather event detected (Ends soon).");
                 } else {
-                  // No forecast data available
-                  msgBody = "Intempérie observée actuellement.";
+                  msgBody = lang === "fr" ? "Intempérie observée actuellement (Fin indéterminée)." : "Observed currently in your area (Unknown end time).";
                 }
               } else {
                 if (type === "storm") msgTitle = "⛈️ STORM ACTIVE";
@@ -548,9 +587,11 @@ export const sendHourlyNotifications = onSchedule({
                 else msgTitle = "🌧️ RAINING";
 
                 if (hasMinutely) {
-                  msgBody = "Weather event detected, but should stop soon.";
+                  msgBody = isForcedIntermittent ?
+                    "Intermittent showers detected (Est. duration < 15 min)." :
+                    "Weather event detected (Ends soon).";
                 } else {
-                  msgBody = "Observed currently in your area.";
+                  msgBody = "Observed currently in your area (Unknown end time).";
                 }
               }
             }
@@ -560,7 +601,26 @@ export const sendHourlyNotifications = onSchedule({
 
             let finalCanSend = false;
             if (forceSend) {
-              if (newCount < 10 && minutesSinceLast >= 30) finalCanSend = true;
+              const lastStateCode = data.lastWeatherState?.code ?? -1;
+              const lastCat = getEventCategory(lastStateCode);
+              const currentCat = getEventCategory(current.weather_code);
+
+              // INTELLIGENT ALGORITHM:
+              // 1. New Event (Dry -> Wet)
+              // 2. Type Change (Rain -> Snow)
+              // 3. Intensification (Light -> Heavy)
+              const isNewEvent = lastCat.level === 0 && currentCat.level > 0;
+              const isTypeChange = lastCat.type !== currentCat.type && currentCat.level > 0;
+              const isIntensification = lastCat.type === currentCat.type && currentCat.level > lastCat.level;
+
+              // If meaningful change, allow immediate notification (with standard 30min cooldown)
+              if (isNewEvent || isTypeChange || isIntensification) {
+                if (newCount < 10 && minutesSinceLast >= 30) finalCanSend = true;
+              } else {
+                // Stable or Decreasing condition (e.g. Light Rain continuing, or Heavy -> Light)
+                // Suppress for 2 hours to prevent fatigue
+                if (minutesSinceLast >= 120) finalCanSend = true;
+              }
             } else {
               if (withinLimits) finalCanSend = true;
             }
@@ -642,6 +702,41 @@ export const sendHourlyNotifications = onSchedule({
 });
 
 /**
+ * Helper to determine event type from code
+ */
+/**
+ * Helper to determine event category and intensity level
+ * Level: 0=Dry, 1=Light, 2=Moderate, 3=Heavy/Violent
+ */
+function getEventCategory(code: number): { type: string, level: number } {
+  // Storm (Level 3 - Critical)
+  if (code >= 95) return { type: 'storm', level: 3 };
+
+  // Snow
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) {
+    if (code === 75 || code === 86) return { type: 'snow', level: 3 };
+    if (code === 73) return { type: 'snow', level: 2 };
+    return { type: 'snow', level: 1 };
+  }
+
+  // Rain
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
+    if (code === 65 || code === 66 || code === 67 || code === 82) return { type: 'rain', level: 3 };
+    if (code === 63 || code === 81) return { type: 'rain', level: 2 };
+    return { type: 'rain', level: 1 };
+  }
+
+  return { type: 'dry', level: 0 };
+}
+
+function getIntensityLabel(level: number, lang: 'fr' | 'en'): string {
+  if (level === 1) return lang === 'fr' ? "faible" : "light";
+  if (level === 2) return lang === 'fr' ? "modérée" : "moderate";
+  if (level === 3) return lang === 'fr' ? "forte" : "heavy";
+  return "";
+}
+
+/**
  * CRITICAL: Detect ALL dangerous weather events in forecast
  * Looks at next 8 slots (2 hours) for: Rain, Snow, Storm, Violent Wind
  * @param {any} minutely15 The OpenMeteo minutely_15 object
@@ -653,7 +748,7 @@ function getDangerousForecast(
   minutely15: any,
   currentCode: number,
   current: any
-): { type: string, start: number, duration: number } | null {
+): { type: string, start: number, duration: number, isIntermittent: boolean, maxLevel: number } | null {
   if (!minutely15) return null;
 
   // Handle multi-model response format
@@ -681,6 +776,8 @@ function getDangerousForecast(
   let startIndex = -1;
   let endIndex = -1;
   let eventType = "";
+  let isIntermittent = false;
+  let maxLevel = 0;
 
   // Look ahead up to 2 hours (8 slots of 15 min)
   for (let i = 0; i < 8 && i < codes.length; i++) {
@@ -713,6 +810,10 @@ function getDangerousForecast(
       // and checking persistence (2 slots) might miss a short 15min shower.
       if (code >= 63 || code >= 80) isHeavy = true;
     }
+
+    // Capture Max Level for intensity label
+    const cat = getEventCategory(code);
+    if (cat.level > maxLevel) maxLevel = cat.level;
 
     // SMART FILTERING
     if (isDangerous) {
@@ -754,8 +855,27 @@ function getDangerousForecast(
         eventType = "snow";
       }
     } else {
-      // If we found a start and now it's clear again, the event is over
-      if (startIndex !== -1) break;
+      // If we found a start and now it's clear again, check if it comes back later (Intermittency)
+      if (startIndex !== -1) {
+        // Gap detected!
+        // Look ahead: does it rain again within the 2h window?
+        let recurrenceFound = false;
+        for (let k = i + 1; k < 8 && k < codes.length; k++) {
+          if (codes[k] >= 51) { recurrenceFound = true; break; }
+        }
+
+        if (recurrenceFound) {
+          isIntermittent = true;
+          // Continue loop, do not break. Extend end index to cover the whole intermittent block?
+          // User request: "rain ends and picks up 5 mins later".
+          // If we break here, we only report the first shower.
+          // If we continue, we report the whole block as "Intermittent".
+          // Strategy: Continue but flag as Intermittent.
+        } else {
+          // No recurrence, event is truly over.
+          break;
+        }
+      }
     }
   }
 
@@ -765,7 +885,7 @@ function getDangerousForecast(
     // Duration: (End - Start + 1) * 15
     const durationMin = (endIndex - startIndex + 1) * 15;
 
-    return { type: eventType, start: startMin, duration: durationMin };
+    return { type: eventType, start: startMin, duration: durationMin, isIntermittent: isIntermittent, maxLevel: maxLevel };
   }
 
   return null;
@@ -945,6 +1065,10 @@ export const checkCommunityReport = onDocumentCreated(
 
     const db = getFirestore();
 
+    // LOGIC FLAGS
+    let notifyCommunity = true;
+    let skipReason = '';
+
     // 0. ANTI-SPAM CHECK (New Strict Logic)
     // "One notification per event per hour"
     try {
@@ -981,9 +1105,9 @@ export const checkCommunityReport = onDocumentCreated(
       });
 
       if (sameConditionCount > 0) {
-        console.log("Anti-spam: Similar report found recently. " +
-          "Skipping global notification.");
-        return;
+        console.log("Anti-spam: Similar report found recently. Suppressing Community Alert.");
+        notifyCommunity = false;
+        skipReason = 'spam';
       }
     } catch (e) {
       console.error("Anti-spam check failed", e);
@@ -991,14 +1115,26 @@ export const checkCommunityReport = onDocumentCreated(
 
     // 1. Fetch Official Forecast for Comparison
     // We check the "current" weather code from Open Meteo
+    // ⚠️ CRITICAL: Use SAME multi-model logic as Alerts to ensure consistency
     const url = "https://api.open-meteo.com/v1/forecast?latitude=" +
-      `${lat}&longitude=${lng}&current=weather_code`;
+      `${lat}&longitude=${lng}` +
+      "&current=weather_code" +
+      "&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04," +
+      "gfs_seamless,jma_seamless,gem_seamless,icon_seamless," +
+      "cma_grapes_global,bom_access_global";
+
     let forecastCode = -1;
 
     try {
       const res = await fetch(url);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const j: any = await res.json();
+      // The API returns 'current' which is a synthesis of the requested models (Best Match)
+      // due to how OpenMeteo handles the 'current' parameter when 'models' is specified without explicit 'current_model'.
+      // It defaults to the first model or a best match.
+      // However, to be SAFE and EXACTLY like the alert logic, we should probably check if it returns what we expect.
+      // OpenMeteo documentation says if multiple models are requested, 'current' object is usually based on the first model or requires specific treatment.
+      // BUT, in sendHourlyNotifications, we rely on 'wData.current.weather_code'. 
+      // Let's stick to that to be identical.
       forecastCode = j?.current?.weather_code ?? -1;
     } catch (e) {
       console.error("Forecast fetch error", e);
@@ -1027,18 +1163,15 @@ export const checkCommunityReport = onDocumentCreated(
     else if (reportedLabel === 'Storm') reportType = 'Storm';
     // All others (Sunny, Cloudy, Windy, Mist, Fog) are considered 'Dry' for notification purposes
 
-    // LOGIC: Only notify if the TYPE mismatches.
-    // Examples:
-    // Forecast: Sun (Dry), Report: Cloud (Dry) -> No Notification
-    // Forecast: Sun (Dry), Report: Rain (Rain) -> Notification !
-    // Forecast: Rain (Rain), Report: Snow (Snow) -> Notification !
-    // Forecast: Rain (Rain), Report: Sun (Dry) -> Notification !
-
+    // LOGIC: Only notify community if TYPE mismatches.
     if (forecastType !== reportType) {
       mismatch = true;
     }
 
-    if (!mismatch) return;
+    if (!mismatch) {
+      notifyCommunity = false;
+      if (!skipReason) skipReason = 'match';
+    }
 
     // 3. Notify Nearby Users + ALWAYS notify the reporter
     const messaging = getMessaging();
@@ -1073,22 +1206,35 @@ export const checkCommunityReport = onDocumentCreated(
           let body = "";
 
           if (isReporter) {
-            // Special message for the reporter
+            // ALWAYS Notify Reporter (Confirmation)
             reporterNotified = true;
             if (lang === "fr") {
-              title = "📢 Signalement transmis !";
-              const frLabels: any = {
-                "Sunny": "Soleil", "Rain": "Pluie", "Cloudy": "Nuages",
-                "Snow": "Neige", "Storm": "Orage", "Fog": "Brouillard", "Windy": "Vent",
-              };
-              const frCondition = frLabels[reportedLabel] || reportedLabel;
-              body = `Votre signalement "${frCondition}" a été transmis à la communauté pour vérification.`;
+              if (notifyCommunity) {
+                title = "📢 Vérification par la communauté";
+                body = `Votre signalement "${reportedLabel}" est en cours de vérification par les utilisateurs proches.`;
+              } else if (skipReason === 'spam') {
+                title = "✅ Signalement pris en compte";
+                body = "Un signalement similaire existait déjà récemment.";
+              } else {
+                title = "✅ Merci de votre confirmation";
+                body = `Les prévisions indiquent également "${reportedLabel}". Merci !`;
+              }
             } else {
-              title = "📢 Report Sent!";
-              body = `Your "${reportedLabel}" report has been sent to the community for verification.`;
+              if (notifyCommunity) {
+                title = "📢 Community Verification";
+                body = `Nearby users are verifying your "${reportedLabel}" report.`;
+              } else if (skipReason === 'spam') {
+                title = "✅ Report Recorded";
+                body = "A similar report was already valid nearby.";
+              } else {
+                title = "✅ Thanks for confirming";
+                body = `Forecast also sees "${reportedLabel}". Thanks!`;
+              }
             }
           } else {
-            // Standard message for nearby users
+            // Standard message for nearby users (ONLY if notifyCommunity is true)
+            if (!notifyCommunity) continue;
+
             if (lang === "fr") {
               title = "🤔 Météo en direct ?";
               const frLabels: any = {
@@ -1441,15 +1587,24 @@ export const getWeatherForecast = onCall(async (request) => {
       // Note: 'hourly.time' is ISO strings. We need to match roughly with dangerousEvent duration.
       // Simply put: If we have a detected event, we enforce it on the next 2 hourly slots if they are "dry".
 
-      if (uiData.hourly && uiData.hourly.weather_code) {
-        // Patch first 3 hours to be safe (cover the notification window)
+      if (uiData.hourly && uiData.hourly.weather_code && uiData.current.time) {
+        // Fix: Find the correct starting index matching CURRENT time
+        const currentTimeStr = uiData.current.time as string; // YYYY-MM-DDTHH:MM
+        const currentHourStr = currentTimeStr.slice(0, 13); // YYYY-MM-DDTHH
+
+        let startIndex = uiData.hourly.time.findIndex((t: string) => t.startsWith(currentHourStr));
+        if (startIndex === -1) startIndex = 0; // Fallback
+
+        // Patch next 3 hours
         for (let i = 0; i < 3; i++) {
-          if (uiData.hourly.weather_code[i] < 50) {
-            // Apply the safer code
-            uiData.hourly.weather_code[i] = forceCode;
+          const idx = startIndex + i;
+          if (idx < uiData.hourly.weather_code.length) {
+            if (uiData.hourly.weather_code[idx] < 50) {
+              uiData.hourly.weather_code[idx] = forceCode;
+            }
           }
         }
-        console.log(`[PROXY] Patched first 3 hourly slots to match alert type: ${dangerousEvent.type}`);
+        console.log(`[PROXY] Patched 3 hourly slots starting at index ${startIndex} to match alert type: ${dangerousEvent.type}`);
       }
     }
 

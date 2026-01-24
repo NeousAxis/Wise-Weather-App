@@ -397,10 +397,9 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         <div className="text-right">
           <div className="flex items-center justify-end gap-3">
             {(() => {
-              // SYNC STRATEGY: Use Hourly Forecast code for local icon
-              // This ensures the local icon always matches current hour data
-              const hourlyCode = weather.hourly.weather_code[safeIndex];
-              let displayCode = hourlyCode;
+              // SYNC STRATEGY: Use CURRENT weather code (Patched by Backend Safety Proxy)
+              // This ensures the local icon matches the notification alert immediately
+              let displayCode = weather.current.weatherCode;
 
               // PRECIPITATION OVERRIDE LOGIC
               // If real-time precipitation is detected but hourly shows clear/cloudy,
@@ -2336,13 +2335,26 @@ const AlertsModal = ({ onClose }: { onClose: () => void }) => {
         </div>
 
         <div className="flex-1 space-y-3 overflow-y-auto min-h-[200px]">
-          {notificationsHistory.length === 0 ? (
+          {notificationsHistory.filter(n => {
+            // Filter out Quotes / Daily Inspirations
+            const isQuote = n.data?.type === 'quote' ||
+              n.title.includes('Inspiration') ||
+              n.title.includes('Citation') ||
+              n.title.includes('Conseil');
+            return !isQuote;
+          }).length === 0 ? (
             <div className="text-center py-10 text-gray-400 flex flex-col items-center">
               <span className="text-4xl mb-2">😴</span>
-              <span>{language === 'fr' ? "Pas d'alertes ces 12 dernières heures" : "No alerts in the last 12 hours"}</span>
+              <span>{language === 'fr' ? "Pas d'alertes météo récentes" : "No recent weather alerts"}</span>
             </div>
           ) : (
-            notificationsHistory.map((notif, i) => (
+            notificationsHistory.filter(n => {
+              const isQuote = n.data?.type === 'quote' ||
+                n.title.includes('Inspiration') ||
+                n.title.includes('Citation') ||
+                n.title.includes('Conseil');
+              return !isQuote;
+            }).map((notif, i) => (
               <div key={i} className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex gap-3 items-start">
                 <div className="bg-white p-2 rounded-full shadow-sm shrink-0">
                   {notif.title.includes('Pluie') || notif.title.includes('Rain') ? (
@@ -2748,8 +2760,16 @@ const App = () => {
   useEffect(() => {
     const handleUrlParams = () => {
       const params = new URLSearchParams(window.location.search);
-      // Check for 'contribution' action
-      if (params.get('action') === 'contribution') {
+      // Check for 'contribution' action or deeper 'link' param commonly used by FCM
+      const actionParam = params.get('action');
+      const linkParam = params.get('link');
+
+      let targetAction = actionParam;
+      if (!targetAction && linkParam && linkParam.includes('action=contribution')) {
+        targetAction = 'contribution';
+      }
+
+      if (targetAction === 'contribution') {
         const select = params.get('select');
         if (select) setInitialSelection(select);
 
@@ -2976,6 +2996,22 @@ const App = () => {
                   }}
                 >
                   {t('modal.submit')}
+                </Button>
+                <div onClick={() => setShowContribution(true)} className="text-xs font-bold text-gray-400 cursor-pointer hover:text-gray-600 self-center ml-2">
+                  {language === 'fr' ? 'Corriger ?' : 'Incorrect?'}
+                </div>
+              </div>
+            )}
+
+            {/* Standard Weather Forecast Alert */}
+            {lastNotification.data?.type === 'weather_forecast' && (
+              <div className="flex gap-2 justify-end mt-1">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setShowContribution(true)}
+                >
+                  {language === 'fr' ? 'Corriger' : 'Correct'}
                 </Button>
               </div>
             )}
