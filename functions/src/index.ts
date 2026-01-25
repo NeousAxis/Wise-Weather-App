@@ -1,5 +1,5 @@
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-// FORCE DEPLOY 2026-01-24 v9 - United Backend Logic (Multi-Model)
+// FORCE DEPLOY 2026-01-25 v10 - Auto-Refill Temp Logic
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { initializeApp } from "firebase-admin/app";
@@ -69,7 +69,7 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 
   try {
     const chatResponse = await client.chat.completions.create({
-      model: "google/gemini-2.0-flash-exp:free",
+      model: "google/gemini-2.5-flash-exp:free",
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -1118,7 +1118,7 @@ export const checkCommunityReport = onDocumentCreated(
     // ⚠️ CRITICAL: Use SAME multi-model logic as Alerts to ensure consistency
     const url = "https://api.open-meteo.com/v1/forecast?latitude=" +
       `${lat}&longitude=${lng}` +
-      "&current=weather_code" +
+      "&current=weather_code,temperature_2m" + // Added temp for backfill
       "&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04," +
       "gfs_seamless,jma_seamless,gem_seamless,icon_seamless," +
       "cma_grapes_global,bom_access_global";
@@ -1136,6 +1136,16 @@ export const checkCommunityReport = onDocumentCreated(
       // BUT, in sendHourlyNotifications, we rely on 'wData.current.weather_code'. 
       // Let's stick to that to be identical.
       forecastCode = j?.current?.weather_code ?? -1;
+
+      // AUTO-REPAIR: Backfill Temperature if missing in report
+      // This allows "Fast Submit" on frontend (before weather load) without losing data
+      const currentTempAPI = j?.current?.temperature_2m;
+      if ((data.temp === null || data.temp === undefined) && event.data) {
+        if (currentTempAPI !== undefined) {
+          console.log(`[REPAIR] Backfilling missing temp for report ${event.params.reportId}: ${currentTempAPI}°`);
+          await event.data.ref.update({ temp: currentTempAPI });
+        }
+      }
     } catch (e) {
       console.error("Forecast fetch error", e);
       return;

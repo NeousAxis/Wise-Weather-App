@@ -1947,7 +1947,7 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
         <div className="p-6 pt-2 border-t border-gray-100">
           <Button
             onClick={submit}
-            disabled={selected.length === 0 || isSubmitting || loadingWeather}
+            disabled={selected.length === 0 || isSubmitting}
             variant="secondary"
             className="w-full text-lg h-14 shadow-xl"
           >

@@ -13,7 +13,23 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `6e8d88d` - 23 Jan 2026 (08:53)
+### ✅ [ACTUEL] `v2.4.0-Intelligent-Alerts` (`9d8e892`) - 24 Jan 2026
+**État :** Production Stable (Smart Notifications & Community Fix)
+**Contenu :**
+- **Notifications Intelligentes :**
+  - **Gestion d'Intermittence :** Détection des "trous" (Pluie -> Sec -> Pluie) pour alerter sur chaque nouvelle averse significative.
+  - **Précision Horaire :** Affiche "Pluie à 09:13" au lieu d'un générique "Active now".
+  - **Intensité & Fin :** Ajout des adjectifs (Faible/Forte) et de l'heure de fin ("Fin prévue : 11:45").
+- **Contribution Communautaire :**
+  - **Feedback Garanti :** Le reporter reçoit TOUJOURS une notif (Transmis / Validé / Doublon). Plus de "silence".
+  - **Vérification Unifiée :** Le backend de vérification utilise désormais le modèle Multi-Source (9 canaux) pour s'aligner sur les alertes et éviter les faux "mismatchs".
+- **UX & Textes :**
+  - "Tombées de neige" (FR).
+  - Clic sur la bannière notif ouvre le Modal de Contribution.
+
+---
+
+### 🕰️ `6e8d88d` - 23 Jan 2026 (08:53)
 **État :** Production Stable (Optimisée)
 **Contenu :**
 - **Proxy Météo Unifié :** Le Frontend et le Backend utilisent la même logique (Backend Proxy).
