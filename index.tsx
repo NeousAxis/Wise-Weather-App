@@ -2894,20 +2894,32 @@ const App = () => {
   const showAds = userTier === UserTier.FREE || (typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true');
 
   // 5. General Auto-Prompt (App Launch Only)
-  // Auto-open Contribution Modal on launch (Robust implementation)
+  // Auto-open Contribution Modal on Launch AND Resume (iOS/Android)
   const autoOpenRef = useRef(false);
 
   useEffect(() => {
-    // Only run once per session/mount
-    if (autoOpenRef.current) return;
-
+    // 1. Initial Launch
     const hasSeenIntro = localStorage.getItem('has_seen_tuto_v2');
-    // If tutorial already seen, open Contrib modal
-    if (hasSeenIntro) {
+    if (hasSeenIntro && !autoOpenRef.current) {
       autoOpenRef.current = true;
-      // Reduced delay to 500ms since fallback makes UI ready faster
       setTimeout(() => setShowContribution(true), 500);
     }
+
+    // 2. Resume / Visibility Change (Back from Background)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const hasSeen = localStorage.getItem('has_seen_tuto_v2');
+        if (hasSeen) {
+          // Force reopen even if already opened before in session
+          // We add a tiny delay to ensure UI is repainted
+          console.log("App Resumed: Opening Contribution Modal");
+          setTimeout(() => setShowContribution(true), 300);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
   return (

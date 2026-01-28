@@ -13,7 +13,16 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.4.1-Gemini-Migration` - 27 Jan 2026
+### ✅ [ACTUEL] `v2.4.2-Contrib-Modal-Fix` - 28 Jan 2026
+**État :** Production Stable (Hotfix)
+**Contenu :**
+- **Contribution Modal Fixes :**
+  - Correction de l'ouverture automatique au lancement (Race cond. résolue via Ref & Timer court).
+  - Bouton "Soumettre" débloqué instantanément (indépendant du loading weather).
+
+---
+
+### 📦 `v2.4.1-Gemini-Migration` - 27 Jan 2026
 **État :** Production Stable (Gemini + Fixes)
 **Contenu :**
 - **Migration IA :** Passage à Google Gemini Native SDK (`gemini-1.5-flash`) pour les Citations du Jour (Rapide & Stable).
