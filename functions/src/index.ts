@@ -6,12 +6,12 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { defineSecret } from "firebase-functions/params";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import Stripe from "stripe";
 
 initializeApp();
 
-const openRouterApiKey = defineSecret("OPENROUTER_API_KEY_SECURE");
+const geminiApiKey = defineSecret("GEMINI_API_KEY");
 const googlePollenApiKey = defineSecret("GOOGLE_POLLEN_API_KEY");
 
 /**
@@ -59,29 +59,27 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
     "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
 
   if (!apiKey) {
-    throw new Error("Missing OPENROUTER_API_KEY");
+    throw new Error("Missing GEMINI_API_KEY");
   }
 
-  const client = new OpenAI({
-    apiKey: apiKey,
-    baseURL: "https://openrouter.ai/api/v1",
-  });
+  // DIRECT GEMINI INTEGRATION (Native SDK)
+  const genAI = new GoogleGenerativeAI(apiKey);
+  // Using 1.5 Flash for speed and stability
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { timeout: 5000 });
 
   try {
-    const chatResponse = await client.chat.completions.create({
-      model: "google/gemini-2.0-flash-exp:free",
-      messages: [{ role: "user", content: prompt }],
-    });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const content = response.text();
 
-    const content = chatResponse.choices[0]?.message?.content;
-    if (!content) throw new Error("No response from OpenRouter API");
+    if (!content) throw new Error("No response from Gemini API");
 
     // Clean potential markdown blocks
     const cleanJson = content.replace(/```json/g, "")
       .replace(/```/g, "").trim();
     return JSON.parse(cleanJson);
   } catch (error) {
-    console.error("OpenRouter API Error:", error);
+    console.error("Gemini API Error:", error);
     throw error;
   }
 }
@@ -96,7 +94,7 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 async function getOrGenerateQuote(
   slotKey: string,
   dayOfWeek: number,
-  apiKey: string
+  apiKey: string // We keep the param generic, but it's now Gemini Key
 ) {
   const db = getFirestore();
   const docRef = db.collection("daily_quotes").doc(slotKey);
@@ -199,7 +197,7 @@ async function getOrGenerateQuote(
 }
 
 // Public Callable for Frontend (Updated for shared daily logic)
-export const generateQuote = onCall({ secrets: [openRouterApiKey] },
+export const generateQuote = onCall({ secrets: [geminiApiKey] },
   async () => {
     try {
       // Determine Slot based on UTC
@@ -214,7 +212,7 @@ export const generateQuote = onCall({ secrets: [openRouterApiKey] },
       const data = await getOrGenerateQuote(
         slotKey,
         now.getDay(),
-        openRouterApiKey.value()
+        geminiApiKey.value()
       );
 
       return { success: true, data: data };
@@ -268,7 +266,7 @@ export const subscribeToNotifications = onCall(async (request) => {
 export const sendHourlyNotifications = onSchedule({
   schedule: "every 15 minutes",
   timeoutSeconds: 540,
-  secrets: [openRouterApiKey],
+  secrets: [geminiApiKey],
 }, async () => {
   const db = getFirestore();
   const messaging = getMessaging();
@@ -311,7 +309,7 @@ export const sendHourlyNotifications = onSchedule({
     globalQuote = await getOrGenerateQuote(
       slotKey,
       utcPlus14.getDay(),
-      openRouterApiKey.value()
+      geminiApiKey.value()
     );
   } catch (e) {
     console.error("Quote gen failed", e);
@@ -1118,7 +1116,7 @@ export const checkCommunityReport = onDocumentCreated(
     // ⚠️ CRITICAL: Use SAME multi-model logic as Alerts to ensure consistency
     const url = "https://api.open-meteo.com/v1/forecast?latitude=" +
       `${lat}&longitude=${lng}` +
-      "&current=weather_code" +
+      "&current=weather_code,temperature_2m" +
       "&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04," +
       "gfs_seamless,jma_seamless,gem_seamless,icon_seamless," +
       "cma_grapes_global,bom_access_global";
@@ -1135,7 +1133,17 @@ export const checkCommunityReport = onDocumentCreated(
       // OpenMeteo documentation says if multiple models are requested, 'current' object is usually based on the first model or requires specific treatment.
       // BUT, in sendHourlyNotifications, we rely on 'wData.current.weather_code'. 
       // Let's stick to that to be identical.
+      // Let's stick to that to be identical.
       forecastCode = j?.current?.weather_code ?? -1;
+      const forecastTemp = j?.current?.temperature_2m;
+
+      // 1.1 BACKFILL MISSING TEMP (Fix for Fast UI)
+      if (data.temp === null || data.temp === undefined) {
+        if (forecastTemp !== undefined) {
+          console.log(`Backfilling missing temp for report ${event.params.reportId}: ${forecastTemp}`);
+          await event.data?.ref.update({ temp: forecastTemp });
+        }
+      }
     } catch (e) {
       console.error("Forecast fetch error", e);
       return;
@@ -1216,8 +1224,8 @@ export const checkCommunityReport = onDocumentCreated(
                 title = "✅ Signalement pris en compte";
                 body = "Un signalement similaire existait déjà récemment.";
               } else {
-                title = "✅ Merci de votre confirmation";
-                body = `Les prévisions indiquent également "${reportedLabel}". Merci !`;
+                // MATCH CASE: SILENT (No Notification)
+                continue;
               }
             } else {
               if (notifyCommunity) {
@@ -1227,8 +1235,8 @@ export const checkCommunityReport = onDocumentCreated(
                 title = "✅ Report Recorded";
                 body = "A similar report was already valid nearby.";
               } else {
-                title = "✅ Thanks for confirming";
-                body = `Forecast also sees "${reportedLabel}". Thanks!`;
+                // MATCH CASE: SILENT (No Notification)
+                continue;
               }
             }
           } else {
@@ -1266,7 +1274,7 @@ export const checkCommunityReport = onDocumentCreated(
             },
             webpush: {
               fcm_options: {
-                link: "/?action=contribution",
+                link: isReporter ? `/?action=contribution&isReporter=true` : "/?action=contribution",
               },
             },
           });

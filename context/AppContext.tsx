@@ -154,11 +154,37 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     localStorage.setItem('wise_weather_language', lang);
   };
   const [unit, setUnit] = useState<Unit>('celsius');
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('wise_weather_location');
+      if (saved) {
+        try { return JSON.parse(saved); } catch (e) { }
+      }
+    }
+    return null;
+  });
   const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const [cityName, setCityName] = useState('Current Location');
-  const [currentCountry, setCurrentCountry] = useState<string>('');
-  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [cityName, setCityName] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('wise_weather_city') || 'Current Location';
+    }
+    return 'Current Location';
+  });
+  const [currentCountry, setCurrentCountry] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('wise_weather_country') || '';
+    }
+    return '';
+  });
+  const [weather, setWeather] = useState<WeatherData | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('wise_weather_cache');
+      if (saved) {
+        try { return JSON.parse(saved); } catch (e) { }
+      }
+    }
+    return null;
+  });
   const [loadingWeather, setLoadingWeather] = useState(false);
   const [communityReports, setCommunityReports] = useState<CommunityReport[]>([]);
   const [majorCitiesWeather, setMajorCitiesWeather] = useState<any[]>([]);
@@ -520,6 +546,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         }
       };
       setWeather(mappedWeather);
+      localStorage.setItem('wise_weather_cache', JSON.stringify(mappedWeather));
 
       if (data.current.weather_code >= 95 || data.current.wind_speed_10m > 80) {
         setAlertsCount(prev => prev + 1);
@@ -840,7 +867,12 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
   const updateLocation = (lat: number, lng: number, name?: string, country?: string, source: 'gps' | 'manual' = 'manual') => {
     setLocation({ lat, lng });
-    if (name) setCityName(name);
+    localStorage.setItem('wise_weather_location', JSON.stringify({ lat, lng }));
+
+    if (name) {
+      setCityName(name);
+      localStorage.setItem('wise_weather_city', name);
+    }
 
     if (source === 'gps') {
       setUserPosition({ lat, lng });
@@ -908,12 +940,16 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
             const ctry = addr.country;
 
             setCityName(finalName);
+            localStorage.setItem('wise_weather_city', finalName);
+
             if (ctry) {
               setCurrentCountry(ctry);
+              localStorage.setItem('wise_weather_country', ctry);
             }
           });
       } else if (country) {
         setCurrentCountry(country);
+        localStorage.setItem('wise_weather_country', country);
         // fetchMajorCitiesForCountry(country);
       }
     }

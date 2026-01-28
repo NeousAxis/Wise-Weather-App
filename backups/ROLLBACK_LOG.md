@@ -13,7 +13,21 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `6e8d88d` - 23 Jan 2026 (08:53)
+### ✅ [ACTUEL] `v2.4.1-Gemini-Migration` - 27 Jan 2026
+**État :** Production Stable (Gemini + Fixes)
+**Contenu :**
+- **Migration IA :** Passage à Google Gemini Native SDK (`gemini-1.5-flash`) pour les Citations du Jour (Rapide & Stable).
+- **Notifications :** 
+  - Suppression de la notif "Merci de votre confirmation" (Inutile).
+  - Ajout notif "Vérification en cours" pour le reporter (sans auto-validation).
+- **Performance :** 
+  - Cache Local (LocalStorage) pour affichage instantané au lancement.
+  - Bouton contribution débloqué immédiatement (plus de délai 15s).
+- **Data Repair :** Backfill automatique de la température manquante si le front envoie trop vite.
+
+---
+
+### 📦 `6e8d88d` - 23 Jan 2026 (08:53)
 **État :** Production Stable (Optimisée)
 **Contenu :**
 - **Proxy Météo Unifié :** Le Frontend et le Backend utilisent la même logique (Backend Proxy).

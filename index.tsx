@@ -1947,7 +1947,7 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
         <div className="p-6 pt-2 border-t border-gray-100">
           <Button
             onClick={submit}
-            disabled={selected.length === 0 || isSubmitting || loadingWeather}
+            disabled={selected.length === 0 || isSubmitting}
             variant="secondary"
             className="w-full text-lg h-14 shadow-xl"
           >
@@ -2698,7 +2698,7 @@ const MountainModal = ({ onClose, onReportSuccess }: { onClose: () => void, onRe
         <div className="p-6 pt-2 border-t border-gray-100 bg-gray-50">
           <Button
             onClick={submit}
-            disabled={selected.length === 0 || isSubmitting || loadingWeather}
+            disabled={selected.length === 0 || isSubmitting}
             variant="primary"
             className="w-full text-lg h-12 shadow-md bg-gray-900 hover:bg-black text-white"
           >
@@ -2770,10 +2770,18 @@ const App = () => {
       }
 
       if (targetAction === 'contribution') {
-        const select = params.get('select');
-        if (select) setInitialSelection(select);
+        const isSelf = params.get('isReporter') === 'true';
 
-        setShowContribution(true);
+        if (isSelf) {
+          const msg = language === 'fr'
+            ? "Votre signalement est en cours de vérification par la communauté. Merci !"
+            : "Your report is being verified by the community. Thanks!";
+          alert(msg);
+        } else {
+          const select = params.get('select');
+          if (select) setInitialSelection(select);
+          setShowContribution(true);
+        }
         // Clean URL to prevent loop
         window.history.replaceState({}, '', window.location.pathname);
       }
@@ -2886,12 +2894,19 @@ const App = () => {
   const showAds = userTier === UserTier.FREE || (typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true');
 
   // 5. General Auto-Prompt (App Launch Only)
-  // Seperate effect on mount [] to avoid re-triggering on language change
+  // Auto-open Contribution Modal on launch (Robust implementation)
+  const autoOpenRef = useRef(false);
+
   useEffect(() => {
+    // Only run once per session/mount
+    if (autoOpenRef.current) return;
+
     const hasSeenIntro = localStorage.getItem('has_seen_tuto_v2');
-    // If tutorial already seen, open Contrib modal after delay
+    // If tutorial already seen, open Contrib modal
     if (hasSeenIntro) {
-      setTimeout(() => setShowContribution(true), 1500);
+      autoOpenRef.current = true;
+      // Reduced delay to 500ms since fallback makes UI ready faster
+      setTimeout(() => setShowContribution(true), 500);
     }
   }, []);
 
