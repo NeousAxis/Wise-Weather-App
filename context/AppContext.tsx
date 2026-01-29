@@ -248,23 +248,36 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     const unsub = onSnapshot(doc(db, "users", user.uid), (docSnapshot) => {
       if (docSnapshot.exists()) {
         const data = docSnapshot.data();
-        if (data.tier) {
-          console.log("Synced tier from Firestore:", data.tier);
 
-          // CRITICAL FIX: Normalize tier case (Firestore might have "Ultimate" instead of "ULTIMATE")
-          const normalizedTier = data.tier.toUpperCase();
-          setUserTier(normalizedTier as UserTier);
-        }
-        if (data.plan) {
-          setUserPlan(data.plan);
-        }
+        // 1. Extract Expiration Date
+        let expiresDate: Date | null = null;
         if (data.expiresAt) {
-          // Handle Firestore Timestamp
-          const d = data.expiresAt instanceof Timestamp ? data.expiresAt.toDate() : new Date(data.expiresAt);
-          setUserExpiresAt(d);
-        } else {
-          setUserExpiresAt(null);
+          expiresDate = data.expiresAt instanceof Timestamp ? data.expiresAt.toDate() : new Date(data.expiresAt);
         }
+        setUserExpiresAt(expiresDate);
+
+        // 2. Extract Tier
+        let effectiveTier = UserTier.FREE;
+        if (data.tier) {
+          effectiveTier = data.tier.toUpperCase() as UserTier;
+        }
+
+        // 3. ENFORCE EXPIRATION (Safety Check)
+        // If the expiration date is passed, we enforce FREE tier immediately,
+        // effectively ignoring the stale "tier" label from DB until the Cron job cleans it.
+        if (expiresDate && expiresDate < new Date()) {
+          console.warn(`User subscription expired strictly on ${expiresDate.toISOString()}. Downgrading to FREE locally.`);
+          effectiveTier = UserTier.FREE;
+          setUserPlan(''); // Clear plan to clean UI
+        } else {
+          console.log("Synced tier from Firestore:", effectiveTier);
+          // Only set plan if VALID
+          if (data.plan) {
+            setUserPlan(data.plan);
+          }
+        }
+
+        setUserTier(effectiveTier);
       }
     });
 
@@ -578,12 +591,33 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
             const snap = await getDoc(doc(db, "users", user.uid));
             if (snap.exists()) {
               const data = snap.data();
-              if (data.tier && data.tier !== userTier) {
-                console.log("Updated tier detected on resume:", data.tier);
-                setUserTier(data.tier as UserTier);
-                // Simple feedback to confirm activation
-                const msg = language === 'fr' ? "Abonnement activé ! Bienvenue." : "Subscription activated! Welcome.";
-                alert(msg);
+
+              // 1. Extract Expiration Date
+              let expiresDate: Date | null = null;
+              if (data.expiresAt) {
+                expiresDate = data.expiresAt instanceof Timestamp ? data.expiresAt.toDate() : new Date(data.expiresAt);
+              }
+              const isExpired = expiresDate && expiresDate < new Date();
+
+              // 2. Determine Effective Tier
+              let effectiveTier = data.tier as UserTier;
+              if (isExpired) {
+                console.warn("App Resume: Subscription expired. Enforcing FREE tier.");
+                effectiveTier = UserTier.FREE;
+                setUserPlan(''); // Clear plan so UI (Settings) reverts to standard Free view
+              } else {
+                // Only update plan if NOT expired (otherwise we keep it cleared)
+                if (data.plan) setUserPlan(data.plan);
+              }
+
+              if (effectiveTier && effectiveTier !== userTier) {
+                console.log("Updated tier detected on resume (Calculated):", effectiveTier);
+                setUserTier(effectiveTier);
+                // Only alert if it's a REAL upgrade/change, not a downgrade
+                if (effectiveTier !== UserTier.FREE) {
+                  const msg = language === 'fr' ? "Abonnement activé ! Bienvenue." : "Subscription activated! Welcome.";
+                  alert(msg);
+                }
               }
             }
           } catch (e) {
