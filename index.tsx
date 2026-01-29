@@ -413,7 +413,51 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                 else displayCode = 61; // Force Rain
               }
 
-              return getWeatherIcon(displayCode, 48, "", isDayNow);
+              return (
+                <div className="flex flex-col items-end">
+                  {getWeatherIcon(displayCode, 48, "", isDayNow)}
+                  {(() => {
+                    // Helper to get text description for precipitation nuances
+                    const getPrecipText = (code: number, lang: string) => {
+                      // Drizzle
+                      if (code >= 51 && code <= 55) return lang === 'fr' ? 'Bruine' : 'Drizzle';
+                      if (code >= 56 && code <= 57) return lang === 'fr' ? 'Bruine Verglaçante' : 'Freezing Drizzle';
+
+                      // Rain
+                      if (code === 61) return lang === 'fr' ? 'Pluie Faible' : 'Slight Rain';
+                      if (code === 63) return lang === 'fr' ? 'Pluie' : 'Rain';
+                      if (code === 65) return lang === 'fr' ? 'Pluie Forte' : 'Heavy Rain';
+                      if (code >= 66 && code <= 67) return lang === 'fr' ? 'Pluie Verglaçante' : 'Freezing Rain';
+
+                      // Showers
+                      if (code === 80) return lang === 'fr' ? 'Averse Faible' : 'Slight Shower';
+                      if (code === 81) return lang === 'fr' ? 'Averse' : 'Shower';
+                      if (code === 82) return lang === 'fr' ? 'Averse Violente' : 'Violent Shower';
+
+                      // Snow
+                      if (code === 71) return lang === 'fr' ? 'Neige Faible' : 'Slight Snow';
+                      if (code === 73) return lang === 'fr' ? 'Neige' : 'Snow';
+                      if (code === 75) return lang === 'fr' ? 'Neige Forte' : 'Heavy Snow';
+                      if (code === 77) return lang === 'fr' ? 'Grains de Neige' : 'Snow Grains';
+                      if (code === 85 || code === 86) return lang === 'fr' ? 'Averse de Neige' : 'Snow Shower';
+
+                      // Thunderstorm
+                      if (code >= 95) return lang === 'fr' ? 'Orage' : 'Thunderstorm';
+
+                      // Fog
+                      if (code === 45 || code === 48) return lang === 'fr' ? 'Brouillard' : 'Fog';
+
+                      return null;
+                    };
+
+                    const label = getPrecipText(displayCode, language);
+                    if (label) {
+                      return <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wide mt-1">{label}</span>;
+                    }
+                    return null;
+                  })()}
+                </div>
+              );
             })()}
             <span className="text-6xl font-bold text-foreground tracking-tighter">
               {currentTemp}°
@@ -1441,10 +1485,9 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
       // A. Draw Range Circle (Free/Standard)
       // A. Draw Range Circle (Free/Standard)
-      const isContributorMode = typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
       const accessRadiusKm = (userTier === UserTier.ULTIMATE || userTier === UserTier.TRAVELER)
         ? Infinity
-        : (userTier === UserTier.STANDARD || isContributorMode ? 5000 : 200);
+        : (userTier === UserTier.STANDARD ? 5000 : 200);
 
 
 
@@ -1972,11 +2015,12 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       color: 'bg-gradient-to-br from-green-500 to-emerald-700',
       textColor: 'text-white',
       features: [
-        language === 'fr' ? '✓ Carte Communauté : 5000 km' : '✓ Community Map: 5000 km',
-        language === 'fr' ? '✓ TOUTES OPTIONS' : '✓ ALL OPTIONS',
+        language === 'fr' ? '✓ Carte Communauté : 200 km' : '✓ Community Map: 200 km',
+        language === 'fr' ? '✓ TOUTES OPTIONS (Local)' : '✓ ALL OPTIONS (Local)',
         language === 'fr' ? '✓ 1 contribution = 1h accès' : '✓ 1 report = 1h access',
         language === 'fr' ? '✓ Cumulable (infini)' : '✓ Stackable (infinite)',
-        language === 'fr' ? '✓ Publicités activées' : '✓ Ads enabled'
+        language === 'fr' ? '✓ Publicités activées' : '✓ Ads enabled',
+        language === 'fr' ? '✓ Accès Solidaire ❤️' : '✓ Solidarity Access ❤️'
       ],
 
       cta: language === 'fr' ? 'Activer (Gratuit)' : 'Activate (Free)',
