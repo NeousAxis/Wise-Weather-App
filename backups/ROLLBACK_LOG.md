@@ -13,7 +13,15 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.4.2-Contrib-Modal-Fix` - 28 Jan 2026
+### ✅ [ACTUEL] `v2.4.3-Systematic-Modal` - 28 Jan 2026
+**État :** Production Stable (Comportement Systématique)
+**Contenu :**
+- **Contribution Force :** Ouverture systématique de la modale à chaque retour sur l'application (Resume/Sortie de veille iOS & Android).
+- **Performance :** Maintien du "Submit" instantané.
+
+---
+
+### 📦 `v2.4.2-Contrib-Modal-Fix` - 28 Jan 2026
 **État :** Production Stable (Hotfix)
 **Contenu :**
 - **Contribution Modal Fixes :**

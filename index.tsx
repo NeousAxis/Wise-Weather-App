@@ -1437,124 +1437,132 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
         }
       });
 
-      // 3. Affichage des Leaders uniquement
-      // Extraire le nom de ville principal pour comparaison (FREE)
-      const userMainCity = cityName.includes('(') ? cityName.split('(')[0].trim() : cityName;
+      // 3. Affichage (Markers + Circle)
+
+      // A. Draw Range Circle (Free/Standard)
+      // A. Draw Range Circle (Free/Standard)
+      const isContributorMode = typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
+      const accessRadiusKm = (userTier === UserTier.ULTIMATE || userTier === UserTier.TRAVELER)
+        ? Infinity
+        : (userTier === UserTier.STANDARD || isContributorMode ? 5000 : 200);
+
+
 
       consolidatedReports.forEach(report => {
-        // CHECK FREEMIUM STATUS
-        const isFree = userTier === UserTier.FREE;
-        // Check if Mountain Report (Avalanche or Snow)
+        // Calculate Distance for Locking
+        const distKm = getDistKm(location.lat, location.lng, report.lat, report.lng);
+        const isLocked = distKm > accessRadiusKm;
+
+        // Check if Mountain Report
         const isMountain = (report.avalancheRisk != null) || (report.snowLevel != null);
 
-        // Pour FREE: Vérifier si le rapport est dans la même ville
-        const reportCity = report.cityName || '';
-        const isSameCity = reportCity.toLowerCase() === userMainCity.toLowerCase();
-        // FREE voit les rapports de sa ville, les autres tiers voient tout
-        const shouldShowDetails = !isFree || isSameCity;
-
+        // ALWAYS RENDER CLEAN ICON (No more Blurring)
         let iconContent = '';
         let className = 'bg-transparent overflow-visible';
 
-        if (isFree && !isSameCity) {
-          // --- LOCKED VIEW (Blurry + Lock) ---
-          // MOUNTAIN: px-3 py-2, SVG 24, Size 40
-          // GENERAL: px-2 py-1.5, SVG 20, Size 32
-          const pxClass = isMountain ? "px-3 py-2 gap-2" : "px-2 py-1.5 gap-1.5";
-          const svgSize = isMountain ? 24 : 20;
-          const lockSize = isMountain ? 16 : 14;
-          const blurClass = isMountain ? "blur-[2px]" : "blur-[1.5px]";
+        // --- STANDARD VIEW (Details) ---
+        let iconsHtml = '';
+        const svgSize = isMountain ? 18 : 20;
 
-          iconContent = `
-            <div class="relative group cursor-pointer">
-              <div class="bg-gray-200/80 backdrop-blur-md rounded-full shadow-sm ${pxClass} flex items-center justify-center transform transition-transform hover:scale-110">
-                 <div class="text-gray-500 opacity-50 ${blurClass}">
-                    ${getIconSvg('cloud', '#6B7280', svgSize)}
-                 </div>
-                 <div class="absolute inset-0 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="${lockSize}" height="${lockSize}" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                 </div>
-              </div>
-            </div>
-          `;
-        } else {
-          // --- STANDARD VIEW (Details) ---
-          let iconsHtml = '';
-          // MOUNTAIN: SVG 18
-          // GENERAL: SVG 20 (Slightly smaller than 24 to fit compact bubble)
-          const svgSize = isMountain ? 18 : 20;
+        const displayConditions = isMountain ? report.conditions : report.conditions.slice(0, 1);
+        const hiddenCount = (!isMountain && report.conditions.length > 1) ? report.conditions.length - 1 : 0;
 
-          // Limit displayed icons:
-          // MOUNTAIN: Show all
-          // GENERAL: Show 1st Icon + separate visual indicator for others
-          const displayConditions = isMountain ? report.conditions : report.conditions.slice(0, 1);
-          const hiddenCount = (!isMountain && report.conditions.length > 1) ? report.conditions.length - 1 : 0;
+        displayConditions.forEach(cond => {
+          let type: any = 'sun';
+          let color = '#F59E0B'; // Default yellow
 
-          displayConditions.forEach(cond => {
-            let type: any = 'sun';
-            let color = '#F59E0B'; // Default yellow
-
-            switch (cond) {
-              case 'Sunny': type = 'sun'; color = '#FFFFFF'; break;
-              case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break;
-              case 'Rain': type = 'rain'; color = '#FFFFFF'; break;
-              case 'Windy': type = 'wind'; color = '#FFFFFF'; break;
-              case 'Snow': type = 'snow'; color = '#FFFFFF'; break;
-              case 'Storm': type = 'storm'; color = '#FFFFFF'; break;
-              case 'Mist': type = 'cloud'; color = '#CBD5E1'; break; // Light Gray for Mist
-              case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break; // Very White for Whiteout
-              case 'Ice': type = 'snow'; color = '#7DD3FC'; break; // Light Blue for Ice
-              default: type = 'sun'; color = '#FFFFFF';
-            }
-
-            iconsHtml += `<div class="flex-shrink-0">${getIconSvg(type, color, svgSize)}</div>`;
-          });
-
-          // Add +N badge if hidden icons exist (General Only)
-          if (hiddenCount > 0) {
-            iconsHtml += `<div class="text-[10px] font-bold text-white bg-white/20 rounded-full w-5 h-5 flex items-center justify-center -ml-0.5 cursor-pointer">+${hiddenCount}</div>`;
+          switch (cond) {
+            case 'Sunny': type = 'sun'; color = '#FFFFFF'; break;
+            case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break;
+            case 'Rain': type = 'rain'; color = '#FFFFFF'; break;
+            case 'Windy': type = 'wind'; color = '#FFFFFF'; break;
+            case 'Snow': type = 'snow'; color = '#FFFFFF'; break;
+            case 'Storm': type = 'storm'; color = '#FFFFFF'; break;
+            case 'Mist': type = 'cloud'; color = '#CBD5E1'; break;
+            case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break;
+            case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
+            default: type = 'sun'; color = '#FFFFFF';
           }
 
-          const hasTemp = report.temp !== undefined && report.temp !== null;
-          const tempDisplay = hasTemp ? `${convertTemp(report.temp!, unit)}°` : '';
+          iconsHtml += `<div class="flex-shrink-0">${getIconSvg(type, color, svgSize)}</div>`;
+        });
 
-          // MOUNTAIN BADGES
-          // Revert to original styling for Mountain badges if isMountain
-          const badgePy = isMountain ? "py-0.5" : "py-0.5"; // kept same
-          const badgePx = isMountain ? "px-1.5" : "px-1";
+        if (hiddenCount > 0) {
+          iconsHtml += `<div class="text-[10px] font-bold text-white bg-white/20 rounded-full w-5 h-5 flex items-center justify-center -ml-0.5 cursor-pointer">+${hiddenCount}</div>`;
+        }
 
-          const avalancheBadge = (report.avalancheRisk != null) ? `<span class="bg-red-500 text-white text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm">⚠️ ${report.avalancheRisk}/5</span>` : '';
-          const snowBadge = (report.snowLevel != null) ? `<span class="bg-blue-500 text-white text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm">❄️ ${report.snowLevel}cm</span>` : '';
+        const hasTemp = report.temp !== undefined && report.temp !== null;
+        const tempDisplay = hasTemp ? `${convertTemp(report.temp!, unit)}°` : '';
 
-          const countSize = isMountain ? "w-5 h-5 text-[10px]" : "w-4 h-4 text-[9px]";
-          const countBadge = (report.count && report.count > 1)
-            ? `<div class="absolute -top-2 -right-2 bg-red-500 text-white ${countSize} font-bold rounded-full flex items-center justify-center border-2 border-white shadow-sm z-50">${report.count}</div>`
-            : '';
+        const badgePy = "py-0.5";
+        const badgePx = isMountain ? "px-1.5" : "px-1";
 
-          // Dynamic background based on mode
-          const bgClass = isMountain ? 'bg-slate-800' : 'bg-violet-400';
+        const avalancheBadge = (report.avalancheRisk != null) ? `<span class="bg-red-500 text-white text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm">⚠️ ${report.avalancheRisk}/5</span>` : '';
+        const snowBadge = (report.snowLevel != null) ? `<span class="bg-blue-500 text-white text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm">❄️ ${report.snowLevel}cm</span>` : '';
 
-          if (!isMountain) {
-            // --- GENERAL MODE: MATCH OFFICIAL FORECAST MARKER EXACTLY ---
-            // Use CSS absolute positioning + transform for auto-width centering
-            // Wrapper: absolute bottom-3 left-0 -translate-x-1/2 (Same as Major Cities)
-            // Bubble: rounded-full shadow-lg border items-center gap-2
+        const countSize = isMountain ? "w-5 h-5 text-[10px]" : "w-4 h-4 text-[9px]";
+        const countBadge = (report.count && report.count > 1)
+          ? `<div class="absolute -top-2 -right-2 bg-red-500 text-white ${countSize} font-bold rounded-full flex items-center justify-center border-2 border-white shadow-sm z-50">${report.count}</div>`
+          : '';
 
-            // Icon Size matching Official (22).
-            const genSvgSize = 22;
-            let genIconsHtml = '';
+        const bgClass = isMountain ? 'bg-slate-800' : 'bg-violet-400';
 
-            // Show 1st Icon + Badge
-            const firstCond = report.conditions[0] || 'Sunny';
-            const hiddenCount = Math.max(0, report.conditions.length - 1);
+        if (!isMountain) {
+          // --- GENERAL MODE ---
+          const genSvgSize = 22;
+          let genIconsHtml = '';
+          const firstCond = report.conditions[0] || 'Sunny';
+          const hiddenCount = Math.max(0, report.conditions.length - 1);
+          let type: any = 'sun';
+          let color = '#FFFFFF';
+          const isNight = weather?.current?.isDay === 0;
 
-            // Generate 1st icon
+          switch (firstCond) {
+            case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
+            case 'Cloudy': type = 'cloud'; break;
+            case 'Rain': type = 'rain'; break;
+            case 'Windy': type = 'wind'; break;
+            case 'Snow': type = 'snow'; break;
+            case 'Storm': type = 'storm'; break;
+            case 'Mist': type = 'cloud'; color = '#CBD5E1'; break;
+            case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break;
+            case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
+            default: type = 'sun';
+          }
+          genIconsHtml += getIconSvg(type, color, genSvgSize);
+
+          if (hiddenCount > 0) {
+            genIconsHtml += `<div class="text-[10px] font-bold text-white bg-white/20 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer">+${hiddenCount}</div>`;
+          }
+
+          const temp = hasTemp ? `${convertTemp(report.temp!, unit)}°` : '';
+
+          iconContent = `
+            <div class="absolute bottom-4 left-0 -translate-x-1/2">
+               <div class="${bgClass} rounded-full shadow-lg border border-white/20 px-3 py-2 flex items-center gap-2 whitespace-nowrap transform hover:scale-110 transition-transform ${isLocked ? 'opacity-80 grayscale-[0.5]' : ''}">
+                  <div class="flex items-center gap-1.5">
+                    ${genIconsHtml}
+                  </div>
+                  ${temp ? `<span class="font-bold text-white text-sm pt-0.5 leading-none">${temp}</span>` : ''}
+                  ${isLocked ? '<div class="absolute -top-2 -right-2 bg-gray-100 rounded-full p-0.5 shadow border border-gray-200"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>' : ''}
+               </div>
+               ${countBadge}
+            </div>
+          `;
+
+          const el = L.divIcon({
+            className: className + ' overflow-visible',
+            html: iconContent,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+          });
+
+          // POPUP Content
+          let fullIconsHtml = '';
+          report.conditions.forEach(cond => {
             let type: any = 'sun';
-            let color = '#FFFFFF'; // White icons on colored bubble
-
-            const isNight = weather?.current?.isDay === 0;
-
-            switch (firstCond) {
+            let color = '#FFFFFF';
+            switch (cond) {
               case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
               case 'Cloudy': type = 'cloud'; break;
               case 'Rain': type = 'rain'; break;
@@ -1566,141 +1574,69 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
               case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
               default: type = 'sun';
             }
-            genIconsHtml += getIconSvg(type, color, genSvgSize);
+            fullIconsHtml += `<div class="p-1">${getIconSvg(type, color, 24)}</div>`;
+          });
+          const diffMs = Date.now() - report.timestamp;
+          const diffMins = Math.floor(diffMs / 60000);
+          const timeAgo = diffMins < 1 ? (language === 'fr' ? "À l'instant" : 'Now') : `${diffMins} min`;
 
-            // Badge if needed
-            if (hiddenCount > 0) {
-              genIconsHtml += `<div class="text-[10px] font-bold text-white bg-white/20 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer">+${hiddenCount}</div>`;
-            }
+          const popupContent = `
+            <div class="${bgClass} rounded-2xl shadow-xl border-2 border-white/20 px-3 py-2 flex flex-col items-center justify-center gap-1 animate-in zoom-in-95 duration-200">
+               <div class="flex items-center justify-center gap-2">
+                 <div class="flex flex-wrap justify-center gap-1 max-w-[200px]">${fullIconsHtml}</div>
+                 ${temp ? `<div class="font-bold text-white text-lg pl-2 border-l border-white/20">${temp}</div>` : ''}
+               </div>
+               <div class="flex items-center gap-1.5 opacity-90">
+                  <span class="text-[10px] font-bold text-white tracking-wide leading-none">${timeAgo}</span>
+               </div>
+            </div>`;
 
-            const temp = hasTemp ? `${convertTemp(report.temp!, unit)}°` : '';
+          const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
 
-            iconContent = `
-              <div class="absolute bottom-4 left-0 -translate-x-1/2">
-                 <div class="${bgClass} rounded-full shadow-lg border border-white/20 px-3 py-2 flex items-center gap-2 whitespace-nowrap transform hover:scale-110 transition-transform">
-                    <div class="flex items-center gap-1.5">
-                      ${genIconsHtml}
-                    </div>
-                    ${temp ? `<span class="font-bold text-white text-sm pt-0.5 leading-none">${temp}</span>` : ''}
-                 </div>
-                 ${countBadge}
-              </div>
-            `;
-
-            // General Mode uses CSS centering, so Leaflet dimensions are 0/0
-            // This guarantees the width is exactly "content" width, just like the Official bubble
-            const el = L.divIcon({
-              className: className + ' overflow-visible', // Important for absolute child
-              html: iconContent,
-              iconSize: [0, 0],
-              iconAnchor: [0, 0]
+          if (isLocked) {
+            marker.on('click', () => {
+              alert(language === 'fr' ? "Hors de zone ! Passez Premium pour voir plus loin." : "Out of range! Upgrade to see further.");
+              setShowPremium(true);
             });
-            // Generate FULL icons list for popup (to show on click)
-            let fullIconsHtml = '';
-            report.conditions.forEach(cond => {
-              let type: any = 'sun';
-              let color = '#FFFFFF';
-              switch (cond) {
-                case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
-                case 'Cloudy': type = 'cloud'; break;
-                case 'Rain': type = 'rain'; break;
-                case 'Windy': type = 'wind'; break;
-                case 'Snow': type = 'snow'; break;
-                case 'Storm': type = 'storm'; break;
-                case 'Mist': type = 'cloud'; color = '#CBD5E1'; break;
-                case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break;
-                case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
-                default: type = 'sun';
-              }
-              fullIconsHtml += `<div class="p-1">${getIconSvg(type, color, 24)}</div>`;
-            });
-
-            const diffMs = Date.now() - report.timestamp;
-            const diffMins = Math.floor(diffMs / 60000);
-            const timeAgo = diffMins < 1
-              ? (language === 'fr' ? "À l'instant" : 'Now')
-              : `${diffMins} min`;
-
-            const popupContent = `
-              <div class="${bgClass} rounded-2xl shadow-xl border-2 border-white/20 px-3 py-2 flex flex-col items-center justify-center gap-1 animate-in zoom-in-95 duration-200">
-                 <div class="flex items-center justify-center gap-2">
-                   <div class="flex flex-wrap justify-center gap-1 max-w-[200px]">
-                     ${fullIconsHtml}
-                   </div>
-                   ${temp ? `<div class="font-bold text-white text-lg pl-2 border-l border-white/20">${temp}</div>` : ''}
-                 </div>
-                 <div class="flex items-center gap-1.5 opacity-90">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-white"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    <span class="text-[10px] font-bold text-white tracking-wide leading-none">${timeAgo}</span>
-                 </div>
-              </div>
-            `;
-
-            const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
-
-            if (isFree) {
-              marker.on('click', () => setShowPremium(true));
-            } else {
-              // Bind popup to show full details on click
-              marker.bindPopup(popupContent, {
-                closeButton: false,
-                className: 'custom-popup-no-bg', // See index.css or assume style relies on inner HTML
-                offset: [0, -20],
-                minWidth: 100
-              });
-            }
-
-            markersRef.current.push(marker);
-
           } else {
-            // --- MOUNTAIN MODE: RETAIN EXISTING CALCULATED LAYOUT ---
-
-            const containerClass = "px-3 py-1.5 h-10 gap-2";
-            const tempSize = "text-base";
-
-            iconContent = `
-              <div class="relative">
-                <div class="${bgClass} rounded-full shadow-md ${containerClass} flex items-center justify-center transform hover:scale-110 transition-transform whitespace-nowrap border-2 border-white/20">
-                  <div class="flex gap-1 items-center">
-                    ${iconsHtml}
-                  </div>
-                  ${avalancheBadge}
-                  ${snowBadge}
-                  ${tempDisplay ? `<span class="font-bold text-white ${tempSize} leading-none pt-0.5">${tempDisplay}</span>` : ''}
-                </div>
-                ${countBadge}
-              </div>
-            `;
-
-            // Dimensions Calculation (Mountain Only)
-            const baseW = 30;
-            const condW = 20;
-            const tempW = 25;
-            const avW = 45;
-            const snowW = 50;
-            const height = 40;
-
-            const calculatedW = Math.max(50, baseW
-              + (report.conditions.length * condW)
-              + ((report.temp !== undefined && report.temp !== null) ? tempW : 0)
-              + (report.avalancheRisk ? avW : 0)
-              + (report.snowLevel !== undefined ? snowW : 0)
-            );
-
-            const el = L.divIcon({
-              className: className,
-              html: iconContent,
-              iconSize: [calculatedW, height],
-              iconAnchor: [calculatedW / 2, height / 2]
-            });
-            const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
-
-            if (isFree) {
-              marker.on('click', () => setShowPremium(true));
-            }
-
-            markersRef.current.push(marker);
+            marker.bindPopup(popupContent, { closeButton: false, className: 'custom-popup-no-bg', offset: [0, -20], minWidth: 100 });
           }
+          markersRef.current.push(marker);
+
+        } else {
+          // --- MOUNTAIN MODE (Preserved) ---
+          const containerClass = "px-3 py-1.5 h-10 gap-2";
+          iconContent = `
+            <div class="relative">
+              <div class="${bgClass} rounded-full shadow-md ${containerClass} flex items-center justify-center transform hover:scale-110 transition-transform whitespace-nowrap border-2 border-white/20 ${isLocked ? 'opacity-80 grayscale-[0.5]' : ''}">
+                <div class="flex gap-1 items-center">
+                  ${iconsHtml}
+                </div>
+                ${avalancheBadge}
+                ${snowBadge}
+                ${tempDisplay ? `<span class="font-bold text-white text-base leading-none pt-0.5">${tempDisplay}</span>` : ''}
+                ${isLocked ? '<div class="absolute -top-2 -right-2 bg-gray-100 rounded-full p-0.5 shadow border border-gray-200"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>' : ''}
+              </div>
+              ${countBadge}
+            </div>
+          `;
+
+          const calculatedW = Math.max(50, 30 + (report.conditions.length * 20) + ((report.temp != null) ? 25 : 0) + (report.avalancheRisk ? 45 : 0) + (report.snowLevel != null ? 50 : 0));
+          const el = L.divIcon({ className: className, html: iconContent, iconSize: [calculatedW, 40], iconAnchor: [calculatedW / 2, 20] });
+          const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
+
+          if (isLocked) {
+            marker.on('click', () => {
+              alert(language === 'fr' ? "Hors de zone ! Passez Premium pour voir plus loin." : "Out of range! Upgrade to see further.");
+              setShowPremium(true);
+            });
+          } else {
+            // Mountain doesn't really have a popup in code prior, but if it did, bind here. 
+            // Logic seems to assume visuals are enough? Or maybe I missed the bindPopup for mountain.
+            // Looking at previous code, Mountain mode didn't have bindPopup logic shown in snippet. 
+            // I'll leave it as is (no popup for mountain? or add it if needed. Safest is to follow existing logic: Click does nothing special on Mountain unless locked?)
+          }
+          markersRef.current.push(marker);
         } // End Standard View Logic
       });
     }
@@ -2019,9 +1955,9 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       color: 'bg-gradient-to-br from-gray-100 to-gray-200',
       textColor: 'text-gray-700',
       features: [
+        language === 'fr' ? '✓ Carte Communauté : 200 km' : '✓ Community Map: 200 km',
         language === 'fr' ? 'Météo actuelle + 3h' : 'Current weather + 3h',
         language === 'fr' ? 'UV + Pollution' : 'UV + Pollution',
-        language === 'fr' ? 'Carte communautaire (votre ville)' : 'Community map (your city)',
         language === 'fr' ? 'Alertes vitales uniquement' : 'Vital alerts only',
         language === 'fr' ? 'Poster des rapports' : 'Post reports'
       ],
@@ -2030,18 +1966,19 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       tierId: 'FREE'
     },
     {
-      name: language === 'fr' ? 'CONTRIBUTEUR' : 'CONTRIBUTOR',
+      name: language === 'fr' ? 'Contributeur' : 'Contributor',
       price: language === 'fr' ? 'Mode Participatif' : 'Participative Mode',
       period: '',
       color: 'bg-gradient-to-br from-green-500 to-emerald-700',
       textColor: 'text-white',
       features: [
-        language === 'fr' ? '✅ TOUTES OPTIONS (Local)' : '✅ ALL FEATURES (Local only)',
-        language === 'fr' ? '✅ 1 contribution = 1h accès' : '✅ 1 contribution = 1 hour access',
-        language === 'fr' ? '✅ Cumulable (infini)' : '✅ Access stacks (+1h per contrib)',
-        language === 'fr' ? '✅ Publicités activées' : '✅ Ads enabled',
-        language === 'fr' ? '❤️ Accès Solidaire' : '❤️ Solidarity access'
+        language === 'fr' ? '✓ Carte Communauté : 5000 km' : '✓ Community Map: 5000 km',
+        language === 'fr' ? '✓ TOUTES OPTIONS' : '✓ ALL OPTIONS',
+        language === 'fr' ? '✓ 1 contribution = 1h accès' : '✓ 1 report = 1h access',
+        language === 'fr' ? '✓ Cumulable (infini)' : '✓ Stackable (infinite)',
+        language === 'fr' ? '✓ Publicités activées' : '✓ Ads enabled'
       ],
+
       cta: language === 'fr' ? 'Activer (Gratuit)' : 'Activate (Free)',
       disabled: false,
       tierId: 'CONTRIBUTOR'
@@ -2054,11 +1991,11 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       color: 'bg-gradient-to-br from-blue-400 to-blue-600',
       textColor: 'text-white',
       features: [
-        language === 'fr' ? 'Prévisions 12h' : '12h forecast',
-        language === 'fr' ? 'Carte communautaire complète' : 'Full community map',
-        language === 'fr' ? 'Données Santé (UV, Pollution + Pollen)' : 'Health Data (UV, Pollution + Pollen)',
-        language === 'fr' ? 'Alertes confort (Pluie...)' : 'Comfort alerts (Rain...)',
-        language === 'fr' ? 'Expérience complète' : 'Full experience'
+        language === 'fr' ? '✓ Carte Communauté : 5000 km' : '✓ Community Map: 5000 km',
+        language === 'fr' ? '✓ Prévisions 24h' : '✓ 24h Forecast',
+        language === 'fr' ? '✓ Données Santé (UV, Pollution + Pollen)' : '✓ Health Data (UV, Pollution + Pollen)',
+        language === 'fr' ? '✓ Alertes confort (Pluie...)' : '✓ Comfort Alerts (Rain...)',
+        language === 'fr' ? '✓ Expérience complète' : '✓ Full Experience'
       ],
       cta: language === 'fr' ? 'Choisir Standard' : 'Choose Standard',
       disabled: false,
@@ -2072,11 +2009,12 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       color: 'bg-gradient-to-br from-yellow-400 via-orange-500 to-red-500',
       textColor: 'text-white',
       features: [
-        language === 'fr' ? 'Pack Standard' : 'Standard Pack',
-        language === 'fr' ? 'Détails Experts (Graphiques)' : 'Expert Details (Graphs)',
-        language === 'fr' ? 'Indices AIR, UV, Pollens' : 'AIR, UV, Pollen Indices',
-        language === 'fr' ? 'Comparaison J-1' : 'Yesterday comparison',
-        language === 'fr' ? 'Mode Montagne 🏔️' : 'Mountain Mode 🏔️'
+        language === 'fr' ? '✓ Carte Communauté : MONDE' : '✓ Community Map: WORLDWIDE',
+        language === 'fr' ? '✓ Pack Standard' : '✓ Standard Pack',
+        language === 'fr' ? '✓ Détails Experts (Graphiques)' : '✓ Expert Details (Graphs)',
+        language === 'fr' ? '✓ Indices AIR, UV, Pollens' : '✓ AIR, UV, Pollen Indices',
+        language === 'fr' ? '✓ Comparaison J-1' : '✓ Yesterday comparison',
+        language === 'fr' ? '✓ Mode Montagne 🏔️' : '✓ Mountain Mode 🏔️'
       ],
       cta: language === 'fr' ? 'Choisir Ultimate' : 'Choose Ultimate',
       disabled: false,
@@ -2090,10 +2028,10 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
       color: 'bg-gradient-to-br from-purple-500 to-indigo-600',
       textColor: 'text-white',
       features: [
-        language === 'fr' ? 'Valable 1 semaine' : 'Valid for 1 week',
-        language === 'fr' ? 'Idéal pour les vacances' : 'Perfect for holidays',
-        language === 'fr' ? 'Fonctionnalités Ultimate' : 'Ultimate Features',
-        language === 'fr' ? 'Sans engagement' : 'No long commitment'
+        language === 'fr' ? '✓ Valable 1 semaine' : '✓ Valid for 1 week',
+        language === 'fr' ? '✓ Idéal pour les vacances' : '✓ Perfect for holidays',
+        language === 'fr' ? '✓ Fonctionnalités Ultimate' : '✓ Ultimate Features',
+        language === 'fr' ? '✓ Sans engagement' : '✓ No long commitment'
       ],
       cta: language === 'fr' ? 'Choisir Traveler' : 'Choose Traveler',
       disabled: false,

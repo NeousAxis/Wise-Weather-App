@@ -23,15 +23,15 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
         },
         {
             name: language === 'fr' ? 'Contributeur' : 'Contributor',
-            price: language === 'fr' ? 'Gratuit (Donnant-Donnant)' : 'Free (Give-to-Get)',
+            price: language === 'fr' ? 'Mode Participatif' : 'Participative Mode',
             color: 'bg-gradient-to-br from-green-400 to-emerald-600',
             textColor: 'text-white',
             features: [
-                language === 'fr' ? '✓ Toutes fonctionnalités ULTIMATE' : '✓ All ULTIMATE features',
-                language === 'fr' ? '✓ Carte Défloutée' : '✓ Unblurred Map',
-                language === 'fr' ? '⚠️ 2 Contributions / jour requises' : '⚠️ 2 Reports / day required',
-                language === 'fr' ? '⚠️ Bandeau Publicitaire' : '⚠️ Ad Banner',
-                language === 'fr' ? '❤️ Soutenez la communauté' : '❤️ Support community'
+                language === 'fr' ? '✓ Carte Communauté : 200 km' : '✓ Community Map: 200 km',
+                language === 'fr' ? '✓ TOUTES OPTIONS (Local)' : '✓ ALL OPTIONS (Local)',
+                language === 'fr' ? '✓ 1 contribution = 1h accès' : '✓ 1 report = 1h access',
+                language === 'fr' ? '✓ Cumulable (infini)' : '✓ Stackable (infinite)',
+                language === 'fr' ? '✓ Publicités activées' : '✓ Ads enabled'
             ],
             cta: language === 'fr' ? 'Activer (Gratuit)' : 'Activate (Free)',
             disabled: false,
@@ -39,15 +39,15 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
         },
         {
             name: 'Standard',
-            price: language === 'fr' ? '2.99€ / mois' : '$2.99 / month',
+            price: language === 'fr' ? 'CHF 2.- / mois' : 'CHF 2.- / month',
             color: 'bg-gradient-to-br from-blue-400 to-blue-600',
             textColor: 'text-white',
             features: [
-                language === 'fr' ? '✓ Tout du Gratuit' : '✓ Everything in Free',
-                language === 'fr' ? '✓ Données santé complètes' : '✓ Full health data',
-                language === 'fr' ? '✓ Prévisions 12h' : '✓ 12h forecast',
-                language === 'fr' ? '✓ Alertes personnalisées' : '✓ Custom alerts',
-                language === 'fr' ? '✓ Sans publicité' : '✓ Ad-free'
+                language === 'fr' ? '✓ Carte Communauté : 5000 km' : '✓ Community Map: 5000 km',
+                language === 'fr' ? '✓ Prévisions 24h' : '✓ 24h Forecast',
+                language === 'fr' ? '✓ Données Santé (UV, Pollution + Pollen)' : '✓ Health Data (UV, Pollution + Pollen)',
+                language === 'fr' ? '✓ Alertes confort (Pluie...)' : '✓ Comfort Alerts (Rain...)',
+                language === 'fr' ? '✓ Expérience complète' : '✓ Full Experience'
             ],
             cta: language === 'fr' ? 'Choisir Standard' : 'Choose Standard',
             disabled: false,
@@ -55,19 +55,35 @@ const PremiumModal = ({ onClose }: { onClose: () => void }) => {
         },
         {
             name: 'Ultimate',
-            price: language === 'fr' ? '5.99€ / mois' : '$5.99 / month',
+            price: language === 'fr' ? 'CHF 5.- / mois' : 'CHF 5.- / month',
             color: 'bg-gradient-to-br from-yellow-400 via-orange-500 to-red-500',
             textColor: 'text-white',
             features: [
-                language === 'fr' ? '✓ Tout du Standard' : '✓ Everything in Standard',
-                language === 'fr' ? '✓ Prévisions 7 jours' : '✓ 7-day forecast',
-                language === 'fr' ? '✓ Analyses météo IA' : '✓ AI weather insights',
-                language === 'fr' ? '✓ Données historiques' : '✓ Historical data',
-                language === 'fr' ? '✓ Support prioritaire' : '✓ Priority support'
+                language === 'fr' ? '✓ Carte Communauté : MONDE' : '✓ Community Map: WORLDWIDE',
+                language === 'fr' ? '✓ Pack Standard' : '✓ Standard Pack',
+                language === 'fr' ? '✓ Détails Experts (Graphiques)' : '✓ Expert Details (Charts)',
+                language === 'fr' ? '✓ Indices AIR, UV, Pollens' : '✓ AIR, UV, Pollen Indices',
+                language === 'fr' ? '✓ Comparaison J-1' : '✓ D-1 Comparison',
+                language === 'fr' ? '✓ Mode Montagne 🏔️' : '✓ Mountain Mode 🏔️'
             ],
             cta: language === 'fr' ? 'Choisir Ultimate' : 'Choose Ultimate',
             disabled: false,
             tierId: 'ULTIMATE'
+        },
+        {
+            name: 'Traveler',
+            price: language === 'fr' ? 'CHF 4.- / semaine' : 'CHF 4.- / week',
+            color: 'bg-gradient-to-br from-purple-500 to-indigo-600',
+            textColor: 'text-white',
+            features: [
+                language === 'fr' ? '✓ Valable 1 semaine' : '✓ Valid 1 week',
+                language === 'fr' ? '✓ Idéal pour les vacances' : '✓ Perfect for holidays',
+                language === 'fr' ? '✓ Fonctionnalités Ultimate' : '✓ Ultimate Features',
+                language === 'fr' ? '✓ Sans engagement' : '✓ No commitment'
+            ],
+            cta: language === 'fr' ? 'Choisir Traveler' : 'Choose Traveler',
+            disabled: false,
+            tierId: 'TRAVELER'
         }
     ];
 
