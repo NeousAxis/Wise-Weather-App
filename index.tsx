@@ -219,7 +219,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
     return Array(24).fill(0);
   };
 
-  if (loadingWeather || !weather) {
+  if (!weather) {
     return (
       <Card className="mx-4 mb-6 p-8 animate-pulse">
         <div className="h-8 bg-gray-200 rounded w-1/2 mb-4"></div>

@@ -47,14 +47,14 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 
   const today = new Date().toDateString();
   const prompt = `Context: Today is ${today}. ` +
-    "Generate a SINGLE, SHORT inspiring quote (MAX 25 WORDS) " +
+    "Generate a SINGLE, SHORT inspiring quote (MAX 20 WORDS) " +
     `based on the theme: "${theme}". ` +
     "CRITICAL INSTRUCTIONS:\n" +
     "1. Select an inspiring author relevant to the theme. Ensure great diversity in authors (philosophers, scientists, poets, leaders, etc.).\n" +
     "2. Prioritize variety. Mix well-known quotes with deeper, " +
     "lesser-known ones to keep it fresh.\n" +
     "3. Provide the quote in both English ('en') and French ('fr').\n" +
-    "4. Return ONLY valid JSON. No markdown, no backticks.\n" +
+    "4. Return ONLY valid JSON. No markdown, no backticks, no introduction text.\n" +
     "5. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
     "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
 
@@ -125,74 +125,16 @@ async function getOrGenerateQuote(
     (global as any).lastQuoteError = e; // Hack to pass error to return
   }
 
-  // Fallback if generation fails
-  const fallbackQuotes = [
-    {
-      en: {
-        text: "The future belongs to those who believe " +
-          "in the beauty of their dreams.",
-        author: "Eleanor Roosevelt",
-      },
-      fr: {
-        text: "L'avenir appartient à ceux qui croient " +
-          "à la beauté de leurs rêves.",
-        author: "Eleanor Roosevelt",
-      },
-    },
-    {
-      en: {
-        text: "Difficulties strengthen the mind, as labor does the body.",
-        author: "Seneca",
-      },
-      fr: {
-        text: "Les difficultés renforcent l'esprit, " +
-          "comme le travail renforce le corps.",
-        author: "Sénèque",
-      },
-    },
-    {
-      en: {
-        text: "The only way to do great work is to love what you do.",
-        author: "Steve Jobs",
-      },
-      fr: {
-        text: "La seule façon de faire du bon travail est d'aimer ce " +
-          "que vous faites.",
-        author: "Steve Jobs",
-      },
-    },
-    {
-      en: {
-        text: "Happiness depends upon ourselves.",
-        author: "Aristotle",
-      },
-      fr: {
-        text: "Le bonheur dépend de nous-mêmes.",
-        author: "Aristote",
-      },
-    },
-    {
-      en: {
-        text: "The happiness of your life depends upon the quality of " +
-          "your thoughts.",
-        author: "Marcus Aurelius",
-      },
-      fr: {
-        text: "Le bonheur de votre vie dépend de la qualité de vos pensées.",
-        author: "Marc Aurèle",
-      },
-    },
-  ];
-
-  // Pick one based on the day of the year (deterministic fallback)
-  const now = new Date();
-  const start = new Date(now.getFullYear(), 0, 0);
-  const diff = now.getTime() - start.getTime();
-  const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const fallback = fallbackQuotes[dayOfYear % fallbackQuotes.length];
-
+  // Fallback unique (Signal de diagnostic)
   return {
-    ...fallback,
+    en: {
+      text: "The future belongs to those who believe in the beauty of their dreams.",
+      author: "Eleanor Roosevelt",
+    },
+    fr: {
+      text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.",
+      author: "Eleanor Roosevelt",
+    },
   };
 }
 
@@ -224,13 +166,11 @@ export const generateQuote = onCall({ secrets: [geminiApiKey] },
         data: {
           error_debug: error instanceof Error ? error.message : String(error),
           en: {
-            text: "The future belongs to those who believe " +
-              "in the beauty of their dreams.",
+            text: "The future belongs to those who believe in the beauty of their dreams.",
             author: "Eleanor Roosevelt",
           },
           fr: {
-            text: "L'avenir appartient à ceux qui croient " +
-              "à la beauté de leurs rêves.",
+            text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.",
             author: "Eleanor Roosevelt",
           },
         },

@@ -1,0 +1,53 @@
+# 📜 WISE WEATHER - HISTORIQUE DES CHANGEMENTS ET RATIONALE
+
+Ce fichier est le journal de bord de l'application. **IL EST OBLIGATOIRE DE LE LIRE AVANT TOUTE MODIFICATION DE CODE** pour comprendre pourquoi certaines décisions (souvent subtiles) ont été prises.
+
+---
+
+## 🏗️ ARCHITECTURE & LOGIQUES CRITIQUES (RÉFÉRENCE)
+
+### 1. 🛡️ Proxy Météo & Sécurité (Backend vs Frontend)
+- **Logique** : Le backend interroge **9 modèles météo simultanément** (Météo-France, ECMWF, GFS, etc.) alors que le frontend n'en utilise qu'un seul (Standard).
+- **Rationale** : Cette déconnexion est **INTENTIONNELLE**. Le backend est réglé sur une sensibilité maximale pour la sécurité.
+- **Surcharge (Override)** : Si le backend détecte un danger (Orage/Pluie) à moins de 30 min que le modèle standard ne voit pas, le Proxy **écrase** les données envoyées au frontend pour que l'icône de l'app corresponde à l'alerte reçue.
+
+### 2. 🔔 Algorithme Intelligent des Alertes
+Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suivent des règles strictes :
+- **Changement Significatif** : Une notification peut être envoyée toutes les **30 minutes** SI et seulement SI il y a un changement majeur (Ex: Sec -> Pluie, Pluie -> Neige, ou Intensification forte).
+- **Condition Stable** : Si la pluie continue sans changer d'intensité, le système bloque les alertes pendant **120 minutes** (2h).
+- **Cooldown Standard** : Pour les rappels météo classiques, le délai est de **4 heures**.
+
+### 3. 📅 Système de Citations (7 AM Rule)
+- **Heure fixe** : Les citations sont envoyées uniquement entre **7:00 et 7:12** heure locale de l'utilisateur.
+- **Slot Unique** : Toutes les citations d'une journée partagent la même clé (`YYYY-MM-DD-all-day-v6`). Cela garantit que tous les utilisateurs voient la même inspiration et limite les appels à l'IA.
+
+### 4. 🧪 Cache des Pollens (Optimisation Coûts)
+- **3 Slots par jour** : Les données sont rafraîchies à **6h, 11h et 17h**. 
+- **Rationale** : L'API Google Pollen est coûteuse. Entre ces créneaux, l'application utilise une clé de cache locale incluant le `timeSlot` pour éviter tout appel inutile.
+
+### 5. 🎖️ Mode Contributeur (Accès Mérité)
+- **Logique** : Faire un signalement météo valide accorde **+1 heure** d'accès aux fonctionnalités "Ultimate" (Carte mondiale).
+- **Strikes** : Un système de "Strikes" (3 max) est en place. Si la communauté invalide trop souvent un utilisateur, son accès est bloqué.
+
+### 6. 🛠️ Correction du Bug "NaN" (lastWeatherNotif)
+- **Historique** : Un crash critique empêchait l'envoi des alertes car la date en base de données était parfois un String, parfois un Timestamp, ce qui créait des erreurs `Invalid Date`.
+- **Solution** : Une fonction de parsing robuste est intégrée dans le backend pour normaliser tous les formats de date avant calcul.
+
+---
+
+## 🗓️ 30 Janvier 2026 - Optimisations Appliquées
+
+### 1. 🤖 IA : Le "Signal" Roosevelt & Timeout 5s [APPLIQUÉ]
+- **Changement** : Fallback unique sur Eleanor Roosevelt.
+- **Pourquoi ?** : Balise de diagnostic. Si Roosevelt apparaît = Gemini a crashé ou timeout.
+- **Prompt** : Ultra-court (Max 20 mots) pour garantir une réponse < 5s.
+
+### 2. ⚡ Performance : Parallélisation [APPLIQUÉ]
+- **Changement** : `Promise.all` dans `fetchWeather` (Proxy + WAQI + Pollen en simultané).
+- **Résultat** : Chargement divisé par 3 (env. 8s vs 25s).
+
+### 3. 🖼️ UI : Affichage Instantané du Cache [APPLIQUÉ]
+- **Changement** : Suppression du blocage `loadingWeather` sur le Dashboard.
+- **Rationale** : L'utilisateur voit le cache immédiatement, la mise à jour se fait en tâche de fond.
+
+---

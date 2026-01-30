@@ -346,156 +346,99 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const fetchWeather = React.useCallback(async (lat: number, lng: number) => {
     setLoadingWeather(true);
     try {
-      // PROXY IMPLEMENTATION: Use Cloud Function for Unified Logic
-      const getWeatherForecastFn = httpsCallable(functions, 'getWeatherForecast');
-      console.log("Fetching weather via Proxy...");
+      // 1. Prepare Pollen logic (it has internal cache logic)
+      const now = new Date();
+      const hour = now.getHours();
+      let effectiveDate = new Date(now);
+      if (hour < 6) effectiveDate.setDate(now.getDate() - 1);
+      const year = effectiveDate.getFullYear();
+      const month = String(effectiveDate.getMonth() + 1).padStart(2, '0');
+      const day = String(effectiveDate.getDate()).padStart(2, '0');
+      const dateKey = `${year}-${month}-${day}`;
+      let timeSlot = (hour < 6) ? 'evening_5pm' : (hour < 11) ? 'morning_6am' : (hour < 17) ? 'noon_11am' : 'evening_5pm';
+      const cacheKey = `wise_pollen_v5_${dateKey}_${timeSlot}_${lat.toFixed(2)}_${lng.toFixed(2)}`;
 
-      const proxyRes: any = await getWeatherForecastFn({ lat, lng });
-      const proxyResult = proxyRes.data;
-
-      if (!proxyResult.success || !proxyResult.data) {
-        throw new Error(proxyResult.error || "Proxy returned no data");
+      const cachedPollen = localStorage.getItem(cacheKey);
+      let pollenPromise: Promise<any>;
+      if (cachedPollen) {
+        pollenPromise = Promise.resolve({ success: true, data: JSON.parse(cachedPollen) });
+      } else {
+        const getPollenFn = httpsCallable(functions, 'getPollenForecast');
+        pollenPromise = getPollenFn({ lat, lng, lang: language })
+          .then(res => {
+            const result = res.data as any;
+            if (result.success && result.data) localStorage.setItem(cacheKey, JSON.stringify(result.data));
+            return result;
+          })
+          .catch(e => ({ success: false, error: e instanceof Error ? e.message : 'Detailed Fetch Error' }));
       }
 
+      // 2. LAUNCH ALL BIG CALLS IN PARALLEL
+      console.log("Launching parallel weather data fetch...");
+      const getWeatherForecastFn = httpsCallable(functions, 'getWeatherForecast');
+
+      const [proxyRes, waqiData, airJson, pollenResult] = await Promise.all([
+        getWeatherForecastFn({ lat, lng }),
+        fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`)
+          .then(r => r.json()).catch(e => null),
+        fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`)
+          .then(r => r.json()).catch(e => null),
+        pollenPromise
+      ]);
+
+      const proxyResult = (proxyRes.data as any);
+      if (!proxyResult?.success || !proxyResult?.data) {
+        throw new Error(proxyResult?.error || "Proxy returned no data");
+      }
       const data = proxyResult.data;
 
-      // Fetch Air Quality from WAQI
-      let aqiValue = undefined;
-      try {
-        const aqiRes = await fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`);
-        const aqiData = await aqiRes.json();
-        if (aqiData.status === 'ok') {
-          aqiValue = aqiData.data.aqi;
-        }
-      } catch (e) {
-        console.error("AQI fetch failed", e);
-      }
+      // Process Air Quality (WAQI)
+      let aqiValue = (waqiData?.status === 'ok') ? waqiData.data.aqi : undefined;
 
-      // Fetch Pollen & Air Quality Details
-      let pollenData = undefined;
+      // Fetch Air Quality Details (Open-Meteo)
       let airDetails = undefined;
       let hourlyAir = undefined;
       let hourlyEuropeanAqi: number[] | undefined = undefined;
 
-      try {
-        // Optimization: Pollen Cache (3 fresh updates: 6am, 11am, 5pm)
-        const now = new Date();
-        const hour = now.getHours();
-
-        let effectiveDate = new Date(now);
-        // Shift logic: Before 6am, we use yesterday's data
-        if (hour < 6) {
-          effectiveDate.setDate(now.getDate() - 1);
+      if (airJson?.current) {
+        // OVERRIDE: Use Open-Meteo US AQI (same as graph) for Dashboard consistency
+        if (airJson.current.us_aqi !== undefined) {
+          aqiValue = airJson.current.us_aqi;
         }
+        airDetails = {
+          pm2_5: airJson.current.pm2_5,
+          pm10: airJson.current.pm10,
+          no2: airJson.current.nitrogen_dioxide,
+          o3: airJson.current.ozone
+        };
+      }
+      if (airJson?.hourly) {
+        hourlyAir = {
+          time: airJson.hourly.time,
+          pm2_5: airJson.hourly.pm2_5,
+          pm10: airJson.hourly.pm10,
+          no2: airJson.hourly.nitrogen_dioxide,
+          o3: airJson.hourly.ozone
+        };
+        hourlyEuropeanAqi = airJson.hourly.us_aqi;
+      }
 
-        // Robust YYYY-MM-DD construction (No Intl dependency)
-        const year = effectiveDate.getFullYear();
-        const month = String(effectiveDate.getMonth() + 1).padStart(2, '0');
-        const day = String(effectiveDate.getDate()).padStart(2, '0');
-        const dateKey = `${year}-${month}-${day}`;
-
-        let timeSlot = '';
-        if (hour < 6) timeSlot = 'evening_5pm'; // Previous day evening
-        else if (hour < 11) timeSlot = 'morning_6am';
-        else if (hour < 17) timeSlot = 'noon_11am';
-        else timeSlot = 'evening_5pm';
-
-        const cacheKey = `wise_pollen_v5_${dateKey}_${timeSlot}_${lat.toFixed(2)}_${lng.toFixed(2)}`;
-
-        let pollenPromise: Promise<any>;
-        const cachedPollen = localStorage.getItem(cacheKey);
-
-        if (cachedPollen) {
-          console.log("Using cached pollen data");
-          pollenPromise = Promise.resolve({ success: true, data: JSON.parse(cachedPollen) });
-        } else {
-          pollenPromise = (async () => {
-            try {
-              const fn = httpsCallable(functions, 'getPollenForecast');
-              // Pass language for localized results
-              const res = await fn({ lat, lng, lang: language });
-              const result = res.data as any;
-              if (result.success && result.data) {
-                localStorage.setItem(cacheKey, JSON.stringify(result.data));
-              }
-              return result;
-            } catch (e) {
-              console.error("Google Pollen Cloud Function Failed:", e);
-              return { success: false, error: e instanceof Error ? e.message : 'Detailed Fetch Error' };
-            }
-          })();
-        }
-
-        // Parallel: Fetch Air Quality (Open-Meteo) and Pollen
-        const [airRes, pollenResult] = await Promise.all([
-          fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`),
-          pollenPromise
-        ]);
-
-        const airJson = await airRes.json();
-
-        // Process Air Quality
-        if (airJson.current) {
-          // USER REQUEST: Use Open-Meteo US AQI (same as graph) for Dashboard consistency
-          // Overwrites WAQI if available
-          if (airJson.current.us_aqi !== undefined) {
-            aqiValue = airJson.current.us_aqi;
-          }
-
-          airDetails = {
-            pm2_5: airJson.current.pm2_5,
-            pm10: airJson.current.pm10,
-            no2: airJson.current.nitrogen_dioxide,
-            o3: airJson.current.ozone
-          };
-        }
-        if (airJson.hourly) {
-          hourlyAir = {
-            time: airJson.hourly.time,
-            pm2_5: airJson.hourly.pm2_5,
-            pm10: airJson.hourly.pm10,
-            no2: airJson.hourly.nitrogen_dioxide,
-            o3: airJson.hourly.ozone
-          };
-          hourlyEuropeanAqi = airJson.hourly.us_aqi;
-        }
-
-        // Process Pollen (Google API - Dynamic)
-        if (pollenResult && pollenResult.success && pollenResult.data && pollenResult.data.items) {
-          // We have a dynamic list of items. We need to store this for the UI.
-          // For mapping to the 'old' schema (the pill in the dashboard), we try to extract common types.
-          // But mostly we attach the raw items to be used in the Modal.
-
-          const items = pollenResult.data.items;
-
-          // Legacy Mapping for Dashboard Pill (Dominant Type logic)
-          const getVal = (code: string) => items.find((i: any) => i.code === code)?.value || 0;
-
-          pollenData = {
-            alder: getVal('ALDER'),
-            birch: getVal('BIRCH'),
-            grass: getVal('GRASS'),
-            ragweed: getVal('RAGWEED'),
-            olive: getVal('OLIVE'),
-            mugwort: getVal('MUGWORT'),
-            // Attach the full list for the Modal
-            _dynamicItems: items
-          } as any;
-
-        } else if (pollenResult && pollenResult.success && pollenResult.data && !pollenResult.data.items) {
-          // Handle legacy cache format (v3/v2) if any slips through (unlikely with v4 key)
-          pollenData = pollenResult.data;
-        } else {
-          console.warn("Pollen data unavailable (or Error).");
-          pollenData = {
-            alder: 0, birch: 0, grass: 0, ragweed: 0, olive: 0, mugwort: 0,
-            _dynamicItems: [],
-            _error: pollenResult?.error || "Unknown Error" // Pass error to UI
-          } as any;
-        }
-
-      } catch (e) {
-        console.error("Pollen/Air fetch failed", e);
+      // Process Pollen (Google API)
+      let pollenData = undefined;
+      if (pollenResult && pollenResult.success && pollenResult.data && pollenResult.data.items) {
+        const items = pollenResult.data.items;
+        const getVal = (code: string) => items.find((i: any) => i.code === code)?.value || 0;
+        pollenData = {
+          alder: getVal('ALDER'), birch: getVal('BIRCH'), grass: getVal('GRASS'),
+          ragweed: getVal('RAGWEED'), olive: getVal('OLIVE'), mugwort: getVal('MUGWORT'),
+          _dynamicItems: items
+        } as any;
+      } else {
+        pollenData = {
+          alder: 0, birch: 0, grass: 0, ragweed: 0, olive: 0, mugwort: 0,
+          _dynamicItems: [],
+          _error: pollenResult?.error || "Unknown Error"
+        } as any;
       }
 
       // Find current hour index for UV
@@ -876,16 +819,11 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         // Alert the user about the CLIENT-SIDE error (Network, CORS, etc.)
         // alert("DEBUG: Client-Side Fetch Error!\n" + e.message);
 
-        // Rotating Client-Side Fallback
-        const fallbackQuotes = [
-          { en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" }, fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" } },
-          { en: { text: "Difficulties strengthen the mind, as labor does the body.", author: "Seneca" }, fr: { text: "Les difficultés renforcent l'esprit, comme le travail renforce le corps.", author: "Sénèque" } },
-          { en: { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" }, fr: { text: "La seule façon de faire du bon travail est d'aimer ce que vous faites.", author: "Steve Jobs" } },
-          { en: { text: "Happiness depends upon ourselves.", author: "Aristotle" }, fr: { text: "Le bonheur dépend de nous-mêmes.", author: "Aristote" } },
-          { en: { text: "The happiness of your life depends upon the quality of your thoughts.", author: "Marcus Aurelius" }, fr: { text: "Le bonheur de votre vie dépend de la qualité de vos pensées.", author: "Marc Aurèle" } }
-        ];
-        const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
-        const fallbackQuote = fallbackQuotes[dayOfYear % fallbackQuotes.length];
+        // Unique Fallback (Diagnostic Signal)
+        const fallbackQuote = {
+          en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
+          fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" }
+        };
 
         setDailyQuote(fallbackQuote);
 
