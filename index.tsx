@@ -781,7 +781,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
       {/* Expert Graph Modal */}
       {activeGraph && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setActiveGraph(null)}>
-          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-3xl w-full max-w-sm max-h-[85vh] p-6 shadow-2xl animate-in zoom-in-95 flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">
@@ -805,7 +805,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
 
             {/* Graph or List Render */}
             {activeGraph === 'pollen' ? (
-              <div className="space-y-4 py-2">
+              <div className="space-y-4 py-2 overflow-y-auto pr-1">
                 {(() => {
                   // Translation Map for common Google Pollen Codes
                   const translator: Record<string, string> = language === 'fr' ? {
@@ -886,150 +886,151 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                 })()}
               </div>
             ) : (
-              <div className="flex gap-2 h-48 mb-2">
-                {/* Y Axis Labels */}
-                <div className="flex flex-col justify-between text-[9px] text-gray-400 font-medium py-1 w-6 text-right">
-                  {activeGraph === 'uv' ? (
-                    <>
-                      <span>12</span><span>9</span><span>6</span><span>3</span><span>0</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>500</span><span>375</span><span>250</span><span>125</span><span>0</span>
-                    </>
-                  )}
-                </div>
+              <>
+                <div className="flex gap-2 h-48 mb-2">
+                  {/* Y Axis Labels */}
+                  <div className="flex flex-col justify-between text-[9px] text-gray-400 font-medium py-1 w-6 text-right">
+                    {activeGraph === 'uv' ? (
+                      <>
+                        <span>12</span><span>9</span><span>6</span><span>3</span><span>0</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>500</span><span>375</span><span>250</span><span>125</span><span>0</span>
+                      </>
+                    )}
+                  </div>
 
-                {/* Bars Area */}
-                <div className="flex-1 flex items-end gap-1 h-full border-l border-gray-100 pl-1">
-                  {(() => {
-                    const rawData = getTodayData(activeGraph === 'uv' ? 'uv_index' : 'european_aqi');
-                    const data = rawData.length > 0 ? rawData : Array(24).fill(0);
+                  {/* Bars Area */}
+                  <div className="flex-1 flex items-end gap-1 h-full border-l border-gray-100 pl-1">
+                    {(() => {
+                      const rawData = getTodayData(activeGraph === 'uv' ? 'uv_index' : 'european_aqi');
+                      const data = rawData.length > 0 ? rawData : Array(24).fill(0);
 
-                    // Strict Official Limits
-                    // AQI: 0-500
-                    // UV: 0-12 (technically can go higher rarely but 11+ is extreme)
-                    const strictMax = activeGraph === 'uv' ? 12 : 500;
+                      // Strict Official Limits
+                      // AQI: 0-500
+                      // UV: 0-12 (technically can go higher rarely but 11+ is extreme)
+                      const strictMax = activeGraph === 'uv' ? 12 : 500;
 
-                    return data.map((val, i) => {
-                      const currentHour = new Date().getHours();
-                      // STRICT USER RULE: Future hours must be EMPTY.
-                      // Show only history from 00h to currentHour.
-                      const isFuture = i > currentHour;
-                      const isCurrent = i === currentHour;
+                      return data.map((val, i) => {
+                        const currentHour = new Date().getHours();
+                        // STRICT USER RULE: Future hours must be EMPTY.
+                        // Show only history from 00h to currentHour.
+                        const isFuture = i > currentHour;
+                        const isCurrent = i === currentHour;
 
-                      // SYNCHRONIZATION:
-                      // For the "NOW" bar, we override the hourly forecast value with the REALTIME current value.
-                      // This ensures the Graph's "current" bar matches the Main Dashboard indicator exactly.
-                      let displayVal = val;
-                      if (isCurrent) {
-                        if (activeGraph === 'uv') {
-                          // Fix: Only override if current > 0. If current is 0, trust hourly val (which comes from Today Data).
-                          if (weather.current.uvIndex !== undefined && weather.current.uvIndex > 0) {
-                            displayVal = weather.current.uvIndex;
+                        // SYNCHRONIZATION:
+                        // For the "NOW" bar, we override the hourly forecast value with the REALTIME current value.
+                        // This ensures the Graph's "current" bar matches the Main Dashboard indicator exactly.
+                        let displayVal = val;
+                        if (isCurrent) {
+                          if (activeGraph === 'uv') {
+                            // Fix: Only override if current > 0. If current is 0, trust hourly val (which comes from Today Data).
+                            if (weather.current.uvIndex !== undefined && weather.current.uvIndex > 0) {
+                              displayVal = weather.current.uvIndex;
+                            }
+                          } else if (activeGraph === 'aqi' && weather.current.aqi !== undefined) {
+                            displayVal = weather.current.aqi;
                           }
-                        } else if (activeGraph === 'aqi' && weather.current.aqi !== undefined) {
-                          displayVal = weather.current.aqi;
                         }
-                      }
 
-                      if (isFuture) {
-                        // Render empty placeholder to keep spacing but show NO bar.
+                        if (isFuture) {
+                          // Render empty placeholder to keep spacing but show NO bar.
+                          return (
+                            <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative">
+                              <div className="w-full bg-gray-50 rounded-t-sm" style={{ height: '4px', opacity: 0.3 }}></div>
+                            </div>
+                          );
+                        }
+
                         return (
-                          <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative">
-                            <div className="w-full bg-gray-50 rounded-t-sm" style={{ height: '4px', opacity: 0.3 }}></div>
+                          <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative cursor-pointer">
+                            {/* Tooltip */}
+                            {(() => {
+                              const numericVal = Math.round(displayVal);
+                              let label = '';
+                              let status = '';
+
+                              if (activeGraph === 'uv') {
+                                label = 'UV';
+                                // UV Scale
+                                if (numericVal <= 2) status = language === 'fr' ? 'Faible' : 'Low';
+                                else if (numericVal <= 5) status = language === 'fr' ? 'Modéré' : 'Moderate';
+                                else if (numericVal <= 7) status = language === 'fr' ? 'Fort' : 'High';
+                                else if (numericVal <= 10) status = language === 'fr' ? 'Très Fort' : 'Very High';
+                                else status = language === 'fr' ? 'Extrême' : 'Extreme';
+                              } else {
+                                label = 'AQI';
+                                // AQI Scale (US EPA approx)
+                                if (numericVal <= 50) status = language === 'fr' ? 'Bon' : 'Good';
+                                else if (numericVal <= 100) status = language === 'fr' ? 'Moyen' : 'Moderate';
+                                else if (numericVal <= 150) status = language === 'fr' ? 'Mauvais' : 'Unhealthy';
+                                else status = language === 'fr' ? 'Très Mauvais' : 'Very Unhealthy';
+                              }
+
+                              return (
+                                <div className={`absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900/95 text-white p-2 rounded-lg pointer-events-none whitespace-nowrap z-20 flex flex-col items-center shadow-xl backdrop-blur-md ${isCurrent ? 'ring-1 ring-white/50' : ''} min-w-[80px]`}>
+                                  {/* Time Header */}
+                                  <div className="flex items-center gap-1 mb-1 border-b border-gray-700 pb-1 w-full justify-center">
+                                    <span className="text-[10px] font-medium text-gray-400">{i}h00</span>
+                                    {isCurrent && <span className="text-[9px] bg-blue-500 px-1 rounded text-white font-bold ml-1">NOW</span>}
+                                  </div>
+
+                                  {/* Value & Label */}
+                                  <div className="flex flex-col items-center">
+                                    <span className="text-sm font-bold">{label}: {numericVal}</span>
+                                    <span className={`text-[10px] font-medium mt-0.5 ${status === 'Bon' || status === 'Good' || status === 'Faible' || status === 'Low' ? 'text-green-400' :
+                                      status === 'Modéré' || status === 'Moderate' || status === 'Moyen' ? 'text-yellow-400' :
+                                        status === 'Mauvais' || status === 'Unhealthy' || status === 'Fort' || status === 'High' ? 'text-orange-400' : 'text-red-400'
+                                      }`}>
+                                      {status}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {(() => {
+                              let barColor = '';
+                              if (activeGraph === 'uv') {
+                                if (displayVal <= 2) barColor = 'bg-green-400';
+                                else if (displayVal <= 5) barColor = 'bg-yellow-400';
+                                else if (displayVal <= 7) barColor = 'bg-orange-500';
+                                else if (displayVal <= 10) barColor = 'bg-red-500';
+                                else barColor = 'bg-purple-600';
+                              } else {
+                                // AQI Color Scale
+                                if (displayVal <= 20) barColor = 'bg-blue-400';      // Good
+                                else if (displayVal <= 40) barColor = 'bg-green-400'; // Fair
+                                else if (displayVal <= 60) barColor = 'bg-yellow-400'; // Moderate
+                                else if (displayVal <= 80) barColor = 'bg-orange-500'; // Poor
+                                else if (displayVal <= 100) barColor = 'bg-red-500';   // Very Poor
+                                else barColor = 'bg-purple-700';                       // Extremely Poor
+                              }
+
+                              return (
+                                <div
+                                  className={`w-full rounded-t-sm transition-all ${barColor} ${isCurrent ? 'opacity-100 ring-1 ring-offset-0 ring-gray-400 brightness-110' : 'opacity-80'}`}
+                                  style={{ height: `${Math.min((displayVal / strictMax) * 100, 100)}%`, minHeight: '2px' }}
+                                ></div>
+                              );
+                            })()}
                           </div>
                         );
-                      }
-
-                      return (
-                        <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative cursor-pointer">
-                          {/* Tooltip */}
-                          {(() => {
-                            const numericVal = Math.round(displayVal);
-                            let label = '';
-                            let status = '';
-
-                            if (activeGraph === 'uv') {
-                              label = 'UV';
-                              // UV Scale
-                              if (numericVal <= 2) status = language === 'fr' ? 'Faible' : 'Low';
-                              else if (numericVal <= 5) status = language === 'fr' ? 'Modéré' : 'Moderate';
-                              else if (numericVal <= 7) status = language === 'fr' ? 'Fort' : 'High';
-                              else if (numericVal <= 10) status = language === 'fr' ? 'Très Fort' : 'Very High';
-                              else status = language === 'fr' ? 'Extrême' : 'Extreme';
-                            } else {
-                              label = 'AQI';
-                              // AQI Scale (US EPA approx)
-                              if (numericVal <= 50) status = language === 'fr' ? 'Bon' : 'Good';
-                              else if (numericVal <= 100) status = language === 'fr' ? 'Moyen' : 'Moderate';
-                              else if (numericVal <= 150) status = language === 'fr' ? 'Mauvais' : 'Unhealthy';
-                              else status = language === 'fr' ? 'Très Mauvais' : 'Very Unhealthy';
-                            }
-
-                            return (
-                              <div className={`absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900/95 text-white p-2 rounded-lg pointer-events-none whitespace-nowrap z-20 flex flex-col items-center shadow-xl backdrop-blur-md ${isCurrent ? 'ring-1 ring-white/50' : ''} min-w-[80px]`}>
-                                {/* Time Header */}
-                                <div className="flex items-center gap-1 mb-1 border-b border-gray-700 pb-1 w-full justify-center">
-                                  <span className="text-[10px] font-medium text-gray-400">{i}h00</span>
-                                  {isCurrent && <span className="text-[9px] bg-blue-500 px-1 rounded text-white font-bold ml-1">NOW</span>}
-                                </div>
-
-                                {/* Value & Label */}
-                                <div className="flex flex-col items-center">
-                                  <span className="text-sm font-bold">{label}: {numericVal}</span>
-                                  <span className={`text-[10px] font-medium mt-0.5 ${status === 'Bon' || status === 'Good' || status === 'Faible' || status === 'Low' ? 'text-green-400' :
-                                    status === 'Modéré' || status === 'Moderate' || status === 'Moyen' ? 'text-yellow-400' :
-                                      status === 'Mauvais' || status === 'Unhealthy' || status === 'Fort' || status === 'High' ? 'text-orange-400' : 'text-red-400'
-                                    }`}>
-                                    {status}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })()}
-
-                          {(() => {
-                            let barColor = '';
-                            if (activeGraph === 'uv') {
-                              if (displayVal <= 2) barColor = 'bg-green-400';
-                              else if (displayVal <= 5) barColor = 'bg-yellow-400';
-                              else if (displayVal <= 7) barColor = 'bg-orange-500';
-                              else if (displayVal <= 10) barColor = 'bg-red-500';
-                              else barColor = 'bg-purple-600';
-                            } else {
-                              // AQI Color Scale
-                              if (displayVal <= 20) barColor = 'bg-blue-400';      // Good
-                              else if (displayVal <= 40) barColor = 'bg-green-400'; // Fair
-                              else if (displayVal <= 60) barColor = 'bg-yellow-400'; // Moderate
-                              else if (displayVal <= 80) barColor = 'bg-orange-500'; // Poor
-                              else if (displayVal <= 100) barColor = 'bg-red-500';   // Very Poor
-                              else barColor = 'bg-purple-700';                       // Extremely Poor
-                            }
-
-                            return (
-                              <div
-                                className={`w-full rounded-t-sm transition-all ${barColor} ${isCurrent ? 'opacity-100 ring-1 ring-offset-0 ring-gray-400 brightness-110' : 'opacity-80'}`}
-                                style={{ height: `${Math.min((displayVal / strictMax) * 100, 100)}%`, minHeight: '2px' }}
-                              ></div>
-                            );
-                          })()}
-                        </div>
-                      );
-                    });
-                  })()}
+                      });
+                    })()}
+                  </div>
                 </div>
-              </div>
+                {/* X Axis (aligned with bars, offset by Y-axis width) */}
+                <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1 ml-8">
+                  <span>00h</span>
+                  <span>06h</span>
+                  <span>12h</span>
+                  <span>18h</span>
+                  <span>23h</span>
+                </div>
+              </>
             )}
-
-            {/* X Axis (aligned with bars, offset by Y-axis width) */}
-            <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1 ml-8">
-              <span>00h</span>
-              <span>06h</span>
-              <span>12h</span>
-              <span>18h</span>
-              <span>23h</span>
-            </div>
 
 
 

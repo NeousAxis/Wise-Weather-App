@@ -51,3 +51,36 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 - **Rationale** : L'utilisateur voit le cache immédiatement, la mise à jour se fait en tâche de fond.
 
 ---
+
+## 🗓️ 1er Février 2026 - Corrections Critiques : GPS & Gemini
+
+### 1. 📍 Localisation : GPS Prioritaire [APPLIQUÉ]
+- **Problème** : L'app restait bloquée sur Da Nang malgré les redémarrages car elle privilégiait le cache GPS sur la recherche réelle.
+- **Changement** : Inversion de la logique dans `AppContext.tsx`. L'app lance désormais une recherche GPS **SYSTÉMATIQUE** à chaque démarrage. Le cache n'est utilisé que si le GPS échoue.
+- **Pourquoi ?** : Une application météo doit refléter la position réelle de l'utilisateur, pas son dernier voyage mémorisé.
+
+### 2. 🤖 IA : Robustesse Gemini 1.5 [APPLIQUÉ]
+- **Problème** : Fallback Roosevelt systématique.
+- **Changement** : 
+    - Timeout augmenté à **30 secondes** (pour absorber les lenteurs de Gemini 1.5).
+    - Mode `responseMimeType: "application/json"` activé dans le SDK Gemini.
+    - Ajout d'une **Regex d'extraction JSON** robuste pour ignorer les bavardages de l'IA.
+- **Pourquoi ?** : Stabiliser la génération bilingue qui échouait à cause de délais trop courts ou de formats de réponse mal gérés.
+
+---
+
+## 🗓️ 2 Février 2026 - Correction Synchronisation Europe
+
+### 1. 📍 UI : Sortie forcée du "Mode Nuit" [APPLIQUÉ]
+- **Problème** : En Europe à 8h, le modal affichait le format nuit (pas de bouton Soleil) car il restait bloqué sur le cache de Da Nang (Vietnam).
+- **Cause** : Le trigger de rafraîchissement météo était manquant après l'acquisition du GPS.
+- **Changement** : Ajout d'un `useEffect` sur `location` dans `AppContext.tsx` et forçage du `fetchWeather` immédiat après succès GPS. 
+- **Résultat** : L'app bascule instantanément sur la météo locale réelle dès que le GPS répond, sortant du mode nuit fantôme.
+
+### 2. 🔔 Notifications : Alignement Géographique [APPLIQUÉ]
+- **Problème** : Pas d'alertes pluie en Europe car le backend surveillait toujours Da Nang.
+- **Correction** : Fiabilisation de la mise à jour du token et des coordonnées dans Firestore dès que `location` change.
+
+### 3. 🤖 IA : v10 et Robustesse [APPLIQUÉ]
+- **Changement** : Slot de citation passé en `v10` et suppression du hack `utcPlus14`.
+- **Pourquoi ?** : Nettoyer les caches corrompus et stabiliser l'IA avec le nouveau timeout de 30s.

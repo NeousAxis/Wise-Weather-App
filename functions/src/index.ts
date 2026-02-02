@@ -64,8 +64,11 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 
   // DIRECT GEMINI INTEGRATION (Native SDK)
   const genAI = new GoogleGenerativeAI(apiKey);
-  // Using 1.5 Flash for speed and stability
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { timeout: 5000 });
+  // Increased timeout to 30s to handle Gemini 1.5 cold starts and slow responses
+  const model = genAI.getGenerativeModel({
+    model: "gemini-1.5-flash",
+    generationConfig: { responseMimeType: "application/json" }
+  }, { timeout: 30000 });
 
   try {
     const result = await model.generateContent(prompt);
@@ -74,10 +77,14 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 
     if (!content) throw new Error("No response from Gemini API");
 
-    // Clean potential markdown blocks
-    const cleanJson = content.replace(/```json/g, "")
-      .replace(/```/g, "").trim();
-    return JSON.parse(cleanJson);
+    // ROBUST PARSING: Extract content between first { and last }
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("No JSON found in Gemini response:", content);
+      throw new Error("Invalid output format from Gemini");
+    }
+
+    return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error("Gemini API Error:", error);
     throw error;
@@ -126,7 +133,12 @@ async function getOrGenerateQuote(
   }
 
   // Fallback unique (Signal de diagnostic)
+  const lastError = (global as any).lastQuoteError;
+  const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+
   return {
+    success: false,
+    error_debug: errorMsg,
     en: {
       text: "The future belongs to those who believe in the beauty of their dreams.",
       author: "Eleanor Roosevelt",
@@ -240,15 +252,16 @@ export const sendHourlyNotifications = onSchedule({
   console.log(`[DEDUP] Processing ${uniqueDocs.length} unique devices (from ${snapshot.size} total).`);
 
   // --- PREPARE GLOBAL QUOTE ---
-  const utcPlus14 = new Date(now.getTime() + (14 * 60 * 60 * 1000));
-  const universalDateKey = utcPlus14.toISOString().split("T")[0];
-  const slotKey = `${universalDateKey}-all-day-v6`;
+  // AVOID utcPlus14 hack which might shift dates incorrectly for Europe/Vietnam mismatch
+  // Use UTC date as baseline for universal slot consistency
+  const slotDateKey = now.toISOString().split("T")[0];
+  const slotKey = `${slotDateKey}-all-day-v10`; // v10 to nuke old bad caches
 
   let globalQuote: any = null;
   try {
     globalQuote = await getOrGenerateQuote(
       slotKey,
-      utcPlus14.getDay(),
+      now.getDay(),
       geminiApiKey.value()
     );
   } catch (e) {

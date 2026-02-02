@@ -13,8 +13,18 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.4.3-Systematic-Modal` - 28 Jan 2026
-**État :** Production Stable (Comportement Systématique)
+### ✅ [ACTUEL] `v2.5.0-Europe-Sync` - 2 Feb 2026
+**État :** Production Stable (Correction Synchronisation Géo)
+**Contenu :**
+- **Géo-Synchronisation :** Forçage du rafraîchissement météo et utilisateur après acquisition GPS (Résout le blocage sur Da Nang/Vietnam).
+- **Indicateurs Pollens :** Correction de la taille du modal (max-h) et ajout du scroll vertical pour accéder à tous les types.
+- **Robustesse Gemini :** Augmentation du timeout (30s), parsing JSON renforcé et mise à jour de la clé de slot (v10) pour les citations.
+- **UI Cleanup :** Suppression des axes X inutiles sur la liste des pollens.
+
+---
+
+### 📦 `v2.4.3-Systematic-Modal` - 28 Jan 2026
+**État :** Version Précédente
 **Contenu :**
 - **Contribution Force :** Ouverture systématique de la modale à chaque retour sur l'application (Resume/Sortie de veille iOS & Android).
 - **Performance :** Maintien du "Submit" instantané.

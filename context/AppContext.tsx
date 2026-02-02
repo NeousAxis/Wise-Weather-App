@@ -771,7 +771,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       // CRITICAL FIX: Use SINGLE daily slot aligned with backend (all-day-v6)
       // This prevents multiple quotes per day
       const dateKey = now.toISOString().split("T")[0]; // YYYY-MM-DD format
-      const slotKey = `${dateKey}-all-day-v6`;
+      const slotKey = `${dateKey}-all-day-v10`;
 
       // Check Cache (Updated to v3 to NUKE persisting garbage)
       // Force clear old keys
@@ -1102,21 +1102,42 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    if (location) {
-      fetchWeather(location.lat, location.lng);
-    } else {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            updateLocation(position.coords.latitude, position.coords.longitude, undefined, undefined, 'gps');
-          },
-          (err) => {
+    // 1. Toujours tenter la géolocalisation en priorité au démarrage
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          console.log("GPS Position acquired:", latitude, longitude);
+          updateLocation(latitude, longitude, undefined, undefined, 'gps');
+          // FORCE fetch immediately with new coordinates
+          fetchWeather(latitude, longitude);
+        },
+        (err) => {
+          console.warn("GPS failed or denied, using cache/default:", err.message);
+          // 2. Fallback au cache SEULEMENT si le GPS échoue
+          if (location) {
+            fetchWeather(location.lat, location.lng);
+          } else {
+            // 3. Fallback ultime à Paris
             updateLocation(48.8566, 2.3522, "Paris", "France", 'manual');
           }
-        );
-      }
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    } else if (location) {
+      // Pas de GPS dispo sur le navigateur, utiliser le cache
+      fetchWeather(location.lat, location.lng);
     }
-  }, [location]);
+  }, []); // Exécuter une seule fois au montage de l'app
+
+  // TRIGGER: Quand la localisation change (via GPS ou Manuel), on rafraîchit la météo
+  // C'est ce bloc qui manquait pour sortir de Da Nang vers l'Europe !
+  useEffect(() => {
+    if (location) {
+      console.log("Location changed, refreshing weather data for:", location.lat, location.lng);
+      fetchWeather(location.lat, location.lng);
+    }
+  }, [location?.lat, location?.lng]);
 
   // Auto-refresh weather data every hour to keep forecasts accurate
   useEffect(() => {

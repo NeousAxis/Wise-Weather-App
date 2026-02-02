@@ -39,4 +39,13 @@ cp backups/pre_freemium_functional/functions_index.ts functions/src/index.ts
 
 ---
 
+## 🕒 HISTORIQUE DES SAUVEGARDES RÉCENTES
+
+| Date | Tag | État | Action |
+| :--- | :--- | :--- | :--- |
+| **30 Jan 2026** | `V26.01.30-STABLE` | **Optimisation Démarrage & Fix IA** | Parallélisation APIs + Fix Prompt Gemini + Master Changelog |
+| **10 Jan 2026** | `PRE-FREEMIUM` | Stable avant système de paiement | Point de restauration complet |
+
+---
+
 **🔒 Note de sécurité** : Ce dossier de backup ne sera pas modifié par mes soins lors des prochaines étapes. Il reste votre "point de retour" sûr.
