@@ -347,6 +347,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     setLoadingWeather(true);
     try {
       // 1. Prepare Pollen logic (it has internal cache logic)
+      // 1. GENERATE SMART CACHE KEY (3 slots per day to limit API costs)
       const now = new Date();
       const hour = now.getHours();
       let effectiveDate = new Date(now);
@@ -356,7 +357,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       const day = String(effectiveDate.getDate()).padStart(2, '0');
       const dateKey = `${year}-${month}-${day}`;
       let timeSlot = (hour < 6) ? 'evening_5pm' : (hour < 11) ? 'morning_6am' : (hour < 17) ? 'noon_11am' : 'evening_5pm';
-      const cacheKey = `wise_pollen_v5_${dateKey}_${timeSlot}_${lat.toFixed(2)}_${lng.toFixed(2)}`;
+      // VERSION 7: Low GPS precision (toFixed 1 = ~10km) to ensure stability and respect "3 calls per day" limit
+      const cacheKey = `wise_pollen_v7_${dateKey}_${timeSlot}_${lat.toFixed(1)}_${lng.toFixed(1)}`;
 
       const cachedPollen = localStorage.getItem(cacheKey);
       let pollenPromise: Promise<any>;

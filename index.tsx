@@ -858,15 +858,16 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                   }
 
                   return itemsToRender.map((item, idx) => {
-                    // Color logic
+                    // Color logic (Aligned with Google UPI Standards)
                     const val = item.val;
                     const percent = Math.min((val / 5) * 100, 100);
-                    let color = 'bg-green-500';
-                    if (val >= 4) color = 'bg-purple-600';      // Extreme
-                    else if (val >= 3) color = 'bg-red-500';    // Very High
-                    else if (val >= 2) color = 'bg-orange-500'; // High
-                    else if (val >= 1) color = 'bg-yellow-400'; // Moderate
-                    else color = 'bg-blue-400';                 // Low (Good)
+                    let color = 'bg-blue-400'; // 0 = None / Very Low
+                    if (val >= 4.5) color = 'bg-purple-600';      // 5 = Extreme
+                    else if (val >= 3.5) color = 'bg-red-500';    // 4 = High
+                    else if (val >= 2.5) color = 'bg-orange-500'; // 3 = Moderate
+                    else if (val >= 1.5) color = 'bg-yellow-400'; // 2 = Low
+                    else if (val > 0) color = 'bg-green-500';    // 1 = Very Low
+                    else color = 'bg-blue-400';                 // 0 = Absent
 
                     return (
                       <div key={idx}>
@@ -1177,6 +1178,44 @@ const CommunityCarousel = () => {
 // --- Pages & Modals ---
 
 // --- Pages ---
+
+const NotificationToast = () => {
+  const { lastNotification } = useContext(AppContext)!;
+  const [visible, setVisible] = useState(false);
+  const [notif, setNotif] = useState<{ title: string, body: string } | null>(null);
+
+  useEffect(() => {
+    if (lastNotification) {
+      setNotif(lastNotification);
+      setVisible(true);
+      // Auto-dismiss after 6 seconds
+      const timer = setTimeout(() => setVisible(false), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastNotification]);
+
+  if (!visible || !notif) return null;
+
+  return (
+    <div className="fixed top-4 left-4 right-4 z-[9999] pointer-events-none flex justify-center animate-in slide-in-from-top-4 fade-in duration-300">
+      <div className="bg-white/95 backdrop-blur-md shadow-2xl rounded-2xl p-4 border border-gray-100 max-w-sm w-full pointer-events-auto flex items-start gap-4 ring-1 ring-black/5">
+        <div className="p-2 bg-blue-50 rounded-full text-blue-600 shrink-0 mt-0.5">
+          <Bell size={20} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="text-sm font-bold text-gray-900 leading-tight mb-1">{notif.title}</h4>
+          <p className="text-sm text-gray-600 leading-snug break-words">{notif.body}</p>
+        </div>
+        <button
+          onClick={() => setVisible(false)}
+          className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+        >
+          <X size={18} />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPremium: (show: boolean) => void }) => {
   const mapRef = useRef<HTMLDivElement>(null);
