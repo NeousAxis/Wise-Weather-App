@@ -84,3 +84,28 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 ### 3. 🤖 IA : v10 et Robustesse [APPLIQUÉ]
 - **Changement** : Slot de citation passé en `v10` et suppression du hack `utcPlus14`.
 - **Pourquoi ?** : Nettoyer les caches corrompus et stabiliser l'IA avec le nouveau timeout de 30s.
+---
+
+## 🗓️ 3 Février 2026 - Moteur Météo v20 & Notifications Push
+
+### 1. 🤖 IA : Résurrection Gemini (Double Sécurité) [APPLIQUÉ]
+- **Problème** : "403 Forbidden" bloquant l'accès aux citations.
+- **Correction** : 
+    - Activation de la "Generative Language API" sur le projet Google Cloud correct.
+    - Levée des restrictions sur la clé API.
+    - Implémentation du **Dual Model Fallback** : Tentative avec `gemini-2.0-flash-001` d'abord, puis repli automatique sur `gemini-1.5-flash` en cas d'erreur.
+- **Pourquoi ?** : Garantir la réception de la citation à 7h même en cas d'instabilité d'un modèle ou de quota atteint.
+
+### 2. 🌧️ Moteur Météo : Logique de Durée (v20) [APPLIQUÉ]
+- **Problème** : Silence radio quand la pluie s'installe toute la journée (cooldown de 2h trop rigide).
+- **Changement** : Détection de l'extension de durée. Si la pluie continue mais que l'heure de fin prévue décale de **plus de 45 minutes**, le système renvoie une notification ("La pluie continue").
+- **Pourquoi ?** : Informer l'utilisateur que l'épisode pluvieux va durer plus longtemps que prévu initialement.
+
+### 3. 🔔 UI : Notifications "Foreground" (Toast) [APPLIQUÉ]
+- **Problème** : Les notifications sont reçues en arrière-plan (historique) mais ne s'affichent pas systématiquement en bannière push (bloquées par l'OS ou app ouverte).
+- **Changement** : Ajout d'un composant `NotificationToast` dans l'application. Dès qu'un message arrive (app ouverte ou reprise), une bannière élégante s'affiche en haut de l'écran.
+- **Pourquoi ?** : Contourner les restrictions arbitraires d'iOS/Android sur les bannières système et assurer une visibilité immédiate des alertes critiques.
+
+### 4. 🔀 Cache : v20 Slot Suffix [APPLIQUÉ]
+- **Action** : Passage des clés de cache Citation et Météo en `v20`.
+- **Pourquoi ?** : Forcer la mise à jour de tous les clients mondiaux vers la nouvelle logique IA et Moteur.

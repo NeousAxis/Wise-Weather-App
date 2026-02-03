@@ -13,13 +13,22 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.5.0-Europe-Sync` - 2 Feb 2026
-**État :** Production Stable (Correction Synchronisation Géo)
+### ✅ [ACTUEL] `v2.6.0-Engine-v20` - 3 Feb 2026
+**État :** Production Stable (Gemini + Moteur v20 + Toasts)
 **Contenu :**
-- **Géo-Synchronisation :** Forçage du rafraîchissement météo et utilisateur après acquisition GPS (Résout le blocage sur Da Nang/Vietnam).
-- **Indicateurs Pollens :** Correction de la taille du modal (max-h) et ajout du scroll vertical pour accéder à tous les types.
-- **Robustesse Gemini :** Augmentation du timeout (30s), parsing JSON renforcé et mise à jour de la clé de slot (v10) pour les citations.
-- **UI Cleanup :** Suppression des axes X inutiles sur la liste des pollens.
+- **IA Gemini :** Fix total du "403 Forbidden" (API activée) + Stratégie Dual Model (2.0 Flash -> 1.5 Flash).
+- **Moteur Météo v20 :** Nouvelle alerte "Pluie Continue" si la durée s'allonge de plus de 45 min (casse le cooldown 2h).
+- **Notifications UI :** Ajout des Toasts (bannières) internes pour garantir la lecture des alertes app ouverte.
+- **Cache Global :** Passage en `v20` (Citations et Météo).
+
+---
+
+### 📦 `v2.5.0-Europe-Sync` - 2 Feb 2026
+**État :** Version Précédente
+**Contenu :**
+- **Géo-Synchronisation :** Forçage du rafraîchissement météo et utilisateur après acquisition GPS.
+- **Indicateurs Pollens :** Correction de la taille du modal et ajout du scroll.
+- **Robustesse Gemini :** Timeout 30s et slot v10.
 
 ---
 
