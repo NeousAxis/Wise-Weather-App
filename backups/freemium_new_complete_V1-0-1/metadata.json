@@ -1,7 +1,0 @@
-{
-  "name": "Wise Weather APP",
-  "description": "A collaborative and intelligent weather app merging official forecasts with real-time community observations and AI-driven wisdom.",
-  "requestFramePermissions": [
-    "geolocation"
-  ]
-}
