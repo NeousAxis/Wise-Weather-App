@@ -27,3 +27,8 @@ dist-ssr
 .firebase/
 dataconnect/
 functions/.env
+
+**/.env
+**/node_modules
+dist/
+
