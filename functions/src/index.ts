@@ -97,7 +97,7 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 
     // FALLBACK 1: Try 1.5 Flash with the same key (if not leaked or just a different error)
     if (!isLeaked) {
-      usedModel = "gemini-1.5-flash";
+      usedModel = "gemini-1.5-flash-latest";
       console.log(`[QUOTE-GEN] Retrying with Fallback Model: ${usedModel}...`);
       try {
         content = await attemptGeneration(cleanKey, usedModel, true);
@@ -108,12 +108,18 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 
     // FALLBACK 2: Emergency Backup with Pollen Key (if Gemini Key is leaked or both failed)
     if (!content && pollenKey && pollenKey.length > 10) {
-      usedModel = "gemini-1.5-flash (pollen-key)";
-      console.log(`[QUOTE-GEN] EMERGENCY: Attempting with Pollen Key...`);
+      usedModel = "gemini-2.0-flash-001 (pollen-key)";
+      console.log(`[QUOTE-GEN] EMERGENCY: Attempting 2.0 with Pollen Key...`);
       try {
-        content = await attemptGeneration(pollenKey, "gemini-1.5-flash", true);
+        content = await attemptGeneration(pollenKey, "gemini-2.0-flash-001", false);
       } catch (emergencyError) {
-        console.error(`[QUOTE-GEN] Emergency Fallback failed.`, emergencyError);
+        console.warn(`[QUOTE-GEN] Emergency 2.0 failed, trying 1.5-latest with Pollen...`);
+        try {
+          usedModel = "gemini-1.5-flash-latest (pollen-key)";
+          content = await attemptGeneration(pollenKey, "gemini-1.5-flash-latest", true);
+        } catch (emergencyError2) {
+          console.error(`[QUOTE-GEN] ALL Fallbacks failed.`, emergencyError2);
+        }
       }
     }
   }
@@ -204,7 +210,7 @@ async function getOrGenerateQuote(
 }
 
 // Public Callable for Frontend (Updated for shared daily logic)
-export const generateQuote = onCall({ secrets: [geminiApiKey] },
+export const generateQuote = onCall({ secrets: [geminiApiKey, googlePollenApiKey] },
   async () => {
     try {
       // Determine Slot based on UTC
@@ -213,8 +219,7 @@ export const generateQuote = onCall({ secrets: [geminiApiKey] },
       // We use ISO date string YYYY-MM-DD to be locale agnostic
       const dateKey = now.toISOString().split("T")[0];
       // Simplified: Single daily quote (no more morning/midday/evening slots)
-      const slotSuffix = "all-day-v21"; // ALIGNED with Cron Job v21 (Emergency Recovery)
-
+      const slotSuffix = "all-day-v22"; // ALIGNED with Cron Job v22
       const slotKey = `${dateKey}-${slotSuffix}`;
       const data = await getOrGenerateQuote(
         slotKey,
@@ -271,7 +276,7 @@ export const subscribeToNotifications = onCall(async (request) => {
 export const sendHourlyNotifications = onSchedule({
   schedule: "every 15 minutes",
   timeoutSeconds: 540,
-  secrets: [geminiApiKey],
+  secrets: [geminiApiKey, googlePollenApiKey],
 }, async () => {
   const db = getFirestore();
   const messaging = getMessaging();
@@ -308,7 +313,7 @@ export const sendHourlyNotifications = onSchedule({
   // AVOID utcPlus14 hack which might shift dates incorrectly for Europe/Vietnam mismatch
   // Use UTC date as baseline for universal slot consistency
   const slotDateKey = now.toISOString().split("T")[0];
-  const slotKey = `${slotDateKey}-all-day-v21`; // v21 to FORCE REFRESH NOW
+  const slotKey = `${slotDateKey}-all-day-v22`; // v22 to FORCE REFRESH NOW
 
   let globalQuote: any = null;
   try {
@@ -346,9 +351,9 @@ export const sendHourlyNotifications = onSchedule({
     const currentLocalDay = localDate.toLocaleDateString("en-US", { timeZone: tz });
     const lastQuoteDay = data.lastQuoteDate || "";
 
-    // Rule: Send if 7 AM AND it is the top of the hour (minutes < 12)
-    // This prevents the 7:15/7:30/7:45 executions from resending if the first one failed to persist state
-    if (localHour === 7 && localDate.getMinutes() < 12 && lastQuoteDay !== currentLocalDay) {
+    // Rule: Send if 7 AM
+    // We check lastQuoteDay to prevent duplicate sends within the same hour
+    if (localHour === 7 && lastQuoteDay !== currentLocalDay) {
       if (data.userId && sentQuoteUserIds.has(data.userId)) continue;
       if (data.userId) sentQuoteUserIds.add(data.userId);
 
@@ -968,8 +973,8 @@ function getDangerousForecast(
 
 // TEST FUNCTION: Trigger via URL
 // https://us-central1-wise-weather-app.cloudfunctions.net/triggerTestNotification?type=quote&token=...
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const triggerTestNotification = onRequest(async (req: any, res: any) => {
+// ester-disable-next-line @typescript-eslint/no-explicit-any
+export const triggerTestNotification = onRequest({ secrets: [geminiApiKey, googlePollenApiKey] }, async (req: any, res: any) => {
   const { type = "quote", token: queryToken } = req.query;
   const db = getFirestore();
   const messaging = getMessaging();
@@ -1004,6 +1009,26 @@ export const triggerTestNotification = onRequest(async (req: any, res: any) => {
         },
         data: {
           type: "weather_alert",
+        },
+      };
+    } else if (type === "real_quote") {
+      const now = new Date();
+      const slotDateKey = now.toISOString().split("T")[0];
+      const slotKey = `${slotDateKey}-all-day-v22`;
+      const dayOfWeek = now.getDay();
+
+      console.log(`[TEST-QUOTE] Triggering real quote generation for slot ${slotKey}...`);
+      const quote = await getOrGenerateQuote(slotKey, dayOfWeek, geminiApiKey.value());
+
+      message = {
+        token,
+        notification: {
+          title: "Wise Weather 🌀",
+          body: quote.en.text,
+        },
+        data: {
+          type: "quote",
+          quote: JSON.stringify(quote),
         },
       };
     } else {
@@ -1601,7 +1626,7 @@ export const checkExpiredTravelers = onSchedule("every 24 hours", async (event) 
 // This ensures the App displays the exact same "Safe" data used for notifications.
 // It also corrects the "Current" state if safety models detect a dangerous event invisible to the standard model.
 export const getWeatherForecast = onCall(async (request) => {
-  const { lat, lng } = request.data;
+  const { lat, lng, token } = request.data;
   if (!lat || !lng) return { success: false, error: "Missing location" };
 
   try {
@@ -1691,6 +1716,43 @@ export const getWeatherForecast = onCall(async (request) => {
         }
         console.log(`[PROXY] Patched 3 hourly slots starting at index ${startIndex} to match alert type: ${dangerousEvent.type}`);
       }
+    }
+
+    // 4. ROBUST is_day CALCULATION
+    // Fix for 8:00 AM "Night" version: override is_day based on real sunrise/sunset
+    if (uiData.current && uiData.daily && uiData.daily.sunrise && uiData.daily.sunset) {
+      try {
+        const apiTime = new Date(uiData.current.time).getTime();
+        // Correct index finding: match today's date from the API response
+        const todayStr = uiData.current.time.split('T')[0];
+        const todayIdx = uiData.daily.time.findIndex((t: string) => t.startsWith(todayStr));
+        const idx = todayIdx !== -1 ? todayIdx : (uiData.daily.time.length > 1 ? 1 : 0);
+
+        const sr = new Date(uiData.daily.sunrise[idx]).getTime();
+        const ss = new Date(uiData.daily.sunset[idx]).getTime();
+        const robustIsDay = (apiTime >= sr && apiTime < ss) ? 1 : 0;
+        if (uiData.current.is_day !== robustIsDay) {
+          console.log(`[PROXY] Correcting is_day for ${lat},${lng}: API=${uiData.current.is_day} -> Robust=${robustIsDay} (Idx=${idx})`);
+          uiData.current.is_day = robustIsDay;
+        }
+      } catch (e) { console.error("[PROXY] Error calculating robust is_day:", e); }
+    }
+
+    // 5. SELF-HEALING TIMEZONE SYNC
+    // If we have a token and the detected timezone is known, update it in the DB if it was "UTC"
+    if (token && uiData.timezone) {
+      try {
+        const db = getFirestore();
+        const docRef = db.collection("push_tokens").doc(token);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+          const currentTz = docSnap.data()?.timezone;
+          if (!currentTz || currentTz === "UTC") {
+            console.log(`[PROXY] Self-healing timezone for token: UTC -> ${uiData.timezone}`);
+            await docRef.update({ timezone: uiData.timezone });
+          }
+        }
+      } catch (e) { console.error("[PROXY] Timezone sync failed:", e); }
     }
 
     // Return the (potentially patched) UI Data

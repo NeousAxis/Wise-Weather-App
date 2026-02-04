@@ -380,7 +380,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       const getWeatherForecastFn = httpsCallable(functions, 'getWeatherForecast');
 
       const [proxyRes, waqiData, airJson, pollenResult] = await Promise.all([
-        getWeatherForecastFn({ lat, lng }),
+        getWeatherForecastFn({ lat, lng, token: localStorage.getItem('fcm_token') }),
         fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`)
           .then(r => r.json()).catch(e => null),
         fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`)
@@ -469,7 +469,23 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           temperature: data.current.temperature_2m,
           weatherCode: data.current.weather_code,
           windSpeed: data.current.wind_speed_10m,
-          isDay: data.current.is_day,
+          isDay: (function () {
+            try {
+              if (data.daily && data.daily.sunrise && data.daily.sunset) {
+                const now = Date.now();
+                // Find Today's index (we use past_days=1, so index 0 is yesterday, index 1 is today)
+                const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+                const todayIdx = data.daily.time.findIndex((t: string) => t.startsWith(todayStr));
+                const idx = todayIdx !== -1 ? todayIdx : (data.daily.time.length > 1 ? 1 : 0);
+
+                const sr = new Date(data.daily.sunrise[idx]).getTime();
+                const ss = new Date(data.daily.sunset[idx]).getTime();
+                // If current phone time is between sunrise and sunset, it is DAY (1), else NIGHT (0)
+                return (now >= sr && now < ss) ? 1 : 0;
+              }
+            } catch (e) { console.error("Robust IsDay failed", e); }
+            return data.current.is_day;
+          })(),
           relativeHumidity: data.current.relative_humidity_2m,
           visibility: data.current.visibility,
           aqi: aqiValue,
@@ -586,6 +602,10 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     try {
       const messaging = getMessaging();
       const token = await getToken(messaging, { vapidKey });
+
+      if (token) {
+        localStorage.setItem('fcm_token', token);
+      }
 
       if (token && loc) {
         console.log("FCM Token retrieved, updating with location:", token, loc);
@@ -773,13 +793,13 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       // CRITICAL FIX: Use SINGLE daily slot aligned with backend (all-day-v6)
       // This prevents multiple quotes per day
       const dateKey = now.toISOString().split("T")[0]; // YYYY-MM-DD format
-      const slotKey = `${dateKey}-all-day-v10`;
+      const slotKey = `${dateKey}-all-day-v22`;
 
       // Check Cache (Updated to v3 to NUKE persisting garbage)
       // Force clear old keys
       localStorage.removeItem('wise_weather_quote_mistral');
 
-      const cachedData = localStorage.getItem('wise_weather_quote_v3');
+      const cachedData = localStorage.getItem('wise_weather_quote_v22');
       if (cachedData) {
         try {
           const parsed = JSON.parse(cachedData);
@@ -808,7 +828,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
         if (response.success && response.data) {
           setDailyQuote(response.data);
-          localStorage.setItem('wise_weather_quote_v3', JSON.stringify({
+          localStorage.setItem('wise_weather_quote_v22', JSON.stringify({
             slotKey: slotKey,
             quote: response.data
           }));
@@ -830,7 +850,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         setDailyQuote(fallbackQuote);
 
         // Cache fallback
-        localStorage.setItem('wise_weather_quote_v3', JSON.stringify({
+        localStorage.setItem('wise_weather_quote_v22', JSON.stringify({
           slotKey: slotKey,
           quote: fallbackQuote
         }));
