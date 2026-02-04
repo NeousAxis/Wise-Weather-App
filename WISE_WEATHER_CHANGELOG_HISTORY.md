@@ -145,3 +145,29 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 ### 2. 🔔 Cron : Fenêtre de Citation assouplie
 - **Modification** : Retrait de la restriction `minutes < 12` pour l'envoi de la citation de 7h.
 - **Rationale** : Permettre au cron de rattraper un envoi si une exécution de 7h15 ou 7h30 est la première à réussir, évitant les matins sans citation.
+
+---
+
+## 🗓️ 4 Février 2026 - Feature : Rain Trend & Contribution
+
+### 1. 📈 UI : Graphique de Pluie Dynamique (24h) [APPLIQUÉ]
+- **Problème** : Le graphique de tendance (Rain Trend) était un SVG statique de développement.
+- **Correction** : 
+    - Connexion à l'API Open-Meteo pour récupérer les probabilités de précipitations horaires.
+    - Rendu dynamique d'une courbe SVG basée sur les vraies données.
+    - Gestion intelligente du "lock" pour les utilisateurs Freemium (voir ci-dessous).
+- **Pourquoi ?** : Offrir une visualisation réelle et utile de l'évolution de la pluie, et non un placeholder.
+
+### 2. 🔐 Freemium : Alignement des Limites [APPLIQUÉ]
+- **Logique** : Le graphique "Rain Trend" s'aligne désormais sur les limites de l'abonnement :
+    - **GRATUIT** : Affiche uniquement les **3 prochaines heures** (comme le carrousel horaire), le reste est flouté avec un cadenas "+20h".
+    - **PREMIUM** : Affiche la courbe complète sur 24h.
+- **Rationale** : Cohérence totale de l'offre. Il n'est pas logique de montrer 24h de tendance pluie à un utilisateur qui n'a droit qu'à 3h de prévisions.
+
+### 3. 🌧️ UI : Volume de Pluie Précis [APPLIQUÉ]
+- **Ajout** : L'en-tête du graphique affiche désormais le volume total de pluie attendu sur la période visible (ex: `Rain (3h) • 1.2mm` ou `Rain (24h) • 8.4mm`).
+- **Pourquoi ?** : Donner une information quantitative immédiate en plus de la courbe visuelle.
+
+### 4. 🌦️ Contribution : Options Étendues en Prod [APPLIQUÉ]
+- **Changement** : Déblocage des conditions "Showers" (Averses), "Fog" (Brouillard) et "Mist" (Brume) pour tous les utilisateurs en production.
+- **UI** : Ajout d'un indicateur "More Options..." sous le bouton Pluie pour guider vers ces nouvelles options.

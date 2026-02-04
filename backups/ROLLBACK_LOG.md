@@ -13,7 +13,15 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.2.51` (v2.6.2-Daylight-Fix) - 4 Feb 2026
+### ✅ [ACTUEL] `v2.2.52` (v2.6.3-Rain-Trend) - 4 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **Feature :** Graphique "Rain Trend (24h)" dynamique et connecté à l'API Open-Meteo.
+- **Freemium :** Limite de 3h pour le graphe en mode gratuit (lock screen), 24h pour les premiums.
+- **UI :** Affichage du volume total de pluie attendu (en mm) dans l'en-tête du graphe.
+- **Contribution :** Ajout des options "Showers", "Fog", "Mist" disponibles en prod.
+
+### ✅ `v2.2.51` (v2.6.2-Daylight-Fix) - 4 Feb 2026
 **État :** Production Stable
 **Contenu :**
 - **UI :** Correction majeure du calcul `isDay` (Jour/Nuit). 
