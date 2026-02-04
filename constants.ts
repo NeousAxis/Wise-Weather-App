@@ -95,6 +95,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "mountain.avalanche.warning": "⚠️ WARNING: This data impacts community safety. Only mountain professionals should set this indicator.",
     "mountain.avalanche.confirm": "I confirm I am a mountain professional",
     "condition.Mist": "Mist",
+    "condition.Showers": "Showers",
+    "condition.Fog": "Fog",
     "condition.Whiteout": "Whiteout",
     "condition.Ice": "Ice"
   },
@@ -191,6 +193,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     "mountain.avalanche.warning": "⚠️ ATTENTION : Cette donnée impacte la sécurité de tous. Réservé aux professionnels de la montagne.",
     "mountain.avalanche.confirm": "Je confirme être un professionnel de la montagne",
     "condition.Mist": "Brume",
+    "condition.Showers": "Averse",
+    "condition.Fog": "Brouillard",
     "condition.Whiteout": "Jour blanc",
     "condition.Ice": "Verglas"
   }

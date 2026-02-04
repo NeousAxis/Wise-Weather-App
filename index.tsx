@@ -110,6 +110,7 @@ const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
     case 'Storm': return <CloudLightning size={size} className={`text-purple-500 ${className}`} />;
     case 'Fog': return <CloudFog size={size} className={`text-gray-400 ${className}`} />;
     case 'Hail': return <CloudRain size={size} className={`text-indigo-400 ${className}`} />;
+    case 'Showers': return <Droplets size={size} className={`text-blue-400 ${className}`} />;
     case 'Mist': return <CloudFog size={size} className={`text-gray-300 ${className}`} />;
     case 'Whiteout': return <Wind size={size} className={`text-gray-200 ${className}`} />;
     case 'Ice': return <Snowflake size={size} className={`text-blue-200 ${className}`} />;
@@ -183,6 +184,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
   const { weather, loadingWeather, unit, t, cityName, language, userTier: contextTier, setShowPremium } = useContext(AppContext)!;
   const userTier = tierOverride || contextTier;
   const [showAirDetails, setShowAirDetails] = useState(false);
+  const [showRainGraph, setShowRainGraph] = useState(false);
   const [activeGraph, setActiveGraph] = useState<'uv' | 'aqi' | 'pollen' | null>(null);
 
   // Helper for 24h Data (for Expert Graph)
@@ -581,6 +583,144 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         </div>
       </div>
 
+
+      {/* RAIN EVOLUTION GRAPH */}
+      {(() => {
+        // TIER LIMIT LOGIC (Align with Hourly Forecast)
+        const isPremium = [UserTier.STANDARD, UserTier.ULTIMATE, UserTier.TRAVELER].includes(userTier);
+        const limit = isPremium ? 24 : 3;
+
+        // Calculate Dynamic Path Logic
+        const hourlyProbs = weather?.hourly?.precipitation_probability;
+
+        // If no precipitation data, return null
+        if (!hourlyProbs || hourlyProbs.length === 0) return null;
+
+        // Recalculate safe index for "Now"
+        const now = new Date();
+        const currentIsoHour = now.toISOString().slice(0, 13); // YYYY-MM-DDTHH
+        let startIndex = weather?.hourly?.time?.findIndex((t: string) => t.startsWith(currentIsoHour)) ?? -1;
+
+        // Fallback: Use local time matching if ISO fails (API returns local string)
+        if (startIndex === -1 && weather?.hourly?.time) {
+          startIndex = weather.hourly.time.findIndex(t => new Date(t).getTime() >= now.getTime() - 60 * 60 * 1000);
+        }
+
+        let safeIdx = startIndex !== -1 ? startIndex : 0;
+
+        // Get Full 24h Buffer (for scaling logic)
+        const fullSliceProbs = (hourlyProbs || []).slice(safeIdx, safeIdx + 24);
+        const fullSlicePrecip = (weather?.hourly?.precipitation || []).slice(safeIdx, safeIdx + 24); // Grab amounts too
+
+        // Visible Slice (Strictly limited by Tier)
+        const visibleProbs = fullSliceProbs.slice(0, limit);
+        const visiblePrecip = fullSlicePrecip.slice(0, limit);
+
+        // If no data, return null
+        if (!visibleProbs || visibleProbs.length < 2) return null;
+
+        // Calculate Total Rain (mm) for VISIBLE period
+        const totalRain = visiblePrecip.reduce((acc, val) => acc + (val || 0), 0);
+        // Better formatting: if < 0.1 show 0, else 1 decimal
+        const rainLabel = totalRain >= 0.1 ? `${totalRain.toFixed(1)}mm` : '0mm';
+
+        // Generate Path
+        // Graph dimensions: 100 x 20
+        const width = 100;
+        const height = 20;
+
+        // X Scale: Always based on 24h to keep visual consistency with time markers?
+        // "Now ...... 24h" markers are fixed at bottom.
+        // So we must use 24 points scale even if we only draw 3.
+        const totalPoints = 24;
+        const xStep = width / (totalPoints - 1);
+
+        const points = visibleProbs.map((prob, i) => {
+          const x = i * xStep;
+          const safeProb = Math.max(0, Math.min(100, prob || 0));
+          const y = height - (safeProb / 100) * height;
+          return `${x},${y}`;
+        });
+
+        // Line Path
+        const linePath = `M ${points.join(' L ')}`;
+
+        // Area Path (Close loop)
+        // We close at the last visible point's X
+        const lastX = (visibleProbs.length - 1) * xStep;
+        const areaPath = `${linePath} L ${lastX},${height} L 0,${height} Z`;
+
+        // Locked Area Dimensions
+        const lockedStartX = lastX;
+        const lockedWidth = width - lockedStartX;
+
+        return (
+          <div className="mb-6 -mt-2 animate-in fade-in slide-in-from-top-2">
+            <button
+              onClick={() => setShowRainGraph(!showRainGraph)}
+              className="w-full flex justify-between items-center mb-2 px-1 hover:bg-gray-50 rounded-lg p-1 transition-colors"
+            >
+              <h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest flex items-center gap-1">
+                <CloudRain size={10} className="text-blue-500" />
+                <span>
+                  {language === 'fr' ? 'Pluie' : 'Rain'} ({limit}h)
+                  <span className="ml-1 text-blue-400 font-normal opacity-80">• {rainLabel}</span>
+                </span>
+              </h3>
+              <div className="flex items-center gap-2">
+                <ChevronDown size={14} className={`text-blue-400 transition-transform ${showRainGraph ? 'rotate-180' : ''}`} />
+              </div>
+            </button>
+
+            {showRainGraph && (
+              <div className="relative h-16 w-full bg-blue-50/50 rounded-xl overflow-hidden border border-blue-100 animate-in slide-in-from-top-1 fade-in duration-200">
+
+                {/* 1. VISIBLE GRAPH (Left Side) */}
+                <svg viewBox="0 0 100 20" preserveAspectRatio="none" className="absolute inset-0 w-full h-full text-blue-400">
+                  <path
+                    d={areaPath}
+                    fill="currentColor"
+                    className="opacity-20 transition-all duration-500 ease-in-out"
+                  />
+                  <path
+                    d={linePath}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="0.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="transition-all duration-500 ease-in-out"
+                  />
+                </svg>
+
+                {/* 2. LOCKED OVERLAY (Right Side) */}
+                {!isPremium && (
+                  <div
+                    className="absolute inset-y-0 right-0 bg-gray-100/50 backdrop-blur-[1px] flex items-center justify-center border-l border-blue-100/50 cursor-pointer hover:bg-yellow-50/50 transition-colors group"
+                    style={{ left: `${lockedStartX}%` }}
+                    onClick={() => setShowPremium(true)}
+                  >
+                    <div className="flex flex-col items-center">
+                      <Lock size={12} className="text-gray-400 group-hover:text-yellow-600 mb-0.5" />
+                      <span className="text-[6px] font-bold text-gray-400 group-hover:text-yellow-600 uppercase">+20h</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Time Markers */}
+                <div className="absolute bottom-0 inset-x-0 flex justify-between px-2 text-[8px] text-blue-300 font-bold opacity-80 pb-0.5 pointer-events-none">
+                  <span>Now</span>
+                  <span className={`${limit < 6 ? 'opacity-30' : ''}`}>6h</span>
+                  <span className={`${limit < 12 ? 'opacity-30' : ''}`}>12h</span>
+                  <span className={`${limit < 18 ? 'opacity-30' : ''}`}>18h</span>
+                  <span className={`${limit < 24 ? 'opacity-30' : ''}`}>24h</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Stats Grid - Unified Layout */}
       <div className="grid grid-cols-2 gap-y-6 gap-x-8 mb-8">
         {/* Sunrise */}
@@ -779,266 +919,268 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
       </div>
 
       {/* Expert Graph Modal */}
-      {activeGraph && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setActiveGraph(null)}>
-          <div className="bg-white rounded-3xl w-full max-w-sm max-h-[85vh] p-6 shadow-2xl animate-in zoom-in-95 flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">
-                  {activeGraph === 'uv' ? (language === 'fr' ? 'Index UV' : 'UV Index') :
-                    activeGraph === 'aqi' ? (language === 'fr' ? 'Pollution (AQI)' : 'Air Quality (AQI)') :
-                      (language === 'fr' ? 'Détails Pollens' : 'Pollen Details')}
-                  <span className="ml-2 text-base font-normal text-gray-400 border-l border-gray-300 pl-2">
-                    {new Date().toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', { day: 'numeric', month: 'long' })}
-                  </span>
-                </h3>
-                <p className="text-xs text-blue-500 font-medium mt-1">
-                  {activeGraph === 'pollen'
-                    ? (language === 'fr' ? 'Niveaux actuels par type' : 'Current levels by type')
-                    : (language === 'fr' ? 'Évolution de la journée (00h - Maintenant)' : 'Daily Evolution (00h - Now)')}
-                </p>
+      {
+        activeGraph && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setActiveGraph(null)}>
+            <div className="bg-white rounded-3xl w-full max-w-sm max-h-[85vh] p-6 shadow-2xl animate-in zoom-in-95 flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">
+                    {activeGraph === 'uv' ? (language === 'fr' ? 'Index UV' : 'UV Index') :
+                      activeGraph === 'aqi' ? (language === 'fr' ? 'Pollution (AQI)' : 'Air Quality (AQI)') :
+                        (language === 'fr' ? 'Détails Pollens' : 'Pollen Details')}
+                    <span className="ml-2 text-base font-normal text-gray-400 border-l border-gray-300 pl-2">
+                      {new Date().toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', { day: 'numeric', month: 'long' })}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-blue-500 font-medium mt-1">
+                    {activeGraph === 'pollen'
+                      ? (language === 'fr' ? 'Niveaux actuels par type' : 'Current levels by type')
+                      : (language === 'fr' ? 'Évolution de la journée (00h - Maintenant)' : 'Daily Evolution (00h - Now)')}
+                  </p>
+                </div>
+                <button onClick={() => setActiveGraph(null)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
+                  <X size={20} />
+                </button>
               </div>
-              <button onClick={() => setActiveGraph(null)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
-                <X size={20} />
-              </button>
-            </div>
 
-            {/* Graph or List Render */}
-            {activeGraph === 'pollen' ? (
-              <div className="space-y-4 py-2 overflow-y-auto pr-1">
-                {(() => {
-                  // Translation Map for common Google Pollen Codes
-                  const translator: Record<string, string> = language === 'fr' ? {
-                    "ALDER": "Aulne", "ASH": "Frêne", "BIRCH": "Bouleau", "COTTONWOOD": "Peuplier",
-                    "ELM": "Orme", "HAZEL": "Noisetier", "JUNIPER": "Genévrier", "MAPLE": "Érable",
-                    "OAK": "Chêne", "PINE": "Pin", "POPLAR": "Peuplier", "WALNUT": "Noyer", "WILLOW": "Saule",
-                    "CYPRESS": "Cyprès", "ACACIA": "Acacia", "JAPANESE_CEDAR": "Cèdre du Japon",
-                    "GRASS": "Graminées (Herbes)", "MUGWORT": "Armoise", "OLIVE": "Olivier", "RAGWEED": "Ambroisie",
-                    "TREE": "Arbres (Général)", "WEED": "Herbacées (Général)", "CASUARINA": "Filao"
-                  } : {
-                    "GRASS": "Grass (General)", "TREE": "Tree (General)", "WEED": "Weed (General)"
-                  };
+              {/* Graph or List Render */}
+              {activeGraph === 'pollen' ? (
+                <div className="space-y-4 py-2 overflow-y-auto pr-1">
+                  {(() => {
+                    // Translation Map for common Google Pollen Codes
+                    const translator: Record<string, string> = language === 'fr' ? {
+                      "ALDER": "Aulne", "ASH": "Frêne", "BIRCH": "Bouleau", "COTTONWOOD": "Peuplier",
+                      "ELM": "Orme", "HAZEL": "Noisetier", "JUNIPER": "Genévrier", "MAPLE": "Érable",
+                      "OAK": "Chêne", "PINE": "Pin", "POPLAR": "Peuplier", "WALNUT": "Noyer", "WILLOW": "Saule",
+                      "CYPRESS": "Cyprès", "ACACIA": "Acacia", "JAPANESE_CEDAR": "Cèdre du Japon",
+                      "GRASS": "Graminées (Herbes)", "MUGWORT": "Armoise", "OLIVE": "Olivier", "RAGWEED": "Ambroisie",
+                      "TREE": "Arbres (Général)", "WEED": "Herbacées (Général)", "CASUARINA": "Filao"
+                    } : {
+                      "GRASS": "Grass (General)", "TREE": "Tree (General)", "WEED": "Weed (General)"
+                    };
 
-                  // @ts-ignore
-                  const dynamicItems = weather.current.pollen?._dynamicItems as Array<{ code: string, value: number, category: string }>;
-                  // @ts-ignore
-                  const errorMsg = weather.current.pollen?._error as string;
+                    // @ts-ignore
+                    const dynamicItems = weather.current.pollen?._dynamicItems as Array<{ code: string, value: number, category: string }>;
+                    // @ts-ignore
+                    const errorMsg = weather.current.pollen?._error as string;
 
-                  let itemsToRender = [];
+                    let itemsToRender = [];
 
-                  if (dynamicItems && dynamicItems.length > 0) {
-                    itemsToRender = [...dynamicItems]
-                      .sort((a, b) => b.value - a.value)
-                      .map(item => ({
-                        key: item.code,
-                        label: translator[item.code] || (item.code.charAt(0) + item.code.slice(1).toLowerCase().replace('_', ' ')),
-                        val: item.value,
-                        code: item.code
-                      }));
-                  } else if (dynamicItems && dynamicItems.length === 0 && !errorMsg) {
-                    // Valid response but no items (e.g. Winter or Desert) AND NO ERROR
-                    return (
-                      <div className="p-4 bg-blue-50 text-blue-600 rounded-xl text-center">
-                        <p className="font-medium text-sm">
-                          {language === 'fr' ? 'Aucun pollen actif détecté pour ce lieu.' : 'No active pollen detected for this location.'}
-                        </p>
-                        <p className="text-xs mt-2 opacity-70">Google Pollen API OK</p>
-                      </div>
-                    );
-                  } else {
-                    // Legacy Fallback (should not happen if cache key updated, unless error)
-                    itemsToRender = [
-                      { key: 'alder', label: language === 'fr' ? 'Aulne' : 'Alder', val: weather.current.pollen?.alder || 0 },
-                      { key: 'birch', label: language === 'fr' ? 'Bouleau' : 'Birch', val: weather.current.pollen?.birch || 0 },
-                      { key: 'grass', label: language === 'fr' ? 'Graminées' : 'Grass', val: weather.current.pollen?.grass || 0 },
-                      { key: 'ragweed', label: language === 'fr' ? 'Ambroisie' : 'Ragweed', val: weather.current.pollen?.ragweed || 0 },
-                      { key: 'olive', label: language === 'fr' ? 'Olivier' : 'Olive', val: weather.current.pollen?.olive || 0 },
-                      { key: 'mugwort', label: language === 'fr' ? 'Armoise' : 'Mugwort', val: weather.current.pollen?.mugwort || 0 },
-                    ];
-                  }
-
-                  return itemsToRender.map((item, idx) => {
-                    // Color logic (Aligned with Google UPI Standards)
-                    const val = item.val;
-                    const percent = Math.min((val / 5) * 100, 100);
-                    let color = 'bg-blue-400'; // 0 = None / Very Low
-                    if (val >= 4.5) color = 'bg-purple-600';      // 5 = Extreme
-                    else if (val >= 3.5) color = 'bg-red-500';    // 4 = High
-                    else if (val >= 2.5) color = 'bg-orange-500'; // 3 = Moderate
-                    else if (val >= 1.5) color = 'bg-yellow-400'; // 2 = Low
-                    else if (val > 0) color = 'bg-green-500';    // 1 = Very Low
-                    else color = 'bg-blue-400';                 // 0 = Absent
-
-                    return (
-                      <div key={idx}>
-                        <div className="flex justify-between text-sm mb-1 font-medium text-gray-700">
-                          <span>{item.label}</span>
-                          <span>{val} <span className="text-xs text-gray-400 font-normal">/ 5</span></span>
+                    if (dynamicItems && dynamicItems.length > 0) {
+                      itemsToRender = [...dynamicItems]
+                        .sort((a, b) => b.value - a.value)
+                        .map(item => ({
+                          key: item.code,
+                          label: translator[item.code] || (item.code.charAt(0) + item.code.slice(1).toLowerCase().replace('_', ' ')),
+                          val: item.value,
+                          code: item.code
+                        }));
+                    } else if (dynamicItems && dynamicItems.length === 0 && !errorMsg) {
+                      // Valid response but no items (e.g. Winter or Desert) AND NO ERROR
+                      return (
+                        <div className="p-4 bg-blue-50 text-blue-600 rounded-xl text-center">
+                          <p className="font-medium text-sm">
+                            {language === 'fr' ? 'Aucun pollen actif détecté pour ce lieu.' : 'No active pollen detected for this location.'}
+                          </p>
+                          <p className="text-xs mt-2 opacity-70">Google Pollen API OK</p>
                         </div>
-                        <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${color}`}
-                            style={{ width: `${percent}%` }}
-                          ></div>
+                      );
+                    } else {
+                      // Legacy Fallback (should not happen if cache key updated, unless error)
+                      itemsToRender = [
+                        { key: 'alder', label: language === 'fr' ? 'Aulne' : 'Alder', val: weather.current.pollen?.alder || 0 },
+                        { key: 'birch', label: language === 'fr' ? 'Bouleau' : 'Birch', val: weather.current.pollen?.birch || 0 },
+                        { key: 'grass', label: language === 'fr' ? 'Graminées' : 'Grass', val: weather.current.pollen?.grass || 0 },
+                        { key: 'ragweed', label: language === 'fr' ? 'Ambroisie' : 'Ragweed', val: weather.current.pollen?.ragweed || 0 },
+                        { key: 'olive', label: language === 'fr' ? 'Olivier' : 'Olive', val: weather.current.pollen?.olive || 0 },
+                        { key: 'mugwort', label: language === 'fr' ? 'Armoise' : 'Mugwort', val: weather.current.pollen?.mugwort || 0 },
+                      ];
+                    }
+
+                    return itemsToRender.map((item, idx) => {
+                      // Color logic (Aligned with Google UPI Standards)
+                      const val = item.val;
+                      const percent = Math.min((val / 5) * 100, 100);
+                      let color = 'bg-blue-400'; // 0 = None / Very Low
+                      if (val >= 4.5) color = 'bg-purple-600';      // 5 = Extreme
+                      else if (val >= 3.5) color = 'bg-red-500';    // 4 = High
+                      else if (val >= 2.5) color = 'bg-orange-500'; // 3 = Moderate
+                      else if (val >= 1.5) color = 'bg-yellow-400'; // 2 = Low
+                      else if (val > 0) color = 'bg-green-500';    // 1 = Very Low
+                      else color = 'bg-blue-400';                 // 0 = Absent
+
+                      return (
+                        <div key={idx}>
+                          <div className="flex justify-between text-sm mb-1 font-medium text-gray-700">
+                            <span>{item.label}</span>
+                            <span>{val} <span className="text-xs text-gray-400 font-normal">/ 5</span></span>
+                          </div>
+                          <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${color}`}
+                              style={{ width: `${percent}%` }}
+                            ></div>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            ) : (
-              <>
-                <div className="flex gap-2 h-48 mb-2">
-                  {/* Y Axis Labels */}
-                  <div className="flex flex-col justify-between text-[9px] text-gray-400 font-medium py-1 w-6 text-right">
-                    {activeGraph === 'uv' ? (
-                      <>
-                        <span>12</span><span>9</span><span>6</span><span>3</span><span>0</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>500</span><span>375</span><span>250</span><span>125</span><span>0</span>
-                      </>
-                    )}
-                  </div>
+                      );
+                    });
+                  })()}
+                </div>
+              ) : (
+                <>
+                  <div className="flex gap-2 h-48 mb-2">
+                    {/* Y Axis Labels */}
+                    <div className="flex flex-col justify-between text-[9px] text-gray-400 font-medium py-1 w-6 text-right">
+                      {activeGraph === 'uv' ? (
+                        <>
+                          <span>12</span><span>9</span><span>6</span><span>3</span><span>0</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>500</span><span>375</span><span>250</span><span>125</span><span>0</span>
+                        </>
+                      )}
+                    </div>
 
-                  {/* Bars Area */}
-                  <div className="flex-1 flex items-end gap-1 h-full border-l border-gray-100 pl-1">
-                    {(() => {
-                      const rawData = getTodayData(activeGraph === 'uv' ? 'uv_index' : 'european_aqi');
-                      const data = rawData.length > 0 ? rawData : Array(24).fill(0);
+                    {/* Bars Area */}
+                    <div className="flex-1 flex items-end gap-1 h-full border-l border-gray-100 pl-1">
+                      {(() => {
+                        const rawData = getTodayData(activeGraph === 'uv' ? 'uv_index' : 'european_aqi');
+                        const data = rawData.length > 0 ? rawData : Array(24).fill(0);
 
-                      // Strict Official Limits
-                      // AQI: 0-500
-                      // UV: 0-12 (technically can go higher rarely but 11+ is extreme)
-                      const strictMax = activeGraph === 'uv' ? 12 : 500;
+                        // Strict Official Limits
+                        // AQI: 0-500
+                        // UV: 0-12 (technically can go higher rarely but 11+ is extreme)
+                        const strictMax = activeGraph === 'uv' ? 12 : 500;
 
-                      return data.map((val, i) => {
-                        const currentHour = new Date().getHours();
-                        // STRICT USER RULE: Future hours must be EMPTY.
-                        // Show only history from 00h to currentHour.
-                        const isFuture = i > currentHour;
-                        const isCurrent = i === currentHour;
+                        return data.map((val, i) => {
+                          const currentHour = new Date().getHours();
+                          // STRICT USER RULE: Future hours must be EMPTY.
+                          // Show only history from 00h to currentHour.
+                          const isFuture = i > currentHour;
+                          const isCurrent = i === currentHour;
 
-                        // SYNCHRONIZATION:
-                        // For the "NOW" bar, we override the hourly forecast value with the REALTIME current value.
-                        // This ensures the Graph's "current" bar matches the Main Dashboard indicator exactly.
-                        let displayVal = val;
-                        if (isCurrent) {
-                          if (activeGraph === 'uv') {
-                            // Fix: Only override if current > 0. If current is 0, trust hourly val (which comes from Today Data).
-                            if (weather.current.uvIndex !== undefined && weather.current.uvIndex > 0) {
-                              displayVal = weather.current.uvIndex;
+                          // SYNCHRONIZATION:
+                          // For the "NOW" bar, we override the hourly forecast value with the REALTIME current value.
+                          // This ensures the Graph's "current" bar matches the Main Dashboard indicator exactly.
+                          let displayVal = val;
+                          if (isCurrent) {
+                            if (activeGraph === 'uv') {
+                              // Fix: Only override if current > 0. If current is 0, trust hourly val (which comes from Today Data).
+                              if (weather.current.uvIndex !== undefined && weather.current.uvIndex > 0) {
+                                displayVal = weather.current.uvIndex;
+                              }
+                            } else if (activeGraph === 'aqi' && weather.current.aqi !== undefined) {
+                              displayVal = weather.current.aqi;
                             }
-                          } else if (activeGraph === 'aqi' && weather.current.aqi !== undefined) {
-                            displayVal = weather.current.aqi;
                           }
-                        }
 
-                        if (isFuture) {
-                          // Render empty placeholder to keep spacing but show NO bar.
+                          if (isFuture) {
+                            // Render empty placeholder to keep spacing but show NO bar.
+                            return (
+                              <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative">
+                                <div className="w-full bg-gray-50 rounded-t-sm" style={{ height: '4px', opacity: 0.3 }}></div>
+                              </div>
+                            );
+                          }
+
                           return (
-                            <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative">
-                              <div className="w-full bg-gray-50 rounded-t-sm" style={{ height: '4px', opacity: 0.3 }}></div>
+                            <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative cursor-pointer">
+                              {/* Tooltip */}
+                              {(() => {
+                                const numericVal = Math.round(displayVal);
+                                let label = '';
+                                let status = '';
+
+                                if (activeGraph === 'uv') {
+                                  label = 'UV';
+                                  // UV Scale
+                                  if (numericVal <= 2) status = language === 'fr' ? 'Faible' : 'Low';
+                                  else if (numericVal <= 5) status = language === 'fr' ? 'Modéré' : 'Moderate';
+                                  else if (numericVal <= 7) status = language === 'fr' ? 'Fort' : 'High';
+                                  else if (numericVal <= 10) status = language === 'fr' ? 'Très Fort' : 'Very High';
+                                  else status = language === 'fr' ? 'Extrême' : 'Extreme';
+                                } else {
+                                  label = 'AQI';
+                                  // AQI Scale (US EPA approx)
+                                  if (numericVal <= 50) status = language === 'fr' ? 'Bon' : 'Good';
+                                  else if (numericVal <= 100) status = language === 'fr' ? 'Moyen' : 'Moderate';
+                                  else if (numericVal <= 150) status = language === 'fr' ? 'Mauvais' : 'Unhealthy';
+                                  else status = language === 'fr' ? 'Très Mauvais' : 'Very Unhealthy';
+                                }
+
+                                return (
+                                  <div className={`absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900/95 text-white p-2 rounded-lg pointer-events-none whitespace-nowrap z-20 flex flex-col items-center shadow-xl backdrop-blur-md ${isCurrent ? 'ring-1 ring-white/50' : ''} min-w-[80px]`}>
+                                    {/* Time Header */}
+                                    <div className="flex items-center gap-1 mb-1 border-b border-gray-700 pb-1 w-full justify-center">
+                                      <span className="text-[10px] font-medium text-gray-400">{i}h00</span>
+                                      {isCurrent && <span className="text-[9px] bg-blue-500 px-1 rounded text-white font-bold ml-1">NOW</span>}
+                                    </div>
+
+                                    {/* Value & Label */}
+                                    <div className="flex flex-col items-center">
+                                      <span className="text-sm font-bold">{label}: {numericVal}</span>
+                                      <span className={`text-[10px] font-medium mt-0.5 ${status === 'Bon' || status === 'Good' || status === 'Faible' || status === 'Low' ? 'text-green-400' :
+                                        status === 'Modéré' || status === 'Moderate' || status === 'Moyen' ? 'text-yellow-400' :
+                                          status === 'Mauvais' || status === 'Unhealthy' || status === 'Fort' || status === 'High' ? 'text-orange-400' : 'text-red-400'
+                                        }`}>
+                                        {status}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+
+                              {(() => {
+                                let barColor = '';
+                                if (activeGraph === 'uv') {
+                                  if (displayVal <= 2) barColor = 'bg-green-400';
+                                  else if (displayVal <= 5) barColor = 'bg-yellow-400';
+                                  else if (displayVal <= 7) barColor = 'bg-orange-500';
+                                  else if (displayVal <= 10) barColor = 'bg-red-500';
+                                  else barColor = 'bg-purple-600';
+                                } else {
+                                  // AQI Color Scale
+                                  if (displayVal <= 20) barColor = 'bg-blue-400';      // Good
+                                  else if (displayVal <= 40) barColor = 'bg-green-400'; // Fair
+                                  else if (displayVal <= 60) barColor = 'bg-yellow-400'; // Moderate
+                                  else if (displayVal <= 80) barColor = 'bg-orange-500'; // Poor
+                                  else if (displayVal <= 100) barColor = 'bg-red-500';   // Very Poor
+                                  else barColor = 'bg-purple-700';                       // Extremely Poor
+                                }
+
+                                return (
+                                  <div
+                                    className={`w-full rounded-t-sm transition-all ${barColor} ${isCurrent ? 'opacity-100 ring-1 ring-offset-0 ring-gray-400 brightness-110' : 'opacity-80'}`}
+                                    style={{ height: `${Math.min((displayVal / strictMax) * 100, 100)}%`, minHeight: '2px' }}
+                                  ></div>
+                                );
+                              })()}
                             </div>
                           );
-                        }
-
-                        return (
-                          <div key={i} className="flex-1 h-full flex flex-col justify-end items-center group relative cursor-pointer">
-                            {/* Tooltip */}
-                            {(() => {
-                              const numericVal = Math.round(displayVal);
-                              let label = '';
-                              let status = '';
-
-                              if (activeGraph === 'uv') {
-                                label = 'UV';
-                                // UV Scale
-                                if (numericVal <= 2) status = language === 'fr' ? 'Faible' : 'Low';
-                                else if (numericVal <= 5) status = language === 'fr' ? 'Modéré' : 'Moderate';
-                                else if (numericVal <= 7) status = language === 'fr' ? 'Fort' : 'High';
-                                else if (numericVal <= 10) status = language === 'fr' ? 'Très Fort' : 'Very High';
-                                else status = language === 'fr' ? 'Extrême' : 'Extreme';
-                              } else {
-                                label = 'AQI';
-                                // AQI Scale (US EPA approx)
-                                if (numericVal <= 50) status = language === 'fr' ? 'Bon' : 'Good';
-                                else if (numericVal <= 100) status = language === 'fr' ? 'Moyen' : 'Moderate';
-                                else if (numericVal <= 150) status = language === 'fr' ? 'Mauvais' : 'Unhealthy';
-                                else status = language === 'fr' ? 'Très Mauvais' : 'Very Unhealthy';
-                              }
-
-                              return (
-                                <div className={`absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900/95 text-white p-2 rounded-lg pointer-events-none whitespace-nowrap z-20 flex flex-col items-center shadow-xl backdrop-blur-md ${isCurrent ? 'ring-1 ring-white/50' : ''} min-w-[80px]`}>
-                                  {/* Time Header */}
-                                  <div className="flex items-center gap-1 mb-1 border-b border-gray-700 pb-1 w-full justify-center">
-                                    <span className="text-[10px] font-medium text-gray-400">{i}h00</span>
-                                    {isCurrent && <span className="text-[9px] bg-blue-500 px-1 rounded text-white font-bold ml-1">NOW</span>}
-                                  </div>
-
-                                  {/* Value & Label */}
-                                  <div className="flex flex-col items-center">
-                                    <span className="text-sm font-bold">{label}: {numericVal}</span>
-                                    <span className={`text-[10px] font-medium mt-0.5 ${status === 'Bon' || status === 'Good' || status === 'Faible' || status === 'Low' ? 'text-green-400' :
-                                      status === 'Modéré' || status === 'Moderate' || status === 'Moyen' ? 'text-yellow-400' :
-                                        status === 'Mauvais' || status === 'Unhealthy' || status === 'Fort' || status === 'High' ? 'text-orange-400' : 'text-red-400'
-                                      }`}>
-                                      {status}
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {(() => {
-                              let barColor = '';
-                              if (activeGraph === 'uv') {
-                                if (displayVal <= 2) barColor = 'bg-green-400';
-                                else if (displayVal <= 5) barColor = 'bg-yellow-400';
-                                else if (displayVal <= 7) barColor = 'bg-orange-500';
-                                else if (displayVal <= 10) barColor = 'bg-red-500';
-                                else barColor = 'bg-purple-600';
-                              } else {
-                                // AQI Color Scale
-                                if (displayVal <= 20) barColor = 'bg-blue-400';      // Good
-                                else if (displayVal <= 40) barColor = 'bg-green-400'; // Fair
-                                else if (displayVal <= 60) barColor = 'bg-yellow-400'; // Moderate
-                                else if (displayVal <= 80) barColor = 'bg-orange-500'; // Poor
-                                else if (displayVal <= 100) barColor = 'bg-red-500';   // Very Poor
-                                else barColor = 'bg-purple-700';                       // Extremely Poor
-                              }
-
-                              return (
-                                <div
-                                  className={`w-full rounded-t-sm transition-all ${barColor} ${isCurrent ? 'opacity-100 ring-1 ring-offset-0 ring-gray-400 brightness-110' : 'opacity-80'}`}
-                                  style={{ height: `${Math.min((displayVal / strictMax) * 100, 100)}%`, minHeight: '2px' }}
-                                ></div>
-                              );
-                            })()}
-                          </div>
-                        );
-                      });
-                    })()}
+                        });
+                      })()}
+                    </div>
                   </div>
-                </div>
-                {/* X Axis (aligned with bars, offset by Y-axis width) */}
-                <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1 ml-8">
-                  <span>00h</span>
-                  <span>06h</span>
-                  <span>12h</span>
-                  <span>18h</span>
-                  <span>23h</span>
-                </div>
-              </>
-            )}
+                  {/* X Axis (aligned with bars, offset by Y-axis width) */}
+                  <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1 ml-8">
+                    <span>00h</span>
+                    <span>06h</span>
+                    <span>12h</span>
+                    <span>18h</span>
+                    <span>23h</span>
+                  </div>
+                </>
+              )}
 
 
 
 
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
 
 
@@ -1824,7 +1966,15 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
   const [contributionRank, setContributionRank] = useState(0);
   const isStaging = typeof window !== 'undefined' && (window.location.hostname.includes('staging') || window.location.hostname.includes('localhost'));
 
+  const [subView, setSubView] = useState<'main' | 'rain'>('main');
+
   const toggle = (label: string) => {
+    // DEV MODE LOGIC: Clicking 'Rain' opens the Rain Menu
+    if (label === 'Rain' && subView === 'main') {
+      setSubView('rain');
+      return;
+    }
+
     if (selected.includes(label)) {
       setSelected(s => s.filter(i => i !== label));
     } else {
@@ -1942,23 +2092,52 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
           </p>
 
           <div className="grid grid-cols-2 gap-3">
-            {['Sunny', 'Cloudy', 'Rain', 'Storm', 'Windy', 'Snow']
-              .filter(cond => !(cond === 'Sunny' && weather?.current?.isDay === 0))
-              .map((cond) => (
-                <button
-                  key={cond}
-                  onClick={() => toggle(cond)}
-                  className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${selected.includes(cond)
-                    ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
-                    : 'border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100'
-                    }`}
-                >
-                  <div className="mb-2">
-                    {getWeatherIconFromLabel(cond, 32)}
-                  </div>
-                  <span className="font-medium">{cond}</span>
-                </button>
-              ))}
+            {subView === 'main' ? (
+              // MAIN VIEW
+              ['Sunny', 'Cloudy', 'Rain', 'Storm', 'Windy', 'Snow']
+                .filter(cond => !(cond === 'Sunny' && weather?.current?.isDay === 0))
+                .map((cond) => (
+                  <button
+                    key={cond}
+                    onClick={() => toggle(cond)}
+                    className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${selected.includes(cond) || (cond === 'Rain' && ['Rain', 'Showers', 'Fog', 'Mist'].some(r => selected.includes(r)))
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
+                      : 'border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className="mb-2">
+                      {getWeatherIconFromLabel(cond, 32)}
+                    </div>
+                    <span className="font-medium">{t(`condition.${cond}`) || cond}</span>
+                    {/* Indicator for Rain */}
+                    {cond === 'Rain' && <div className="text-[10px] text-blue-400 mt-1 font-bold">More Options...</div>}
+                  </button>
+                ))
+            ) : (
+              // RAIN SUB-VIEW (DEV ONLY)
+              <>
+                <div className="col-span-2 flex items-center justify-start pb-2">
+                  <button onClick={() => setSubView('main')} className="flex items-center gap-1 text-sm font-bold text-gray-500 hover:text-gray-900">
+                    <ChevronDown className="rotate-90" size={16} /> Back
+                  </button>
+                </div>
+                {['Rain', 'Showers', 'Fog', 'Mist'].map((cond) => (
+                  <button
+                    key={cond}
+                    onClick={() => toggle(cond)}
+                    className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${selected.includes(cond)
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
+                      : 'border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className="mb-2">
+                      {getWeatherIconFromLabel(cond, 32)}
+                    </div>
+                    <span className="font-medium">{t(`condition.${cond}`) || cond}</span>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
 
         </div>

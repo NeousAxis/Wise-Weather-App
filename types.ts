@@ -34,6 +34,8 @@ export interface WeatherData {
     weather_code: number[];
     uv_index?: number[];
     european_aqi?: number[];
+    precipitation_probability?: number[];
+    precipitation?: number[];
   };
   daily: {
     temperature_2m_max: number[];

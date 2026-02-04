@@ -379,11 +379,14 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       console.log("Launching parallel weather data fetch...");
       const getWeatherForecastFn = httpsCallable(functions, 'getWeatherForecast');
 
-      const [proxyRes, waqiData, airJson, pollenResult] = await Promise.all([
+      const [proxyRes, waqiData, airJson, rainJson, pollenResult] = await Promise.all([
         getWeatherForecastFn({ lat, lng, token: localStorage.getItem('fcm_token') }),
         fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`)
           .then(r => r.json()).catch(e => null),
         fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`)
+          .then(r => r.json()).catch(e => null),
+        // FALLBACK: Fetch Rain Probabilities directly (Proxy might miss them)
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability,precipitation&timezone=auto&forecast_days=2`)
           .then(r => r.json()).catch(e => null),
         pollenPromise
       ]);
@@ -393,6 +396,20 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         throw new Error(proxyResult?.error || "Proxy returned no data");
       }
       const data = proxyResult.data;
+
+      // Extract precipitation from direct fetch if available
+      let precipitationProbs: number[] | undefined = undefined;
+      let precipitationAmount: number[] | undefined = undefined;
+
+      if (rainJson && rainJson.hourly) {
+        precipitationProbs = rainJson.hourly.precipitation_probability;
+        precipitationAmount = rainJson.hourly.precipitation;
+      } else if (data.hourly) {
+        // Fallback to proxy data if it has it (future proofing)
+        precipitationProbs = data.hourly.precipitation_probability;
+        precipitationAmount = data.hourly.precipitation;
+      }
+
 
       // Process Air Quality (WAQI)
       let aqiValue = (waqiData?.status === 'ok') ? waqiData.data.aqi : undefined;
@@ -499,7 +516,9 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           temperature_2m: data.hourly.temperature_2m,
           weather_code: data.hourly.weather_code,
           uv_index: data.hourly.uv_index,
-          european_aqi: hourlyEuropeanAqi
+          european_aqi: hourlyEuropeanAqi,
+          precipitation_probability: precipitationProbs,
+          precipitation: precipitationAmount
         },
         daily: {
           temperature_2m_max: data.daily.temperature_2m_max,

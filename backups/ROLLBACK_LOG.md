@@ -13,8 +13,15 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.6.1-Emergency-Recovery` - 4 Feb 2026
-**État :** Production Stable (Correction Leak + Triple Fallback)
+### ✅ [ACTUEL] `v2.2.51` (v2.6.2-Daylight-Fix) - 4 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **UI :** Correction majeure du calcul `isDay` (Jour/Nuit). 
+- **Bug :** L'app restait bloquée en mode nuit à 8h00 car elle utilisait l'index `[0]` (données d'Hier) pour comparer le lever du soleil au lieu de l'index d'Aujourd'hui.
+- **Robustesse :** Migration vers une comparaison basée sur `Date.now()` (Heure réelle du téléphone) vs index dynamique `Today` de l'API.
+
+### ✅ `v2.6.1-Emergency-Recovery` - 4 Feb 2026
+**État :** Stable (Version précédente)
 **Contenu :**
 - **Sécurité :** Suppression physique des clés fuitées et protection globale `.env` dans Git.
 - **IA Triple Fallback :** Utilisation de la clé Pollen en secours si la clé Gemini est bloquée (v21).

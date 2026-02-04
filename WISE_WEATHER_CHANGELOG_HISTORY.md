@@ -129,3 +129,19 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
     - Correction du nom du modèle de repli pour éviter les erreurs 404.
 - **Slot** : Passage en **v21** pour forcer un nouvel essai immédiat et ignorer les erreurs de cache de la veille.
 - **Pourquoi ?** : Assurer la continuité du service même si la clé principale est temporairement grillée, en exploitant les autres clés valides du projet.
+
+---
+
+## 🗓️ 4 Février 2026 - Migration Daylight v22 & Correction "Mode Nuit"
+
+### 1. ☀️ UI : Correction du Calcul Jour/Nuit [APPLIQUÉ]
+- **Problème** : L'interface restait bloquée en "Mode Nuit" (pas de bouton Sunny, icône Lune) même après le lever du soleil (ex: 8h20 en Europe).
+- **Cause** : L'API Open-Meteo renvoie des données sur 3 jours (Hier, Aujourd'hui, Demain). Le code utilisait l'index `[0]` (Yesterday) au lieu de l'index dynamique correspondant à Aujourd'hui. Il comparait donc l'heure actuelle avec le coucher du soleil d'hier.
+- **Correction** : 
+    - Implémentation d'une recherche d'index dynamique via `daily.time.findIndex()` pour cibler précisément la donnée du jour.
+    - Utilisation massive de `Date.now()` (Heure du téléphone) au lieu de l'heure de l'API pour garantir une réactivité immédiate sans latence de cache.
+- **Pourquoi ?** : Garantir que l'utilisateur puisse signaler du soleil dès la première lumière du jour, sans être bloqué par des résidus de données de la veille.
+
+### 2. 🔔 Cron : Fenêtre de Citation assouplie
+- **Modification** : Retrait de la restriction `minutes < 12` pour l'envoi de la citation de 7h.
+- **Rationale** : Permettre au cron de rattraper un envoi si une exécution de 7h15 ou 7h30 est la première à réussir, évitant les matins sans citation.
