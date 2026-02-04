@@ -109,3 +109,23 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 ### 4. 🔀 Cache : v20 Slot Suffix [APPLIQUÉ]
 - **Action** : Passage des clés de cache Citation et Météo en `v20`.
 - **Pourquoi ?** : Forcer la mise à jour de tous les clients mondiaux vers la nouvelle logique IA et Moteur.
+
+---
+
+## 🗓️ 4 Février 2026 - Récupération d'Urgence (Leak & Fallback)
+
+### 1. 🛡️ Sécurité : Nettoyage du Leak [APPLIQUÉ]
+- **Problème** : Une clé API OpenRouter a été fuitée dans un dossier de backup (`backups/freemium_...`), provoquant la révocation automatique des clés du projet par Google.
+- **Action** : 
+    - Suppression du dossier de backup compromis.
+    - Mise à jour du `.gitignore` pour bloquer récursivement tous les fichiers `.env` (`**/.env`).
+- **Rationale** : Sécuriser le dépôt et stopper la détection de fuite par les scanners Google.
+
+### 2. 🤖 IA : Stratégie "Triple Fallback" (v21) [APPLIQUÉ]
+- **Problème** : Clé Gemini principale marquée comme "leaked" et désactivée.
+- **Correction** : 
+    - Implémentation d'un **Triple Fallback** dans `fetchQuoteData`.
+    - Si la clé Gemini échoue (403/Leaked), le système tente automatiquement d'utiliser la **GOOGLE_POLLEN_API_KEY** comme clé de secours pour appeler Gemini.
+    - Correction du nom du modèle de repli pour éviter les erreurs 404.
+- **Slot** : Passage en **v21** pour forcer un nouvel essai immédiat et ignorer les erreurs de cache de la veille.
+- **Pourquoi ?** : Assurer la continuité du service même si la clé principale est temporairement grillée, en exploitant les autres clés valides du projet.

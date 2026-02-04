@@ -1,0 +1,1146 @@
+import React, { createContext, useState, useEffect } from 'react';
+import { auth, db, functions } from '../firebase';
+import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
+import { getMessaging, getToken, onMessage } from "firebase/messaging"; // Import Messaging
+import { doc, onSnapshot, getFirestore, enableIndexedDbPersistence, collection, writeBatch, Timestamp, GeoPoint, getDoc, setDoc, query, orderBy, limit, addDoc, serverTimestamp } from "firebase/firestore";
+import { httpsCallable } from 'firebase/functions';
+import { Language, Unit, WeatherData, CommunityReport, SearchResult, DailyQuote, UserTier } from '../types';
+import { TRANSLATIONS } from '../constants';
+
+interface AppContextType {
+  language: Language;
+  setLanguage: (lang: Language) => void;
+  unit: Unit;
+  setUnit: (unit: Unit) => void;
+  location: { lat: number; lng: number } | null;
+  userPosition: { lat: number; lng: number } | null;
+  cityName: string;
+  updateLocation: (lat: number, lng: number, name?: string, country?: string, source?: 'gps' | 'manual') => void;
+  weather: WeatherData | null;
+  loadingWeather: boolean;
+  communityReports: CommunityReport[];
+  addReport: (conditions: string[], details?: { snowLevel?: number, avalancheRisk?: number, visibilityDist?: number, isoLimit?: number, windExposure?: 'ridge' | 'valley' }) => Promise<{ gain: number, rank: number }>;
+  searchCity: (query: string) => Promise<SearchResult[]>;
+  majorCitiesWeather: any[];
+  alertsCount: number;
+  dailyQuote: DailyQuote | null;
+  t: (key: string) => string;
+  requestNotifications: () => Promise<void>;
+  notificationsEnabled: boolean;
+  testPush: () => Promise<void>;
+  lastNotification: { title: string, body: string, data?: any } | null;
+  user: User | null;
+  userTier: UserTier;
+  userPlan: string;
+  userExpiresAt: Date | null; // Added field
+  simulateSubscription: (tier: UserTier) => Promise<void>;
+  showPremium: boolean;
+  setShowPremium: (show: boolean) => void;
+  notificationsHistory: { title: string, body: string, data?: any, timestamp: number }[];
+}
+
+export const AppContext = createContext<AppContextType | undefined>(undefined);
+
+// ... (Major Cities Arrays kept as is) ...
+// (Skipping to AppProvider implementation for brevity in tool input, but must safeguard surrounding code)
+// WAIT, I need to match valid replacement block.
+
+// Let's target the interface and AppProvider start.
+// AND the state/useEffect.
+
+// Actually I will do it in 2 chunks to be safe if file is huge between interface and provider.
+// But here they are close.
+// I will just replace the Interface and then the State/Effect part separately.
+
+// Chunk 1: Interface
+// Chunk 2: State & Effect
+
+
+// Database of major cities by country (Expanded)
+const COUNTRY_MAJOR_CITIES: Record<string, { name: string, lat: number, lng: number }[]> = {
+  "France": [
+    { name: "Paris", lat: 48.8566, lng: 2.3522 },
+    { name: "Lyon", lat: 45.7640, lng: 4.8357 },
+    { name: "Marseille", lat: 43.2965, lng: 5.3698 },
+    { name: "Bordeaux", lat: 44.8378, lng: -0.5792 },
+    { name: "Nice", lat: 43.7102, lng: 7.2620 }
+  ],
+  "United Kingdom": [
+    { name: "London", lat: 51.5074, lng: -0.1278 },
+    { name: "Manchester", lat: 53.4808, lng: -2.2426 },
+    { name: "Birmingham", lat: 52.4862, lng: -1.8904 },
+    { name: "Edinburgh", lat: 55.9533, lng: -3.1883 }
+  ],
+  "Belgium": [
+    { name: "Brussels", lat: 50.8503, lng: 4.3517 },
+    { name: "Antwerp", lat: 51.2194, lng: 4.4025 },
+    { name: "Liège", lat: 50.6326, lng: 5.5797 }
+  ],
+  "Switzerland": [
+    { name: "Zurich", lat: 47.3769, lng: 8.5417 },
+    { name: "Geneva", lat: 46.2044, lng: 6.1432 },
+    { name: "Bern", lat: 46.9480, lng: 7.4474 },
+    { name: "Basel", lat: 47.5596, lng: 7.5886 }
+  ],
+  "Germany": [
+    { name: "Berlin", lat: 52.5200, lng: 13.4050 },
+    { name: "Munich", lat: 48.1351, lng: 11.5820 },
+    { name: "Hamburg", lat: 53.5511, lng: 9.9937 }
+  ],
+  "Italy": [
+    { name: "Rome", lat: 41.9028, lng: 12.4964 },
+    { name: "Milan", lat: 45.4642, lng: 9.1900 },
+    { name: "Naples", lat: 40.8518, lng: 14.2681 }
+  ],
+  "Spain": [
+    { name: "Madrid", lat: 40.4168, lng: -3.7038 },
+    { name: "Barcelona", lat: 41.3851, lng: 2.1734 },
+    { name: "Seville", lat: 37.3891, lng: -5.9845 }
+  ],
+  "Netherlands": [
+    { name: "Amsterdam", lat: 52.3676, lng: 4.9041 },
+    { name: "Rotterdam", lat: 51.9244, lng: 4.4777 },
+    { name: "The Hague", lat: 52.0705, lng: 4.3007 }
+  ],
+  "Vietnam": [
+    { name: "Hanoi", lat: 21.0285, lng: 105.8542 },
+    { name: "Ho Chi Minh City", lat: 10.8231, lng: 106.6297 },
+    { name: "Da Nang", lat: 16.0544, lng: 108.2022 }
+  ],
+  "Thailand": [
+    { name: "Bangkok", lat: 13.7563, lng: 100.5018 },
+    { name: "Chiang Mai", lat: 18.7883, lng: 98.9853 },
+    { name: "Phuket", lat: 7.8804, lng: 98.3923 }
+  ],
+  "Canada": [
+    { name: "Toronto", lat: 43.6510, lng: -79.3470 },
+    { name: "Vancouver", lat: 49.2827, lng: -123.1207 },
+    { name: "Montreal", lat: 45.5017, lng: -73.5673 }
+  ],
+  "Australia": [
+    { name: "Sydney", lat: -33.8688, lng: 151.2093 },
+    { name: "Melbourne", lat: -37.8136, lng: 144.9631 },
+    { name: "Brisbane", lat: -27.4698, lng: 153.0251 }
+  ],
+  "USA": [
+    { name: "New York", lat: 40.7128, lng: -74.0060 },
+    { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
+    { name: "Chicago", lat: 41.8781, lng: -87.6298 }
+  ]
+};
+
+const GLOBAL_MAJOR_CITIES = [
+  { name: "London", lat: 51.5074, lng: -0.1278 },
+  { name: "New York", lat: 40.7128, lng: -74.0060 },
+  { name: "Tokyo", lat: 35.6762, lng: 139.6503 },
+  { name: "Paris", lat: 48.8566, lng: 2.3522 },
+  { name: "Sydney", lat: -33.8688, lng: 151.2093 },
+  { name: "Darjeeling", lat: 27.0360, lng: 88.2627 },
+  { name: "Genève", lat: 46.2044, lng: 6.1432 }
+];
+
+export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
+  const [language, setLanguageState] = useState<Language>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('wise_weather_language');
+      if (saved === 'en' || saved === 'fr') return saved;
+      return navigator.language.startsWith('fr') ? 'fr' : 'en';
+    }
+    return 'en';
+  });
+
+  const setLanguage = (lang: Language) => {
+    setLanguageState(lang);
+    localStorage.setItem('wise_weather_language', lang);
+  };
+  const [unit, setUnit] = useState<Unit>('celsius');
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [cityName, setCityName] = useState('Current Location');
+  const [currentCountry, setCurrentCountry] = useState<string>('');
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [loadingWeather, setLoadingWeather] = useState(false);
+  const [communityReports, setCommunityReports] = useState<CommunityReport[]>([]);
+  const [majorCitiesWeather, setMajorCitiesWeather] = useState<any[]>([]);
+  const [alertsCount, setAlertsCount] = useState(0);
+  const [dailyQuote, setDailyQuote] = useState<DailyQuote | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [lastNotification, setLastNotification] = useState<{ title: string, body: string, data?: any } | null>(null);
+  const [userTier, setUserTier] = useState<UserTier>(UserTier.FREE);
+  const [userPlan, setUserPlan] = useState<string>(''); // Default empty
+  const [userExpiresAt, setUserExpiresAt] = useState<Date | null>(null); // State for expiration
+  const [showPremium, setShowPremium] = useState(false);
+  const [notificationsHistory, setNotificationsHistory] = useState<{ title: string, body: string, data?: any, timestamp: number }[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('wise_notifications_history');
+        // Filter on load
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
+          return parsed.filter((n: any) => n.timestamp > twelveHoursAgo);
+        }
+      } catch (e) { }
+    }
+    return [];
+  });
+
+  const simulateSubscription = async (tier: UserTier) => {
+    console.log("Simulating subscription to:", tier);
+    setUserTier(tier);
+    if (user) {
+      try {
+        await setDoc(doc(db, "users", user.uid), { tier }, { merge: true });
+        console.log("Tier persisted to Firestore for user:", user.uid);
+      } catch (e) {
+        console.error("Failed to persist tier:", e);
+      }
+    }
+  };
+
+  const t = (key: string) => TRANSLATIONS[language][key] || key;
+
+  // 1. Authentication
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) {
+        signInAnonymously(auth).catch((error) => {
+          console.error("Auth failed", error);
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Helper to register token with server
+  // Sync User Subscription Tier from Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const unsub = onSnapshot(doc(db, "users", user.uid), (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const data = docSnapshot.data();
+        if (data.tier) {
+          console.log("Synced tier from Firestore:", data.tier);
+
+          // CRITICAL FIX: Normalize tier case (Firestore might have "Ultimate" instead of "ULTIMATE")
+          const normalizedTier = data.tier.toUpperCase();
+          setUserTier(normalizedTier as UserTier);
+        }
+        if (data.plan) {
+          setUserPlan(data.plan);
+        }
+        if (data.expiresAt) {
+          // Handle Firestore Timestamp
+          const d = data.expiresAt instanceof Timestamp ? data.expiresAt.toDate() : new Date(data.expiresAt);
+          setUserExpiresAt(d);
+        } else {
+          setUserExpiresAt(null);
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [user]);
+
+  // 1b. Sync Notification History from Firestore (Background Alerts)
+  useEffect(() => {
+    if (!user) return;
+
+    // Last 12 Hours
+    const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
+
+    // Query Firestore
+    const q = query(
+      collection(db, "users", user.uid, "notifications"),
+      orderBy("timestamp", "desc"),
+      limit(20) // Safety limit
+    );
+
+    const formatNotif = (doc: any) => ({
+      title: doc.data().title,
+      body: doc.data().body,
+      data: doc.data().data,
+      timestamp: doc.data().timestamp
+    });
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const serverNotifs = snapshot.docs
+        .map(formatNotif)
+        .filter((n: any) => n.timestamp > twelveHoursAgo);
+
+      if (serverNotifs.length > 0) {
+
+        // Check for VERY RECENT weather alert (< 15 min) to force refresh if coming from background
+        const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+        const recentWeatherAlert = serverNotifs.find((n: any) =>
+          n.timestamp > fifteenMinutesAgo &&
+          (n.data?.type === 'weather_alert' || n.data?.type === 'weather_forecast')
+        );
+
+        if (recentWeatherAlert && location) {
+          console.log("Found recent weather alert from background sync. Refreshing weather...", recentWeatherAlert);
+          fetchWeather(location.lat, location.lng);
+        }
+
+        setNotificationsHistory(current => {
+          // Merge Server + Local, deduplicate by timestamp + title
+          const combined = [...serverNotifs, ...current];
+          const unique = combined.filter((item, index, self) =>
+            index === self.findIndex((t) => (
+              t.timestamp === item.timestamp && t.title === item.title
+            ))
+          );
+          // Re-sort and re-filter
+          return unique
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .filter(n => n.timestamp > twelveHoursAgo);
+        });
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const fetchWeather = React.useCallback(async (lat: number, lng: number) => {
+    setLoadingWeather(true);
+    try {
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility,precipitation&hourly=temperature_2m,weather_code,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&past_days=1&forecast_days=2`
+      );
+      const data = await res.json();
+
+      // Fetch Air Quality from WAQI
+      let aqiValue = undefined;
+      try {
+        const aqiRes = await fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`);
+        const aqiData = await aqiRes.json();
+        if (aqiData.status === 'ok') {
+          aqiValue = aqiData.data.aqi;
+        }
+      } catch (e) {
+        console.error("AQI fetch failed", e);
+      }
+
+      // Fetch Pollen & Air Quality Details
+      let pollenData = undefined;
+      let airDetails = undefined;
+      let hourlyAir = undefined;
+      let hourlyEuropeanAqi: number[] | undefined = undefined;
+
+      try {
+        // Optimization: Pollen Cache (3 fresh updates: 6am, 11am, 5pm)
+        const now = new Date();
+        const hour = now.getHours();
+
+        let effectiveDate = new Date(now);
+        // Shift logic: Before 6am, we use yesterday's data
+        if (hour < 6) {
+          effectiveDate.setDate(now.getDate() - 1);
+        }
+
+        // Robust YYYY-MM-DD construction (No Intl dependency)
+        const year = effectiveDate.getFullYear();
+        const month = String(effectiveDate.getMonth() + 1).padStart(2, '0');
+        const day = String(effectiveDate.getDate()).padStart(2, '0');
+        const dateKey = `${year}-${month}-${day}`;
+
+        let timeSlot = '';
+        if (hour < 6) timeSlot = 'evening_5pm'; // Previous day evening
+        else if (hour < 11) timeSlot = 'morning_6am';
+        else if (hour < 17) timeSlot = 'noon_11am';
+        else timeSlot = 'evening_5pm';
+
+        const cacheKey = `wise_pollen_v5_${dateKey}_${timeSlot}_${lat.toFixed(2)}_${lng.toFixed(2)}`;
+
+        let pollenPromise: Promise<any>;
+        const cachedPollen = localStorage.getItem(cacheKey);
+
+        if (cachedPollen) {
+          console.log("Using cached pollen data");
+          pollenPromise = Promise.resolve({ success: true, data: JSON.parse(cachedPollen) });
+        } else {
+          pollenPromise = (async () => {
+            try {
+              const fn = httpsCallable(functions, 'getPollenForecast');
+              // Pass language for localized results
+              const res = await fn({ lat, lng, lang: language });
+              const result = res.data as any;
+              if (result.success && result.data) {
+                localStorage.setItem(cacheKey, JSON.stringify(result.data));
+              }
+              return result;
+            } catch (e) {
+              console.error("Google Pollen Cloud Function Failed:", e);
+              return { success: false, error: e instanceof Error ? e.message : 'Detailed Fetch Error' };
+            }
+          })();
+        }
+
+        // Parallel: Fetch Air Quality (Open-Meteo) and Pollen
+        const [airRes, pollenResult] = await Promise.all([
+          fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`),
+          pollenPromise
+        ]);
+
+        const airJson = await airRes.json();
+
+        // Process Air Quality
+        if (airJson.current) {
+          // USER REQUEST: Use Open-Meteo US AQI (same as graph) for Dashboard consistency
+          // Overwrites WAQI if available
+          if (airJson.current.us_aqi !== undefined) {
+            aqiValue = airJson.current.us_aqi;
+          }
+
+          airDetails = {
+            pm2_5: airJson.current.pm2_5,
+            pm10: airJson.current.pm10,
+            no2: airJson.current.nitrogen_dioxide,
+            o3: airJson.current.ozone
+          };
+        }
+        if (airJson.hourly) {
+          hourlyAir = {
+            time: airJson.hourly.time,
+            pm2_5: airJson.hourly.pm2_5,
+            pm10: airJson.hourly.pm10,
+            no2: airJson.hourly.nitrogen_dioxide,
+            o3: airJson.hourly.ozone
+          };
+          hourlyEuropeanAqi = airJson.hourly.us_aqi;
+        }
+
+        // Process Pollen (Google API - Dynamic)
+        if (pollenResult && pollenResult.success && pollenResult.data && pollenResult.data.items) {
+          // We have a dynamic list of items. We need to store this for the UI.
+          // For mapping to the 'old' schema (the pill in the dashboard), we try to extract common types.
+          // But mostly we attach the raw items to be used in the Modal.
+
+          const items = pollenResult.data.items;
+
+          // Legacy Mapping for Dashboard Pill (Dominant Type logic)
+          const getVal = (code: string) => items.find((i: any) => i.code === code)?.value || 0;
+
+          pollenData = {
+            alder: getVal('ALDER'),
+            birch: getVal('BIRCH'),
+            grass: getVal('GRASS'),
+            ragweed: getVal('RAGWEED'),
+            olive: getVal('OLIVE'),
+            mugwort: getVal('MUGWORT'),
+            // Attach the full list for the Modal
+            _dynamicItems: items
+          } as any;
+
+        } else if (pollenResult && pollenResult.success && pollenResult.data && !pollenResult.data.items) {
+          // Handle legacy cache format (v3/v2) if any slips through (unlikely with v4 key)
+          pollenData = pollenResult.data;
+        } else {
+          console.warn("Pollen data unavailable (or Error).");
+          pollenData = {
+            alder: 0, birch: 0, grass: 0, ragweed: 0, olive: 0, mugwort: 0,
+            _dynamicItems: [],
+            _error: pollenResult?.error || "Unknown Error" // Pass error to UI
+          } as any;
+        }
+
+      } catch (e) {
+        console.error("Pollen/Air fetch failed", e);
+      }
+
+      // Find current hour index for UV
+      // FIX: Use API's current time (Local) instead of System UTC time to avoid timezone mismatch
+      // data.current.time is "YYYY-MM-DDTHH:mm" in Local Time (due to timezone=auto).
+      // data.hourly.time is "YYYY-MM-DDTHH:00" in Local Time.
+      const currentApiTime = data.current.time as string;
+      const currentHourPrefix = currentApiTime.slice(0, 13); // Match YYYY-MM-DDTHH
+      let hourIndex = data.hourly.time.findIndex((t: string) => t.startsWith(currentHourPrefix));
+
+      // CRITICAL FIX: If hour not found, use a safe fallback (middle of array)
+      if (hourIndex === -1) {
+        hourIndex = Math.floor(data.hourly.time.length / 2);
+      }
+
+      // Get UV from hourly data
+      let currentUV = data.hourly.uv_index ? data.hourly.uv_index[hourIndex] : 0;
+
+      // CRITICAL FIX: UV CANNOT exist at night! Force to 0 if isDay=0
+      if (data.current.is_day === 0) {
+        currentUV = 0;
+      }
+
+      const mappedWeather: WeatherData = {
+        current: {
+          temperature: data.current.temperature_2m,
+          weatherCode: data.current.weather_code,
+          windSpeed: data.current.wind_speed_10m,
+          isDay: data.current.is_day,
+          relativeHumidity: data.current.relative_humidity_2m,
+          visibility: data.current.visibility,
+          aqi: aqiValue,
+          uvIndex: currentUV,
+          pollen: pollenData,
+          airQualityDetails: airDetails,
+          precipitation: data.current.precipitation
+        },
+        hourly: {
+          time: data.hourly.time,
+          temperature_2m: data.hourly.temperature_2m,
+          weather_code: data.hourly.weather_code,
+          uv_index: data.hourly.uv_index,
+          european_aqi: hourlyEuropeanAqi
+        },
+        daily: {
+          temperature_2m_max: data.daily.temperature_2m_max,
+          temperature_2m_min: data.daily.temperature_2m_min,
+          sunrise: data.daily.sunrise,
+          sunset: data.daily.sunset,
+          time: data.daily.time
+        },
+        hourlyAirQuality: hourlyAir,
+        yesterday: {
+          tempMax: data.daily.temperature_2m_max ? data.daily.temperature_2m_max[0] : undefined,
+          weatherCode: data.daily.weather_code ? data.daily.weather_code[0] : undefined,
+          details: (data.hourly && data.hourly.temperature_2m) ? {
+            morning: { temp: data.hourly.temperature_2m[8], code: data.hourly.weather_code[8] },
+            noon: { temp: data.hourly.temperature_2m[13], code: data.hourly.weather_code[13] },
+            evening: { temp: data.hourly.temperature_2m[19], code: data.hourly.weather_code[19] }
+          } : undefined
+        }
+      };
+      setWeather(mappedWeather);
+
+      if (data.current.weather_code >= 95 || data.current.wind_speed_10m > 80) {
+        setAlertsCount(prev => prev + 1);
+      } else {
+        setAlertsCount(0);
+      }
+    } catch (error) {
+      console.error("Weather fetch failed", error);
+    } finally {
+      setLoadingWeather(false);
+    }
+  }, [language]);
+
+  // Force sync on App Resume (Auto-Refresh Subscription & Data)
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        console.log("App resumed. Checking updates...");
+
+        // 1. Refresh Weather Data (if location is set)
+        if (location) {
+          console.log("Refreshing weather data...");
+          fetchWeather(location.lat, location.lng);
+        }
+
+        // 2. Refresh Subscription
+        if (user) {
+          try {
+            const snap = await getDoc(doc(db, "users", user.uid));
+            if (snap.exists()) {
+              const data = snap.data();
+              if (data.tier && data.tier !== userTier) {
+                console.log("Updated tier detected on resume:", data.tier);
+                setUserTier(data.tier as UserTier);
+                // Simple feedback to confirm activation
+                const msg = language === 'fr' ? "Abonnement activé ! Bienvenue." : "Subscription activated! Welcome.";
+                alert(msg);
+              }
+            }
+          } catch (e) {
+            console.error("Error refreshing profile:", e);
+          }
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [user, userTier, language, location, fetchWeather]);
+
+  const registerForPushNotifications = async (loc?: { lat: number, lng: number }) => {
+    const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+    if (!vapidKey) {
+      console.warn("VITE_FIREBASE_VAPID_KEY is missing. Push notifications disabled.");
+      return;
+    }
+
+    try {
+      const messaging = getMessaging();
+      const token = await getToken(messaging, { vapidKey });
+
+      if (token && loc) {
+        console.log("FCM Token retrieved, updating with location:", token, loc);
+        // Subscribe via Cloud Function
+        try {
+          const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
+          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          // Inject language state into subscription
+          // Use 'user' state logic to avoid auth race conditions
+          const userId = user ? user.uid : (auth.currentUser?.uid || null);
+          console.log("Registering push with UserId:", userId);
+          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng, language: language, userId });
+          console.log("Subscribed/Updated notifications on server.");
+        } catch (subError) {
+          console.error("Subscription Cloud Function Error", subError);
+        }
+
+        // Also save to user doc for good measure (if logged in)
+        if (auth.currentUser) {
+          await setDoc(doc(db, 'users', auth.currentUser.uid), {
+            fcmToken: token,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            notificationsEnabled: true
+          }, { merge: true });
+        }
+      } else {
+        // If no location yet, we might skip sending to server until we have it?
+        // Or send without location (just timezone)?
+        // The new logic REQUIRES location for weather alerts.
+        // But works for Quotes without it.
+        if (token && !loc) {
+          // Register just for quotes
+          const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
+          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const userId = auth.currentUser?.uid || null;
+          await subscribeFn({ token, timezone: timeZone, userId });
+        }
+      }
+    } catch (error) {
+      console.error("Error registering for push notifications:", error);
+    }
+  };
+
+  // Check notification permission on load & sync token
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === 'granted' && location) {
+      console.log("Notification permission granted. Syncing token with location...");
+      setNotificationsEnabled(true);
+      registerForPushNotifications(location);
+    }
+  }, [location, language, user]); // Re-run when location, language, OR user changes (to bind userId)
+
+  // 2. Real-time Reports Sync
+  useEffect(() => {
+    // We fetch a bit more history to be safe, but we will filter strictest client-side
+    const q = query(collection(db, "reports"), orderBy("timestamp", "desc"), limit(100));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const now = Date.now();
+      // FIX: Increase retention to 6 Hours for the Community Table
+      const SIX_HOURS = 6 * 60 * 60 * 1000;
+
+      const reports = snapshot.docs.map(doc => {
+        const data = doc.data();
+        // Handle Timestamp
+        const time = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : Date.now();
+
+        return {
+          id: doc.id,
+          ...data,
+          timestamp: time
+        } as CommunityReport;
+      }).filter(report => {
+        // FILTER: Keep reports from the last 6 HOURS (for Table)
+        // The Map will do its own stricter 1-hour filtering
+        return (now - report.timestamp) < SIX_HOURS;
+      });
+
+      setCommunityReports(reports);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 3. Request Notifications (IMPLEMENTED)
+  const requestNotifications = async () => {
+    try {
+      if (!("Notification" in window)) {
+        console.log("This browser does not support desktop notification");
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        console.log("Notification permission granted.");
+        setNotificationsEnabled(true);
+        await registerForPushNotifications(location || undefined);
+      }
+    } catch (e) {
+      console.error("Error asking for notification permission", e);
+    }
+  };
+
+  const testPush = async () => {
+    try {
+      if (!("Notification" in window)) {
+        alert(t('alert.push_error_ios'));
+        return;
+      }
+
+      if (!("serviceWorker" in navigator)) {
+        alert("Erreur: Service Workers non supportés par ce navigateur.");
+        return;
+      }
+
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      const messaging = getMessaging();
+
+      // Explicitly wait for SW ready to ensure context is safe
+      const registration = await navigator.serviceWorker.ready;
+      const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
+
+      console.log("Triggering test push for token:", token);
+
+      alert("Test Push: Envoi en cours... (Patientez 5s)");
+
+      // Trigger quote notification for testing with SPECIFIC token
+      await fetch(`https://triggertestnotification-pbcynnoobq-uc.a.run.app?type=quote&token=${token}`);
+      console.log("Test notification trigger sent.");
+      alert("Test Push: Envoyé ! Vérifiez vos notifications.");
+    } catch (e) {
+      console.error("Failed to trigger test notification", e);
+      alert("Test Push Error: " + e);
+    }
+  };
+
+  // Foreground Listener
+  useEffect(() => {
+    try {
+      const messaging = getMessaging();
+      const unsubscribe = onMessage(messaging, (payload) => {
+        console.log('Foreground Message:', payload);
+
+        // 1. UPDATE UI
+        setLastNotification({
+          title: payload.notification?.title || "New Message",
+          body: payload.notification?.body || "",
+          data: payload.data
+        });
+
+        // 2. REFRESH WEATHER (If it's a weather alert)
+        if (location && (payload.data?.type === 'weather_alert' || payload.data?.type === 'weather_forecast')) {
+          console.log("Weather Alert received in foreground! Force refreshing weather data...");
+          fetchWeather(location.lat, location.lng);
+        }
+
+        // Add to History
+        const newNotif = {
+          title: payload.notification?.title || "New Message",
+          body: payload.notification?.body || "",
+          data: payload.data,
+          timestamp: Date.now()
+        };
+        setNotificationsHistory(prev => {
+          const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
+          const updated = [newNotif, ...prev].filter(n => n.timestamp > twelveHoursAgo);
+          localStorage.setItem('wise_notifications_history', JSON.stringify(updated));
+          return updated;
+        });
+
+        // Auto-dismiss after 15 seconds (enough to read quotes)
+        setTimeout(() => setLastNotification(null), 15000);
+      });
+      return () => unsubscribe && unsubscribe(); // unsubscribe might be void or function
+    } catch (e) {
+      // May fail if not supported or blocked
+      console.log("Foreground messaging not supported/ready");
+    }
+  }, []);
+
+
+  // 4. Quote Generation (Cloud Function)
+  useEffect(() => {
+    const generateQuote = async () => {
+      const now = new Date();
+
+      // CRITICAL FIX: Use SINGLE daily slot aligned with backend (all-day-v6)
+      // This prevents multiple quotes per day
+      const dateKey = now.toISOString().split("T")[0]; // YYYY-MM-DD format
+      const slotKey = `${dateKey}-all-day-v6`;
+
+      // Check Cache (Updated to v3 to NUKE persisting garbage)
+      // Force clear old keys
+      localStorage.removeItem('wise_weather_quote_mistral');
+
+      const cachedData = localStorage.getItem('wise_weather_quote_v3');
+      if (cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          const isFallback = parsed.quote?.en?.author === "Eleanor Roosevelt" || parsed.quote?.en?.author === "Seneca";
+
+          if (parsed.slotKey === slotKey && parsed.quote && !isFallback) {
+            setDailyQuote(parsed.quote);
+            return;
+          } else if (isFallback) {
+            console.log("Cached quote is fallback/placeholder. Forcing refresh.");
+          }
+        } catch (e) { }
+      }
+
+      // Check Manifest Accessibility (Debug for Notifications)
+      fetch('/manifest.json').then(r => {
+        // if (!r.ok) alert("DEBUG: manifest.json missing! (" + r.status + ")");
+      }).catch(e => { /* alert("DEBUG: manifest fetch error: " + e) */ });
+
+      // Call Cloud Function
+      try {
+        const generateQuoteFn = httpsCallable<void, any>(functions, 'generateQuote');
+        console.log("Calling generateQuote Cloud Function...");
+        const result = await generateQuoteFn();
+        const response: any = result.data; // Type assertion
+
+        if (response.success && response.data) {
+          setDailyQuote(response.data);
+          localStorage.setItem('wise_weather_quote_v3', JSON.stringify({
+            slotKey: slotKey,
+            quote: response.data
+          }));
+          console.log("Quote generated successfully:", response.data);
+        } else {
+          throw new Error(response.error || "Failed using AI model");
+        }
+      } catch (e: any) {
+        console.error("Quote generation failed (UI):", e);
+        // Alert the user about the CLIENT-SIDE error (Network, CORS, etc.)
+        // alert("DEBUG: Client-Side Fetch Error!\n" + e.message);
+
+        // Rotating Client-Side Fallback
+        const fallbackQuotes = [
+          { en: { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" }, fr: { text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.", author: "Eleanor Roosevelt" } },
+          { en: { text: "Difficulties strengthen the mind, as labor does the body.", author: "Seneca" }, fr: { text: "Les difficultés renforcent l'esprit, comme le travail renforce le corps.", author: "Sénèque" } },
+          { en: { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" }, fr: { text: "La seule façon de faire du bon travail est d'aimer ce que vous faites.", author: "Steve Jobs" } },
+          { en: { text: "Happiness depends upon ourselves.", author: "Aristotle" }, fr: { text: "Le bonheur dépend de nous-mêmes.", author: "Aristote" } },
+          { en: { text: "The happiness of your life depends upon the quality of your thoughts.", author: "Marcus Aurelius" }, fr: { text: "Le bonheur de votre vie dépend de la qualité de vos pensées.", author: "Marc Aurèle" } }
+        ];
+        const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
+        const fallbackQuote = fallbackQuotes[dayOfYear % fallbackQuotes.length];
+
+        setDailyQuote(fallbackQuote);
+
+        // Cache fallback
+        localStorage.setItem('wise_weather_quote_v3', JSON.stringify({
+          slotKey: slotKey,
+          quote: fallbackQuote
+        }));
+      }
+    };
+    generateQuote();
+  }, []);
+
+  const updateLocation = (lat: number, lng: number, name?: string, country?: string, source: 'gps' | 'manual' = 'manual') => {
+    setLocation({ lat, lng });
+    if (name) setCityName(name);
+
+    if (source === 'gps') {
+      setUserPosition({ lat, lng });
+      if (!name) {
+        // Dynamic fetch with language preference
+        const langParam = language === 'fr' ? 'fr' : 'en';
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=${langParam}`)
+          .then(res => res.json())
+          .then(data => {
+            const addr = data.address || {};
+
+            // 0. DATA NORMALIZATION (Aggressive Fix for Da Nang context)
+            // Search ANYWHERE in the address object for "Da Nang"
+            const fullAddrStr = JSON.stringify(addr).toLowerCase();
+            let mainCity = addr.city || addr.town || addr.municipality;
+
+            // Major City Override
+            // If the address contains Da Nang/Hanoi/HCM anywhere (state, ISO code via fullStr, etc.), force it as Main City.
+            // "vn-dn" is the ISO code for Da Nang.
+            if (fullAddrStr.includes("da nang") || fullAddrStr.includes("đà nẵng") || fullAddrStr.includes("vn-dn")) {
+              mainCity = "Da Nang";
+            } else if (fullAddrStr.includes("ha noi") || fullAddrStr.includes("hà nội") || fullAddrStr.includes("vn-hn")) {
+              mainCity = "Hanoi";
+            } else if (fullAddrStr.includes("ho chi minh") || fullAddrStr.includes("hồ chí minh") || fullAddrStr.includes("vn-sg")) {
+              mainCity = "Ho Chi Minh City";
+            }
+
+            // GLOBAL NAMING SYSTEM (Universal Hierarchy: Parent > Child)
+
+            // 2. "Micro" Entity (The District/Suburb/Village)
+            const subArea = addr.suburb || addr.quarter || addr.neighbourhood || addr.district || addr.hamlet || addr.village;
+
+            let finalName = "";
+
+            if (mainCity) {
+              // We have a major city/merged-city. Use it as primary.
+              finalName = mainCity;
+              // If we have a precision (District/Ward) that is different string-wise, append it.
+              // Logic Update: If mainCity IS the subArea (Nominatim weirdness where city="phường..."), 
+              // we don't want "Da Nang (Da Nang)". 
+              // But here mainCity is forced to "Da Nang". 
+              // The original `city` from JSON was "phường ngũ hành sơn".
+              // So we should check if that original city matches the subArea or if we can extract it.
+
+              // Actually, in the user's case: city="phường ngũ hành sơn". subArea might be undefined in that JSON!
+              // Let's re-read the DEBUG JSON: {"city":"phường ngũ hành sơn", ...} -> subArea is undefined!
+              // So `subArea` variable will be undefined.
+              // IF `subArea` is undefined, we should fallback to checking if `addr.city` looks like a district when we have forced mainCity.
+
+              let effectiveSubArea = subArea;
+              if (!effectiveSubArea && mainCity !== addr.city && addr.city) {
+                // If we forced mainCity (to Da Nang) AND the original 'city' field exists but is different (e.g. "phường..."),
+                // treat the original 'city' field as the sub-area.
+                effectiveSubArea = addr.city;
+              }
+
+              if (effectiveSubArea && !mainCity.toLowerCase().includes(effectiveSubArea.toLowerCase())) {
+                finalName += ` (${effectiveSubArea})`;
+              }
+            } else {
+              // Rural: Fallback to SubArea or State if nothing else
+              finalName = subArea || addr.state || "Unknown Location";
+            }
+
+            const ctry = addr.country;
+
+            setCityName(finalName);
+            if (ctry) {
+              setCurrentCountry(ctry);
+            }
+          });
+      } else if (country) {
+        setCurrentCountry(country);
+        // fetchMajorCitiesForCountry(country);
+      }
+    }
+  };
+
+  const fetchNearbyMajorCities = async (userLat: number, userLng: number, countryName?: string) => {
+    let candidateCities: { name: string, lat: number, lng: number }[] = [];
+    let countryFound = false;
+
+    // 1. Try to filter by Country first (User Preference)
+    if (countryName) {
+      const normalizedInput = countryName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+
+      for (const key of Object.keys(COUNTRY_MAJOR_CITIES)) {
+        const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+        // "vietnam" includes "nam" -> careful. stick to strict inclusion or equality if possible. 
+        // Better: check if one includes the other is usually robust enough for country names.
+        if (normalizedInput.includes(normalizedKey) || normalizedKey.includes(normalizedInput)) {
+          candidateCities = COUNTRY_MAJOR_CITIES[key];
+          countryFound = true;
+          break;
+        }
+      }
+    }
+
+    // 2. If no country match, Fallback to ALL cities (Distance based)
+    if (!countryFound) {
+      Object.values(COUNTRY_MAJOR_CITIES).forEach(cities => candidateCities.push(...cities));
+    }
+
+    // 3. Calculate distances and sort
+    const sortedByDistance = candidateCities.map(city => {
+      const dLat = city.lat - userLat;
+      const dLng = city.lng - userLng;
+      const distSq = (dLat * dLat) + (dLng * dLng);
+      return { ...city, distSq };
+    }).sort((a, b) => a.distSq - b.distSq);
+
+    // 4. Take closest 4
+    const closestCities = sortedByDistance.slice(0, 4);
+
+    // 5. Always include Global Major Cities
+    const combinedCities = [...GLOBAL_MAJOR_CITIES];
+
+    // 6. Merge Closer Cities (Deduplicate)
+    closestCities.forEach(city => {
+      if (!combinedCities.find(existing => existing.name === city.name)) {
+        combinedCities.push(city);
+      }
+    });
+
+    // 7. Fetch Weather
+    const promises = combinedCities.map(async (city) => {
+      try {
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current=temperature_2m,is_day,weather_code&timezone=auto`);
+        const data = await res.json();
+        return { ...city, temp: data.current.temperature_2m, code: data.current.weather_code, isDay: data.current.is_day };
+      } catch (e) { return null; }
+    });
+
+    const results = await Promise.all(promises);
+    setMajorCitiesWeather(results.filter(c => c !== null));
+  };
+
+  // UseEffect for Major Cities (Location & Country)
+  useEffect(() => {
+    if (location) {
+      fetchNearbyMajorCities(location.lat, location.lng, currentCountry);
+    } else {
+      // Default center fallback
+      fetchNearbyMajorCities(48.8566, 2.3522, "France");
+    }
+  }, [location, currentCountry]);
+
+
+  const searchCity = async (query: string): Promise<SearchResult[]> => {
+    try {
+      const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`);
+      const data = await res.json();
+      if (!data.results) return [];
+      return data.results.map((r: any) => ({
+        id: r.id, name: r.name, country: r.country, latitude: r.latitude, longitude: r.longitude
+      }));
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  };
+
+
+
+  // Add Report to Firestore
+  const addReport = async (conditions: string[], details?: { snowLevel?: number, avalancheRisk?: number, visibilityDist?: number, isoLimit?: number, windExposure?: 'ridge' | 'valley' }): Promise<{ gain: number, rank: number }> => {
+    if (!location) {
+      console.error("Cannot add report: Location is missing");
+      return { gain: 0, rank: 0 };
+    }
+    const currentTemp = weather?.current?.temperature;
+
+    // Calculate Precision Gain Logic
+    // Calculate Rank (1st, 2nd, etc. for this hour/location)
+    // Calculate Rank (1st, 2nd, etc. for this active event window)
+    const now = new Date();
+
+    // Sliding window: Look at reports in the last 60 minutes
+    const ONE_HOUR = 60 * 60 * 1000;
+
+    const recentNearbyReports = communityReports.filter(r => {
+      const timeDiff = now.getTime() - r.timestamp;
+      const isNearby = Math.abs(r.lat - location.lat) < 0.1 && Math.abs(r.lng - location.lng) < 0.1;
+      return isNearby && timeDiff < ONE_HOUR;
+    });
+
+    // Rank is existing + 1
+    const rank = recentNearbyReports.length + 1;
+
+    // Fixed Progression Calculation (User Contribution Count)
+    let precisionIncrease = 12;
+    const storedCount = localStorage.getItem('user_contribution_count');
+    let count = storedCount ? parseInt(storedCount, 10) : 0;
+    count += 1;
+    localStorage.setItem('user_contribution_count', count.toString());
+
+    if (count === 1) precisionIncrease = 12;
+    else if (count === 2) precisionIncrease = 25;
+    else if (count === 3) precisionIncrease = 75;
+    else if (count === 4) precisionIncrease = 85;
+    else if (count >= 5) precisionIncrease = 100;
+
+    // --- SMART BLOCKING LOGIC ---
+    // Rule: You can report AGAIN immediately if the condition changes.
+    // You are only blocked if you report the SAME condition within 10 minutes.
+
+    const TEN_MINUTES = 10 * 60 * 1000;
+    const myRecentReports = recentNearbyReports.filter(r =>
+      r.userId === (user?.uid || 'anonymous') &&
+      (now.getTime() - r.timestamp) < TEN_MINUTES
+    );
+
+    const isSpamming = myRecentReports.some(r => {
+      const rConds = r.conditions || [];
+      // Check if conditions are identical
+      if (rConds.length !== conditions.length) return false;
+      return rConds.every(c => conditions.includes(c));
+    });
+
+    if (isSpamming) {
+      // User is spamming the same condition
+      throw new Error("ALREADY_CONTRIBUTED");
+    }
+
+    try {
+      // Extraire le nom de ville principal (sans le détail entre parenthèses)
+      const mainCityName = cityName.includes('(') ? cityName.split('(')[0].trim() : cityName;
+
+      console.log("Adding report...", conditions, location, "City:", mainCityName);
+      await addDoc(collection(db, "reports"), {
+        timestamp: serverTimestamp(),
+        conditions,
+        lat: location.lat,
+        lng: location.lng,
+        userId: user?.uid || 'anonymous',
+        cityName: mainCityName, // Stocker le nom de ville pour filtrage FREE
+        temp: currentTemp !== undefined ? currentTemp : null,
+        snowLevel: details?.snowLevel !== undefined ? details.snowLevel : null,
+        avalancheRisk: details?.avalancheRisk !== undefined ? details.avalancheRisk : null,
+        visibilityDist: details?.visibilityDist !== undefined ? details.visibilityDist : null,
+        isoLimit: details?.isoLimit !== undefined ? details.isoLimit : null,
+        windExposure: details?.windExposure !== undefined ? details.windExposure : null
+      });
+      console.log("Report added successfully! Rank:", rank, "Precision Gain:", precisionIncrease);
+      return { gain: precisionIncrease, rank: rank };
+
+    } catch (e) {
+      console.error("Error adding report", e);
+      return { gain: 0, rank: 0 };
+    }
+  };
+
+  useEffect(() => {
+    if (location) {
+      fetchWeather(location.lat, location.lng);
+    } else {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            updateLocation(position.coords.latitude, position.coords.longitude, undefined, undefined, 'gps');
+          },
+          (err) => {
+            updateLocation(48.8566, 2.3522, "Paris", "France", 'manual');
+          }
+        );
+      }
+    }
+  }, [location]);
+
+  // Auto-refresh weather data every hour to keep forecasts accurate
+  useEffect(() => {
+    if (!location) return;
+
+    const HOURLY_REFRESH = 60 * 60 * 1000; // 60 minutes in milliseconds
+    const intervalId = setInterval(() => {
+      console.log('[Weather Refresh] Auto-refreshing weather data...');
+      fetchWeather(location.lat, location.lng);
+    }, HOURLY_REFRESH);
+
+    return () => clearInterval(intervalId);
+  }, [location]);
+
+  return (
+    <AppContext.Provider value={{
+      language, setLanguage,
+      unit, setUnit,
+      location, userPosition, cityName, updateLocation,
+      weather, loadingWeather,
+      communityReports, addReport,
+      searchCity,
+      majorCitiesWeather,
+      alertsCount,
+      dailyQuote,
+      t,
+      requestNotifications,
+      notificationsEnabled,
+      testPush,
+      lastNotification,
+      user,
+      userTier,
+      userPlan,
+      userExpiresAt,
+      simulateSubscription,
+      showPremium,
+      setShowPremium,
+      notificationsHistory
+    }}>
+      {children}
+    </AppContext.Provider>
+  );
+};

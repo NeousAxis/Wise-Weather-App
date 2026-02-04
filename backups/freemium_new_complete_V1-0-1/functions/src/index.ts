@@ -1,17 +1,16 @@
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-// FORCE DEPLOY 2026-01-24 v9 - United Backend Logic (Multi-Model)
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { defineSecret } from "firebase-functions/params";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import Stripe from "stripe";
 
 initializeApp();
 
-const geminiApiKey = defineSecret("GEMINI_API_KEY");
+const openRouterApiKey = defineSecret("OPENROUTER_API_KEY_SECURE");
 const googlePollenApiKey = defineSecret("GOOGLE_POLLEN_API_KEY");
 
 /**
@@ -47,99 +46,42 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 
   const today = new Date().toDateString();
   const prompt = `Context: Today is ${today}. ` +
-    "Generate a SINGLE, SHORT inspiring quote (MAX 20 WORDS) " +
+    "Generate a SINGLE, SHORT inspiring quote (MAX 25 WORDS) " +
     `based on the theme: "${theme}". ` +
     "CRITICAL INSTRUCTIONS:\n" +
     "1. Select an inspiring author relevant to the theme. Ensure great diversity in authors (philosophers, scientists, poets, leaders, etc.).\n" +
     "2. Prioritize variety. Mix well-known quotes with deeper, " +
     "lesser-known ones to keep it fresh.\n" +
     "3. Provide the quote in both English ('en') and French ('fr').\n" +
-    "4. Return ONLY valid JSON. No markdown, no backticks, no introduction text.\n" +
+    "4. Return ONLY valid JSON. No markdown, no backticks.\n" +
     "5. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
     "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
 
-  console.log(`[DEBUG-AUTH] Received API Key. Length: ${apiKey?.length || 0}, Prefix: ${apiKey ? apiKey.substring(0, 5) : 'NULL'}`);
-
-  if (!apiKey || apiKey.trim().length < 10) {
-    console.error("Gemini API Key is invalid or too short:", apiKey?.length);
-    throw new Error("Missing or invalid GEMINI_API_KEY");
+  if (!apiKey) {
+    throw new Error("Missing OPENROUTER_API_KEY");
   }
 
-  const cleanKey = apiKey.trim();
-  const pollenKey = defineSecret("GOOGLE_POLLEN_API_KEY").value();
-
-  // --- STRATEGY: TRIPLE FALLBACK ---
-  // 1. Primary Gemini 2.0 (with GEMINI_API_KEY)
-  // 2. Secondary Gemini 1.5 (with GEMINI_API_KEY)
-  // 3. Emergency Backup (with GOOGLE_POLLEN_API_KEY if primary is blocked/leaked)
-
-  let content: string | null = null;
-  let usedModel = "gemini-2.0-flash-001";
-
-  const attemptGeneration = async (key: string, modelName: string, useMimeType: boolean) => {
-    const genAI = new GoogleGenerativeAI(key);
-    const modelParams: any = { model: modelName };
-    if (useMimeType) {
-      modelParams.generationConfig = { responseMimeType: "application/json" };
-    }
-    const model = genAI.getGenerativeModel(modelParams, { timeout: 30000 });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text();
-  };
+  const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: "https://openrouter.ai/api/v1",
+  });
 
   try {
-    console.log(`[QUOTE-GEN] Attempting generation with ${usedModel}...`);
-    content = await attemptGeneration(cleanKey, usedModel, false);
-  } catch (error: any) {
-    const isLeaked = error?.message?.includes("leaked") || error?.stack?.includes("leaked") || String(error).includes("403");
-    console.warn(`[QUOTE-GEN] Primary model ${usedModel} failed. Leaked? ${isLeaked}. Error:`, error);
+    const chatResponse = await client.chat.completions.create({
+      model: "google/gemini-2.0-flash-exp:free",
+      messages: [{ role: "user", content: prompt }],
+    });
 
-    // FALLBACK 1: Try 1.5 Flash with the same key (if not leaked or just a different error)
-    if (!isLeaked) {
-      usedModel = "gemini-1.5-flash";
-      console.log(`[QUOTE-GEN] Retrying with Fallback Model: ${usedModel}...`);
-      try {
-        content = await attemptGeneration(cleanKey, usedModel, true);
-      } catch (fallbackError) {
-        console.error(`[QUOTE-GEN] Fallback 1 ${usedModel} failed.`, fallbackError);
-      }
-    }
+    const content = chatResponse.choices[0]?.message?.content;
+    if (!content) throw new Error("No response from OpenRouter API");
 
-    // FALLBACK 2: Emergency Backup with Pollen Key (if Gemini Key is leaked or both failed)
-    if (!content && pollenKey && pollenKey.length > 10) {
-      usedModel = "gemini-1.5-flash (pollen-key)";
-      console.log(`[QUOTE-GEN] EMERGENCY: Attempting with Pollen Key...`);
-      try {
-        content = await attemptGeneration(pollenKey, "gemini-1.5-flash", true);
-      } catch (emergencyError) {
-        console.error(`[QUOTE-GEN] Emergency Fallback failed.`, emergencyError);
-      }
-    }
-  }
-
-  if (!content) throw new Error("No response content from Gemini (Primary or Fallback)");
-
-  // ROBUST PARSING V2 (Shared for both models)
-  // 1. Remove Markdown fences
-  const cleanContent = content.replace(/```json/gi, "").replace(/```/g, "").trim();
-
-  // 2. Extract JSON object
-  const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    console.error("No JSON found in response:", content);
-    throw new Error("Invalid output format from Gemini (" + usedModel + ")");
-  }
-
-  // 3. Parse with context
-  try {
-    const parsed = JSON.parse(jsonMatch[0]);
-    // Inject debug info (non-intrusive)
-    parsed._debug_model = usedModel;
-    return parsed;
-  } catch (e) {
-    console.error("JSON Parse Error. Content:", jsonMatch[0]);
-    throw new Error(`JSON Parse Failed (${usedModel}): ` + (e instanceof Error ? e.message : String(e)));
+    // Clean potential markdown blocks
+    const cleanJson = content.replace(/```json/g, "")
+      .replace(/```/g, "").trim();
+    return JSON.parse(cleanJson);
+  } catch (error) {
+    console.error("OpenRouter API Error:", error);
+    throw error;
   }
 }
 
@@ -153,7 +95,7 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
 async function getOrGenerateQuote(
   slotKey: string,
   dayOfWeek: number,
-  apiKey: string // We keep the param generic, but it's now Gemini Key
+  apiKey: string
 ) {
   const db = getFirestore();
   const docRef = db.collection("daily_quotes").doc(slotKey);
@@ -184,27 +126,79 @@ async function getOrGenerateQuote(
     (global as any).lastQuoteError = e; // Hack to pass error to return
   }
 
-  // Fallback unique (Signal de diagnostic)
-  const lastError = (global as any).lastQuoteError;
-  const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+  // Fallback if generation fails
+  const fallbackQuotes = [
+    {
+      en: {
+        text: "The future belongs to those who believe " +
+          "in the beauty of their dreams.",
+        author: "Eleanor Roosevelt",
+      },
+      fr: {
+        text: "L'avenir appartient à ceux qui croient " +
+          "à la beauté de leurs rêves.",
+        author: "Eleanor Roosevelt",
+      },
+    },
+    {
+      en: {
+        text: "Difficulties strengthen the mind, as labor does the body.",
+        author: "Seneca",
+      },
+      fr: {
+        text: "Les difficultés renforcent l'esprit, " +
+          "comme le travail renforce le corps.",
+        author: "Sénèque",
+      },
+    },
+    {
+      en: {
+        text: "The only way to do great work is to love what you do.",
+        author: "Steve Jobs",
+      },
+      fr: {
+        text: "La seule façon de faire du bon travail est d'aimer ce " +
+          "que vous faites.",
+        author: "Steve Jobs",
+      },
+    },
+    {
+      en: {
+        text: "Happiness depends upon ourselves.",
+        author: "Aristotle",
+      },
+      fr: {
+        text: "Le bonheur dépend de nous-mêmes.",
+        author: "Aristote",
+      },
+    },
+    {
+      en: {
+        text: "The happiness of your life depends upon the quality of " +
+          "your thoughts.",
+        author: "Marcus Aurelius",
+      },
+      fr: {
+        text: "Le bonheur de votre vie dépend de la qualité de vos pensées.",
+        author: "Marc Aurèle",
+      },
+    },
+  ];
+
+  // Pick one based on the day of the year (deterministic fallback)
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const diff = now.getTime() - start.getTime();
+  const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const fallback = fallbackQuotes[dayOfYear % fallbackQuotes.length];
 
   return {
-    success: false,
-    error_debug: errorMsg,
-    source_model: "gemini-fallback",
-    en: {
-      text: "The future belongs to those who believe in the beauty of their dreams.",
-      author: "Eleanor Roosevelt",
-    },
-    fr: {
-      text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.",
-      author: "Eleanor Roosevelt",
-    },
+    ...fallback,
   };
 }
 
 // Public Callable for Frontend (Updated for shared daily logic)
-export const generateQuote = onCall({ secrets: [geminiApiKey] },
+export const generateQuote = onCall({ secrets: [openRouterApiKey] },
   async () => {
     try {
       // Determine Slot based on UTC
@@ -213,13 +207,13 @@ export const generateQuote = onCall({ secrets: [geminiApiKey] },
       // We use ISO date string YYYY-MM-DD to be locale agnostic
       const dateKey = now.toISOString().split("T")[0];
       // Simplified: Single daily quote (no more morning/midday/evening slots)
-      const slotSuffix = "all-day-v21"; // ALIGNED with Cron Job v21 (Emergency Recovery)
+      const slotSuffix = "all-day-v6";
 
       const slotKey = `${dateKey}-${slotSuffix}`;
       const data = await getOrGenerateQuote(
         slotKey,
         now.getDay(),
-        geminiApiKey.value()
+        openRouterApiKey.value()
       );
 
       return { success: true, data: data };
@@ -231,11 +225,13 @@ export const generateQuote = onCall({ secrets: [geminiApiKey] },
         data: {
           error_debug: error instanceof Error ? error.message : String(error),
           en: {
-            text: "The future belongs to those who believe in the beauty of their dreams.",
+            text: "The future belongs to those who believe " +
+              "in the beauty of their dreams.",
             author: "Eleanor Roosevelt",
           },
           fr: {
-            text: "L'avenir appartient à ceux qui croient à la beauté de leurs rêves.",
+            text: "L'avenir appartient à ceux qui croient " +
+              "à la beauté de leurs rêves.",
             author: "Eleanor Roosevelt",
           },
         },
@@ -271,7 +267,7 @@ export const subscribeToNotifications = onCall(async (request) => {
 export const sendHourlyNotifications = onSchedule({
   schedule: "every 15 minutes",
   timeoutSeconds: 540,
-  secrets: [geminiApiKey],
+  secrets: [openRouterApiKey],
 }, async () => {
   const db = getFirestore();
   const messaging = getMessaging();
@@ -305,17 +301,16 @@ export const sendHourlyNotifications = onSchedule({
   console.log(`[DEDUP] Processing ${uniqueDocs.length} unique devices (from ${snapshot.size} total).`);
 
   // --- PREPARE GLOBAL QUOTE ---
-  // AVOID utcPlus14 hack which might shift dates incorrectly for Europe/Vietnam mismatch
-  // Use UTC date as baseline for universal slot consistency
-  const slotDateKey = now.toISOString().split("T")[0];
-  const slotKey = `${slotDateKey}-all-day-v21`; // v21 to FORCE REFRESH NOW
+  const utcPlus14 = new Date(now.getTime() + (14 * 60 * 60 * 1000));
+  const universalDateKey = utcPlus14.toISOString().split("T")[0];
+  const slotKey = `${universalDateKey}-all-day-v6`;
 
   let globalQuote: any = null;
   try {
     globalQuote = await getOrGenerateQuote(
       slotKey,
-      now.getDay(),
-      geminiApiKey.value()
+      utcPlus14.getDay(),
+      openRouterApiKey.value()
     );
   } catch (e) {
     console.error("Quote gen failed", e);
@@ -471,14 +466,12 @@ export const sendHourlyNotifications = onSchedule({
           // >> DO NOT revert to "auto" model selection.
           // >> DO NOT remove this list of models.
           // This disconnect between Backend (Sensitive) and Frontend (Standard) is INTENTIONAL.
-          // ⚠️ CRITICAL: Multi-Model Aggregation
-          // We query 10+ models. If ANY of them predicts a dangerous event, we trigger.
           const wUrl = "https://api.open-meteo.com/v1/forecast?latitude=" +
             `${data.lat}&longitude=${data.lng}` +
             "&current=weather_code,temperature_2m," +
             "wind_speed_10m,wind_gusts_10m,precipitation" +
             "&minutely_15=weather_code" +
-            "&models=best_match,meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04," +
+            "&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04," +
             "gfs_seamless,jma_seamless,gem_seamless,icon_seamless," +
             "cma_grapes_global,bom_access_global";
 
@@ -489,36 +482,17 @@ export const sendHourlyNotifications = onSchedule({
           const minutely15 = wData.minutely_15;
 
           if (current) {
-            // TRACKING: Forecast End Time
-            let currentForecastEnd = 0;
-            const lastForecastEnd = data.lastWeatherState?.forecastEnd || 0;
-
             let ruptureDetected = false;
             let msgBody = "";
             let msgTitle = "";
             let forceSend = false;
             let isForecastAlert = false;
 
-            // SYNTHESIS: Check ALL returned weather_code_xxx in current
-            let maxCurrentCode = current.weather_code || 0;
-            Object.keys(current).forEach(key => {
-              if (key.startsWith('weather_code_')) {
-                const c = current[key];
-                if (c > maxCurrentCode) maxCurrentCode = c;
-              }
-            });
-
-            // DEBUG LOG (Universal): Log ANY detected weather activity to monitor global effectiveness
-            // We only log if there is SOMETHING happening (code > 0) to avoid spamming "Clear sky" logs
-            if (maxCurrentCode > 0 || current.weather_code > 0) {
-              console.log(`[WEATHER-CHECK] User(${data.userId || 'anon'}) Lat:${data.lat} Lng:${data.lng} -> MaxCode:${maxCurrentCode} (Main:${current.weather_code})`);
-            }
-
-            const isCurrentlyDangerous = (maxCurrentCode >= 51) ||
-              [95, 96, 99].includes(maxCurrentCode) ||
+            const isCurrentlyDangerous = (current.weather_code >= 51) ||
+              [95, 96, 99].includes(current.weather_code) ||
               (current.wind_speed_10m > 70);
 
-            const forecast = getDangerousForecast(minutely15, maxCurrentCode, current);
+            const forecast = getDangerousForecast(minutely15, current.weather_code, current);
             const lang = data.language || "en";
 
             if (forecast) {
@@ -526,93 +500,19 @@ export const sendHourlyNotifications = onSchedule({
               ruptureDetected = true;
               forceSend = true;
 
-              const startMin = forecast.start;
-              // Calculate specific start time
-              const startTimeDate = new Date(localDate.getTime() + startMin * 60000);
-              const startHour = startTimeDate.getHours().toString().padStart(2, '0');
-              const startMinute = startTimeDate.getMinutes().toString().padStart(2, '0');
-              const timeDisplay = `${startHour}:${startMinute}`;
-
-              const isStartingNow = startMin <= 5;
-
-
-              const isIntermittent = forecast.isIntermittent;
-              const intensityLabelFr = getIntensityLabel(forecast.maxLevel, "fr");
-              const intensityLabelEn = getIntensityLabel(forecast.maxLevel, "en");
-
-              // Calculate specific end time
-              const endMin = forecast.start + forecast.duration;
-              const endTimeDate = new Date(localDate.getTime() + endMin * 60000);
-              const endHour = endTimeDate.getHours().toString().padStart(2, '0');
-              const endMinute = endTimeDate.getMinutes().toString().padStart(2, '0');
-              const endTimeDisplay = `${endHour}:${endMinute}`;
-
-              currentForecastEnd = endTimeDate.getTime();
-
-              // DURATION CHANGE CHECK (> 45 mins diff)
-              let isDurationChange = false;
-              if (lastForecastEnd > 0 && Math.abs(currentForecastEnd - lastForecastEnd) > 45 * 60000) {
-                isDurationChange = true;
-              }
+              const isStartingNow = forecast.start <= 5;
+              const timingStr = isStartingNow ? "Active now" : `in ~${forecast.start} min`;
+              const timingStrFr = isStartingNow ? "Actif maintenant" : `dans ~${forecast.start} min`;
 
               if (forecast.type === "storm") {
-                if (lang === "fr") {
-                  msgTitle = isStartingNow ? "⛈️ ORAGE EN COURS" : "⛈️ ORAGE IMMINENT";
-                  if (isDurationChange) msgTitle = "⛈️ ORAGE PERSISTANT";
-                  msgBody = isStartingNow
-                    ? `DANGER ! Orage ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
-                    : `DANGER ! Arrivée prévue à ${timeDisplay}.`;
-                } else {
-                  msgTitle = isStartingNow ? "⛈️ STORM ACTIVE" : "⛈️ STORM INCOMING";
-                  if (isDurationChange) msgTitle = "⛈️ STORM CONTINUES";
-                  msgBody = isStartingNow
-                    ? `DANGER! ${intensityLabelEn} Storm active (ends at ${endTimeDisplay}).`
-                    : `DANGER! Storm arriving at ${timeDisplay}.`;
-                }
+                if (lang === "fr") { msgTitle = isStartingNow ? "⛈️ ORAGE EN COURS" : "⛈️ ALERTE ORAGE"; msgBody = `DANGER ! Orage ${timingStrFr} (durée: ${forecast.duration} min). Mettez-vous à l'abri !`; }
+                else { msgTitle = isStartingNow ? "⛈️ STORM ACTIVE" : "⛈️ STORM ALERT"; msgBody = `DANGER! Storm ${timingStr} (duration: ${forecast.duration} min). Take shelter!`; }
               } else if (forecast.type === "snow") {
-                if (lang === "fr") {
-                  msgTitle = isStartingNow ? "❄️ NEIGE EN COURS" : "❄️ NEIGE PRÉVUE";
-                  if (isDurationChange) msgTitle = "❄️ LA NEIGE CONTINUE";
-                  msgBody = isStartingNow
-                    ? `${isIntermittent ? "Tombées de neige" : "Neige"} ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
-                    : `${isIntermittent ? "Tombées de neige" : "Neige"} ${intensityLabelFr} à partir de ${timeDisplay}.`;
-                } else {
-                  msgTitle = isStartingNow ? "❄️ SNOWING" : "❄️ SNOW FORECAST";
-                  if (isDurationChange) msgTitle = "❄️ SNOW PERSISTS";
-                  msgBody = isStartingNow
-                    ? `${intensityLabelEn} ${isIntermittent ? "Snow showers" : "Snow"} active (ends at ${endTimeDisplay}).`
-                    : `${intensityLabelEn} ${isIntermittent ? "Snow showers" : "Snow"} starting at ${timeDisplay}.`;
-                }
+                if (lang === "fr") { msgTitle = isStartingNow ? "❄️ NEIGE EN COURS" : "❄️ ALERTE NEIGE"; msgBody = `Neige ${timingStrFr} (durée: ${forecast.duration} min).`; }
+                else { msgTitle = isStartingNow ? "❄️ SNOWING" : "❄️ SNOW ALERT"; msgBody = `Snow ${timingStr} (duration: ${forecast.duration} min).`; }
               } else {
-                if (lang === "fr") {
-                  if (isIntermittent) {
-                    msgTitle = isStartingNow ? "🌦️ AVERSES EN COURS" : "🌦️ AVERSES EN APPROCHE";
-                    if (isDurationChange) msgTitle = "🌦️ AVERSES: CHANGEMENT";
-                    msgBody = isStartingNow
-                      ? `Averses ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
-                      : `Début des averses ${intensityLabelFr} prévu à ${timeDisplay}.`;
-                  } else {
-                    msgTitle = isStartingNow ? "🌧️ PLUIE EN COURS" : "🌧️ PLUIE IMMINENTE";
-                    if (isDurationChange) msgTitle = "🌧️ LA PLUIE CONTINUE";
-                    msgBody = isStartingNow
-                      ? `Pluie ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
-                      : `Début de la pluie ${intensityLabelFr} prévu à ${timeDisplay}.`;
-                  }
-                } else {
-                  if (isIntermittent) {
-                    msgTitle = isStartingNow ? "🌦️ SHOWERS ACTIVE" : "🌦️ SHOWERS INCOMING";
-                    if (isDurationChange) msgTitle = "🌦️ SHOWERS UPDATE";
-                    msgBody = isStartingNow
-                      ? `${intensityLabelEn} Showers active (ends at ${endTimeDisplay}).`
-                      : `${intensityLabelEn} Showers starting at ${timeDisplay}.`;
-                  } else {
-                    msgTitle = isStartingNow ? "🌧️ RAINING" : "🌧️ RAIN COMING SOON";
-                    if (isDurationChange) msgTitle = "🌧️ RAIN CONTINUES";
-                    msgBody = isStartingNow
-                      ? `${intensityLabelEn} Rain active (ends at ${endTimeDisplay}).`
-                      : `${intensityLabelEn} Rain starting at ${timeDisplay}.`;
-                  }
-                }
+                if (lang === "fr") { msgTitle = isStartingNow ? "🌧️ PLUIE EN COURS" : "🌧️ Bientôt de la Pluie"; msgBody = `Pluie prévue ${timingStrFr} (durée: ${forecast.duration} min).`; }
+                else { msgTitle = isStartingNow ? "🌧️ RAINING" : "🌧️ Rain Forecast"; msgBody = `Rain expected ${timingStr} (duration: ${forecast.duration} min).`; }
               }
             } else if (isCurrentlyDangerous) {
               // Current is BAD, but Forecast (next 2h) didn't return a dangerous event.
@@ -622,16 +522,11 @@ export const sendHourlyNotifications = onSchedule({
               ruptureDetected = true;
               forceSend = true;
 
-              const code = maxCurrentCode; // FIX: Use Synthesis Code
+              const code = current.weather_code;
               let type = "rain";
-              let isForcedIntermittent = false; // Flag for fallback logic
               if (code >= 95) type = "storm";
               else if (code >= 71 && code <= 77) type = "snow";
               else if (code === 85 || code === 86) type = "snow";
-
-              // If minutely data isn't returning a block but we are in a dangerous condition,
-              // it might be a very short/intermittent shower that the block logic missed or finished?
-              if (code === 80 || code === 81 || code === 82) isForcedIntermittent = true;
 
               const hasMinutely = minutely15 && minutely15.weather_code && minutely15.weather_code.length > 0;
 
@@ -641,11 +536,11 @@ export const sendHourlyNotifications = onSchedule({
                 else msgTitle = "🌧️ IL PLEUT";
 
                 if (hasMinutely) {
-                  msgBody = isForcedIntermittent ?
-                    (lang === "fr" ? "Averses intermittentes détectées (Durée est. < 15 min)." : "Intermittent showers detected (Est. duration < 15 min).") :
-                    (lang === "fr" ? "Intempérie détectée (Fin estimée < 15 min)." : "Weather event detected (Ends soon).");
+                  // If we have data but no "DangerousForecast" returned, it means it stops very soon (within 15 min or erratic).
+                  msgBody = "Intempérie détectée, mais devrait s'arrêter rapidement.";
                 } else {
-                  msgBody = lang === "fr" ? "Intempérie observée actuellement (Fin indéterminée)." : "Observed currently in your area (Unknown end time).";
+                  // No forecast data available
+                  msgBody = "Intempérie observée actuellement.";
                 }
               } else {
                 if (type === "storm") msgTitle = "⛈️ STORM ACTIVE";
@@ -653,11 +548,9 @@ export const sendHourlyNotifications = onSchedule({
                 else msgTitle = "🌧️ RAINING";
 
                 if (hasMinutely) {
-                  msgBody = isForcedIntermittent ?
-                    "Intermittent showers detected (Est. duration < 15 min)." :
-                    "Weather event detected (Ends soon).";
+                  msgBody = "Weather event detected, but should stop soon.";
                 } else {
-                  msgBody = "Observed currently in your area (Unknown end time).";
+                  msgBody = "Observed currently in your area.";
                 }
               }
             }
@@ -667,37 +560,7 @@ export const sendHourlyNotifications = onSchedule({
 
             let finalCanSend = false;
             if (forceSend) {
-              const lastStateCode = data.lastWeatherState?.code ?? -1;
-              const lastCat = getEventCategory(lastStateCode);
-              const currentCat = getEventCategory(maxCurrentCode); // FIX: Use Synthesis Model
-
-              // DEBUG: Log comparison
-              if (data.lat > 46.1 && data.lat < 46.3) {
-                console.log(`[DEBUG-BERNEX] Decision for user ${data.userId || 'anon'}: LastCat=${lastCat.type}(L${lastCat.level}) -> CurrentCat=${currentCat.type}(L${currentCat.level}). Diff? ${lastCat.level !== currentCat.level}`);
-              }
-
-              // INTELLIGENT ALGORITHM:
-              // 1. New Event (Dry -> Wet)
-              // 2. Type Change (Rain -> Snow)
-              // 3. Intensification (Light -> Heavy)
-              const isNewEvent = lastCat.level === 0 && currentCat.level > 0;
-              const isTypeChange = lastCat.type !== currentCat.type && currentCat.level > 0;
-              const isIntensification = lastCat.type === currentCat.type && currentCat.level > lastCat.level;
-              // 4. Duration Extension (>45min)
-              let isDurationUpdate = false;
-              if (currentForecastEnd > 0 && lastForecastEnd > 0) {
-                const diff = Math.abs(currentForecastEnd - lastForecastEnd);
-                if (diff > 45 * 60000) isDurationUpdate = true;
-              }
-
-              // If meaningful change, allow immediate notification (with standard 30min cooldown)
-              if (isNewEvent || isTypeChange || isIntensification || isDurationUpdate) {
-                if (newCount < 10 && minutesSinceLast >= 30) finalCanSend = true;
-              } else {
-                // Stable or Decreasing condition (e.g. Light Rain continuing, or Heavy -> Light)
-                // Suppress for 2 hours to prevent fatigue
-                if (minutesSinceLast >= 120) finalCanSend = true;
-              }
+              if (newCount < 10 && minutesSinceLast >= 30) finalCanSend = true;
             } else {
               if (withinLimits) finalCanSend = true;
             }
@@ -730,12 +593,11 @@ export const sendHourlyNotifications = onSchedule({
             }
             addUpdate(docRef, {
               lastWeatherState: {
-                code: maxCurrentCode, // Sync state with the worst detected code
+                code: current.weather_code,
                 temp: current.temperature_2m,
                 wind: current.wind_speed_10m,
                 gusts: current.wind_gusts_10m || 0,
                 precip: current.precipitation || 0,
-                forecastEnd: currentForecastEnd, // Save for next comparison
               },
               lastWeatherCheck: new Date(),
             });
@@ -780,41 +642,6 @@ export const sendHourlyNotifications = onSchedule({
 });
 
 /**
- * Helper to determine event type from code
- */
-/**
- * Helper to determine event category and intensity level
- * Level: 0=Dry, 1=Light, 2=Moderate, 3=Heavy/Violent
- */
-function getEventCategory(code: number): { type: string, level: number } {
-  // Storm (Level 3 - Critical)
-  if (code >= 95) return { type: 'storm', level: 3 };
-
-  // Snow
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) {
-    if (code === 75 || code === 86) return { type: 'snow', level: 3 };
-    if (code === 73) return { type: 'snow', level: 2 };
-    return { type: 'snow', level: 1 };
-  }
-
-  // Rain
-  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
-    if (code === 65 || code === 66 || code === 67 || code === 82) return { type: 'rain', level: 3 };
-    if (code === 63 || code === 81) return { type: 'rain', level: 2 };
-    return { type: 'rain', level: 1 };
-  }
-
-  return { type: 'dry', level: 0 };
-}
-
-function getIntensityLabel(level: number, lang: 'fr' | 'en'): string {
-  if (level === 1) return lang === 'fr' ? "faible" : "light";
-  if (level === 2) return lang === 'fr' ? "modérée" : "moderate";
-  if (level === 3) return lang === 'fr' ? "forte" : "heavy";
-  return "";
-}
-
-/**
  * CRITICAL: Detect ALL dangerous weather events in forecast
  * Looks at next 8 slots (2 hours) for: Rain, Snow, Storm, Violent Wind
  * @param {any} minutely15 The OpenMeteo minutely_15 object
@@ -826,94 +653,59 @@ function getDangerousForecast(
   minutely15: any,
   currentCode: number,
   current: any
-): { type: string, start: number, duration: number, isIntermittent: boolean, maxLevel: number } | null {
+): { type: string, start: number, duration: number } | null {
   if (!minutely15) return null;
 
-  // AGGREGATION: We check ALL models provided in minutely_15
-  const keys = Object.keys(minutely15);
-  const weatherCodeKeys = keys.filter(k => k.startsWith('weather_code'));
+  // Handle multi-model response format
+  // When using models=..., the response has keys like "weather_code_meteofrance_seamless"
+  // instead of a simple "weather_code" array
+  let codes = minutely15.weather_code;
 
-  if (weatherCodeKeys.length === 0) return null;
-
-  // We find the "Worst Case" across all models for each time slot
-  const numSlots = minutely15[weatherCodeKeys[0]].length;
-  const codes = new Array(numSlots).fill(0);
-
-  for (let i = 0; i < numSlots; i++) {
-    let maxSlotCode = 0;
-    weatherCodeKeys.forEach(key => {
-      const c = minutely15[key][i];
-      if (c > maxSlotCode) maxSlotCode = c;
-    });
-    codes[i] = maxSlotCode;
+  if (!codes || !Array.isArray(codes)) {
+    // Try to find any model-specific weather_code array
+    const keys = Object.keys(minutely15);
+    const weatherCodeKey = keys.find(k => k.startsWith('weather_code'));
+    if (weatherCodeKey) {
+      codes = minutely15[weatherCodeKey];
+    }
   }
+
+  if (!codes || !Array.isArray(codes) || codes.length === 0) return null;
+
+  // If it's already dangerous now, we rely on immediate alerts
+  // MODIFICATION: We DO NOT return null here anymore. 
+  // We want to know if a dangerous event is continuing or starting.
+  // The caller will handle "Current vs Forecast" priority.
+  // Prior logic (if isCurrentlyDangerous return null) removed.
 
   let startIndex = -1;
   let endIndex = -1;
   let eventType = "";
-  let isIntermittent = false;
-  let maxLevel = 0;
 
   // Look ahead up to 2 hours (8 slots of 15 min)
   for (let i = 0; i < 8 && i < codes.length; i++) {
     const code = codes[i];
 
-    // Detect conditions with sensitivity logic
+    // Detect ALL dangerous conditions
     let isDangerous = false;
     let detectedType = "";
-    let isHeavy = false; // New flag for intensity
 
     // STORM (Priority 1 - Most dangerous)
     if (code >= 95 && code <= 99) {
       isDangerous = true;
       detectedType = "storm";
-      isHeavy = true;
     }
     // SNOW (Priority 2)
-    else if ((code >= 71 && code <= 77) || code === 85 || code === 86) {
+    else if ((code >= 71 && code <= 77) ||
+      code === 85 || code === 86) {
       isDangerous = true;
       detectedType = "snow";
-      // Heavy snow: 73, 75, 86
-      if (code === 73 || code === 75 || code === 86) isHeavy = true;
     }
     // RAIN (Priority 3)
-    else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
+    else if ((code >= 51 && code <= 67) ||
+      (code >= 80 && code <= 82)) {
       isDangerous = true;
       detectedType = "rain";
-      // Heavy rain: 63, 65, 67 (Freezing heavy), 81, 82 (Showers)
-      // MODIFICATION: Include Code 80 (Slight Showers) as IMMEDIATE because showers are by definition "passing"
-      // and checking persistence (2 slots) might miss a short 15min shower.
-      if (code >= 63 || code >= 80) isHeavy = true;
-    }
-
-    // Capture Max Level for intensity label
-    const cat = getEventCategory(code);
-    if (cat.level > maxLevel) maxLevel = cat.level;
-
-    // SMART FILTERING
-    if (isDangerous) {
-      // Rule 1: Heavy events trigger immediately (even 1 slot)
-      if (isHeavy) {
-        // Valid trigger
-      }
-      // Rule 2: Light events (drizzle, light rain) need confirmation
-      // We check if the NEXT slot also has rain (persistence)
-      // OR if the previous slot had rain.
-      else {
-        // Look ahead: i+1 must also be dangerous (any type)
-        // OR look behind: i-1 was dangerous
-        // This ensures we have at least 2 slots (30 min block) OR it's part of a sequence
-        const nextCode = codes[i + 1] || 0;
-        const prevCode = codes[i - 1] || 0;
-
-        const isNextBad = (nextCode >= 51);
-        const isPrevBad = (prevCode >= 51);
-
-        if (!isNextBad && !isPrevBad) {
-          // It's a isolated 15-min light drizzle. Ignore it as noise.
-          isDangerous = false;
-        }
-      }
     }
 
     if (isDangerous) {
@@ -930,27 +722,8 @@ function getDangerousForecast(
         eventType = "snow";
       }
     } else {
-      // If we found a start and now it's clear again, check if it comes back later (Intermittency)
-      if (startIndex !== -1) {
-        // Gap detected!
-        // Look ahead: does it rain again within the 2h window?
-        let recurrenceFound = false;
-        for (let k = i + 1; k < 8 && k < codes.length; k++) {
-          if (codes[k] >= 51) { recurrenceFound = true; break; }
-        }
-
-        if (recurrenceFound) {
-          isIntermittent = true;
-          // Continue loop, do not break. Extend end index to cover the whole intermittent block?
-          // User request: "rain ends and picks up 5 mins later".
-          // If we break here, we only report the first shower.
-          // If we continue, we report the whole block as "Intermittent".
-          // Strategy: Continue but flag as Intermittent.
-        } else {
-          // No recurrence, event is truly over.
-          break;
-        }
-      }
+      // If we found a start and now it's clear again, the event is over
+      if (startIndex !== -1) break;
     }
   }
 
@@ -960,7 +733,7 @@ function getDangerousForecast(
     // Duration: (End - Start + 1) * 15
     const durationMin = (endIndex - startIndex + 1) * 15;
 
-    return { type: eventType, start: startMin, duration: durationMin, isIntermittent: isIntermittent, maxLevel: maxLevel };
+    return { type: eventType, start: startMin, duration: durationMin };
   }
 
   return null;
@@ -1140,10 +913,6 @@ export const checkCommunityReport = onDocumentCreated(
 
     const db = getFirestore();
 
-    // LOGIC FLAGS
-    let notifyCommunity = true;
-    let skipReason = '';
-
     // 0. ANTI-SPAM CHECK (New Strict Logic)
     // "One notification per event per hour"
     try {
@@ -1180,9 +949,9 @@ export const checkCommunityReport = onDocumentCreated(
       });
 
       if (sameConditionCount > 0) {
-        console.log("Anti-spam: Similar report found recently. Suppressing Community Alert.");
-        notifyCommunity = false;
-        skipReason = 'spam';
+        console.log("Anti-spam: Similar report found recently. " +
+          "Skipping global notification.");
+        return;
       }
     } catch (e) {
       console.error("Anti-spam check failed", e);
@@ -1190,37 +959,15 @@ export const checkCommunityReport = onDocumentCreated(
 
     // 1. Fetch Official Forecast for Comparison
     // We check the "current" weather code from Open Meteo
-    // ⚠️ CRITICAL: Use SAME multi-model logic as Alerts to ensure consistency
     const url = "https://api.open-meteo.com/v1/forecast?latitude=" +
-      `${lat}&longitude=${lng}` +
-      "&current=weather_code,temperature_2m" +
-      "&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04," +
-      "gfs_seamless,jma_seamless,gem_seamless,icon_seamless," +
-      "cma_grapes_global,bom_access_global";
-
+      `${lat}&longitude=${lng}&current=weather_code`;
     let forecastCode = -1;
 
     try {
       const res = await fetch(url);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const j: any = await res.json();
-      // The API returns 'current' which is a synthesis of the requested models (Best Match)
-      // due to how OpenMeteo handles the 'current' parameter when 'models' is specified without explicit 'current_model'.
-      // It defaults to the first model or a best match.
-      // However, to be SAFE and EXACTLY like the alert logic, we should probably check if it returns what we expect.
-      // OpenMeteo documentation says if multiple models are requested, 'current' object is usually based on the first model or requires specific treatment.
-      // BUT, in sendHourlyNotifications, we rely on 'wData.current.weather_code'. 
-      // Let's stick to that to be identical.
-      // Let's stick to that to be identical.
       forecastCode = j?.current?.weather_code ?? -1;
-      const forecastTemp = j?.current?.temperature_2m;
-
-      // 1.1 BACKFILL MISSING TEMP (Fix for Fast UI)
-      if (data.temp === null || data.temp === undefined) {
-        if (forecastTemp !== undefined) {
-          console.log(`Backfilling missing temp for report ${event.params.reportId}: ${forecastTemp}`);
-          await event.data?.ref.update({ temp: forecastTemp });
-        }
-      }
     } catch (e) {
       console.error("Forecast fetch error", e);
       return;
@@ -1248,15 +995,18 @@ export const checkCommunityReport = onDocumentCreated(
     else if (reportedLabel === 'Storm') reportType = 'Storm';
     // All others (Sunny, Cloudy, Windy, Mist, Fog) are considered 'Dry' for notification purposes
 
-    // LOGIC: Only notify community if TYPE mismatches.
+    // LOGIC: Only notify if the TYPE mismatches.
+    // Examples:
+    // Forecast: Sun (Dry), Report: Cloud (Dry) -> No Notification
+    // Forecast: Sun (Dry), Report: Rain (Rain) -> Notification !
+    // Forecast: Rain (Rain), Report: Snow (Snow) -> Notification !
+    // Forecast: Rain (Rain), Report: Sun (Dry) -> Notification !
+
     if (forecastType !== reportType) {
       mismatch = true;
     }
 
-    if (!mismatch) {
-      notifyCommunity = false;
-      if (!skipReason) skipReason = 'match';
-    }
+    if (!mismatch) return;
 
     // 3. Notify Nearby Users + ALWAYS notify the reporter
     const messaging = getMessaging();
@@ -1291,35 +1041,22 @@ export const checkCommunityReport = onDocumentCreated(
           let body = "";
 
           if (isReporter) {
-            // ALWAYS Notify Reporter (Confirmation)
+            // Special message for the reporter
             reporterNotified = true;
             if (lang === "fr") {
-              if (notifyCommunity) {
-                title = "📢 Vérification par la communauté";
-                body = `Votre signalement "${reportedLabel}" est en cours de vérification par les utilisateurs proches.`;
-              } else if (skipReason === 'spam') {
-                title = "✅ Signalement pris en compte";
-                body = "Un signalement similaire existait déjà récemment.";
-              } else {
-                // MATCH CASE: SILENT (No Notification)
-                continue;
-              }
+              title = "📢 Signalement transmis !";
+              const frLabels: any = {
+                "Sunny": "Soleil", "Rain": "Pluie", "Cloudy": "Nuages",
+                "Snow": "Neige", "Storm": "Orage", "Fog": "Brouillard", "Windy": "Vent",
+              };
+              const frCondition = frLabels[reportedLabel] || reportedLabel;
+              body = `Votre signalement "${frCondition}" a été transmis à la communauté pour vérification.`;
             } else {
-              if (notifyCommunity) {
-                title = "📢 Community Verification";
-                body = `Nearby users are verifying your "${reportedLabel}" report.`;
-              } else if (skipReason === 'spam') {
-                title = "✅ Report Recorded";
-                body = "A similar report was already valid nearby.";
-              } else {
-                // MATCH CASE: SILENT (No Notification)
-                continue;
-              }
+              title = "📢 Report Sent!";
+              body = `Your "${reportedLabel}" report has been sent to the community for verification.`;
             }
           } else {
-            // Standard message for nearby users (ONLY if notifyCommunity is true)
-            if (!notifyCommunity) continue;
-
+            // Standard message for nearby users
             if (lang === "fr") {
               title = "🤔 Météo en direct ?";
               const frLabels: any = {
@@ -1351,7 +1088,7 @@ export const checkCommunityReport = onDocumentCreated(
             },
             webpush: {
               fcm_options: {
-                link: isReporter ? `/?action=contribution&isReporter=true` : "/?action=contribution",
+                link: "/?action=contribution",
               },
             },
           });
@@ -1594,110 +1331,5 @@ export const checkExpiredTravelers = onSchedule("every 24 hours", async (event) 
 
   } catch (error) {
     console.error("[CRON] Error checking expired travelers:", error);
-  }
-});
-
-// Weather Proxy to Unify Frontend & Backend Data
-// This ensures the App displays the exact same "Safe" data used for notifications.
-// It also corrects the "Current" state if safety models detect a dangerous event invisible to the standard model.
-export const getWeatherForecast = onCall(async (request) => {
-  const { lat, lng } = request.data;
-  if (!lat || !lng) return { success: false, error: "Missing location" };
-
-  try {
-    // 1. Fetch Standard Data (for UI - Graphs, Hourly, etc.)
-    // We use the same fields as the frontend used to fetch directly
-    const uiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
-      `&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility,precipitation` +
-      `&hourly=temperature_2m,weather_code,uv_index` +
-      `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset` +
-      `&timezone=auto&past_days=1&forecast_days=2`;
-
-    // 2. Fetch Safety Data (Background Worker Logic)
-    // EXACT copy of the logic in 'checkWeatherNotifications'
-    const safetyUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
-      `&current=weather_code,wind_speed_10m` +
-      `&minutely_15=weather_code` +
-      `&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04,gfs_seamless,jma_seamless,gem_seamless,icon_seamless,cma_grapes_global,bom_access_global`;
-
-    const [uiRes, safetyRes] = await Promise.all([
-      fetch(uiUrl),
-      fetch(safetyUrl)
-    ]);
-
-    const uiData: any = await uiRes.json();
-    const safetyData: any = await safetyRes.json();
-
-    if (!uiData.current || !safetyData.current) {
-      throw new Error("Invalid API response");
-    }
-
-    // 3. SAFETY OVERRIDE LOGIC (REFINED)
-    // We check if the Safety Models detect a dangerous event (Storm, Rain, Snow)
-    // that the Standard UI model might have missed.
-
-    // Re-use logic from 'getDangerousForecast'
-    const dangerousEvent = getDangerousForecast(
-      safetyData.minutely_15,
-      safetyData.current.weather_code,
-      safetyData.current
-    );
-
-    // If a dangerous event is detected via Multi-Models, we act to ensure consistency.
-    if (dangerousEvent) {
-      console.log(`[PROXY] Safety Override! Detected ${dangerousEvent.type} starting at +${dangerousEvent.start}min.`);
-
-      // Determine the overriding WMO code
-      let forceCode = uiData.current.weather_code;
-      if (dangerousEvent.type === 'storm') forceCode = 95;
-      else if (dangerousEvent.type === 'snow') forceCode = 71;
-      else if (dangerousEvent.type === 'rain') forceCode = 61;
-
-      // CASE A: IMMINENT DANGER (< 30 min)
-      // If the event is starting very soon (or now), we override the CURRENT display.
-      // This is what users check first when they get a notification.
-      if (dangerousEvent.start <= 30) {
-        // Only override if current is considered "safe/dry" (Codes < 50) and we have rain/storm
-        if (uiData.current.weather_code < 50) {
-          console.log(`[PROXY] Overriding CURRENT weather (was ${uiData.current.weather_code} -> now ${forceCode})`);
-          uiData.current.weather_code = forceCode;
-        }
-      }
-
-      // CASE B: HOURLY FORECAST CONSISTENCY
-      // If safety models see rain for the next hour(s), ensure the HOURLY array reflects this.
-      // The hourly array from UI model might say "Cloudy" at 9h while Safety says "Storm" at 9h.
-
-      // We look at the first few hours (indices 0, 1, 2 = Now, +1h, +2h approx)
-      // Note: 'hourly.time' is ISO strings. We need to match roughly with dangerousEvent duration.
-      // Simply put: If we have a detected event, we enforce it on the next 2 hourly slots if they are "dry".
-
-      if (uiData.hourly && uiData.hourly.weather_code && uiData.current.time) {
-        // Fix: Find the correct starting index matching CURRENT time
-        const currentTimeStr = uiData.current.time as string; // YYYY-MM-DDTHH:MM
-        const currentHourStr = currentTimeStr.slice(0, 13); // YYYY-MM-DDTHH
-
-        let startIndex = uiData.hourly.time.findIndex((t: string) => t.startsWith(currentHourStr));
-        if (startIndex === -1) startIndex = 0; // Fallback
-
-        // Patch next 3 hours
-        for (let i = 0; i < 3; i++) {
-          const idx = startIndex + i;
-          if (idx < uiData.hourly.weather_code.length) {
-            if (uiData.hourly.weather_code[idx] < 50) {
-              uiData.hourly.weather_code[idx] = forceCode;
-            }
-          }
-        }
-        console.log(`[PROXY] Patched 3 hourly slots starting at index ${startIndex} to match alert type: ${dangerousEvent.type}`);
-      }
-    }
-
-    // Return the (potentially patched) UI Data
-    return { success: true, data: uiData };
-
-  } catch (e) {
-    console.error("Weather Proxy Error:", e);
-    return { success: false, error: e instanceof Error ? e.message : "Proxy Failed" };
   }
 });

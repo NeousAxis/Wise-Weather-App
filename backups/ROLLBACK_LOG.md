@@ -13,13 +13,21 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.6.0-Engine-v20` - 3 Feb 2026
-**État :** Production Stable (Gemini + Moteur v20 + Toasts)
+### ✅ [ACTUEL] `v2.6.1-Emergency-Recovery` - 4 Feb 2026
+**État :** Production Stable (Correction Leak + Triple Fallback)
 **Contenu :**
-- **IA Gemini :** Fix total du "403 Forbidden" (API activée) + Stratégie Dual Model (2.0 Flash -> 1.5 Flash).
-- **Moteur Météo v20 :** Nouvelle alerte "Pluie Continue" si la durée s'allonge de plus de 45 min (casse le cooldown 2h).
-- **Notifications UI :** Ajout des Toasts (bannières) internes pour garantir la lecture des alertes app ouverte.
-- **Cache Global :** Passage en `v20` (Citations et Météo).
+- **Sécurité :** Suppression physique des clés fuitées et protection globale `.env` dans Git.
+- **IA Triple Fallback :** Utilisation de la clé Pollen en secours si la clé Gemini est bloquée (v21).
+- **Stabilité :** Correction du fallback Gemini 1.5 (modèle introuvable).
+
+---
+
+### 📦 `v2.6.0-Engine-v20` - 3 Feb 2026
+**État :** Version Précédente
+**Contenu :**
+- **IA Gemini :** Stratégie Dual Model (2.0 Flash -> 1.5 Flash).
+- **Moteur Météo v20 :** Nouvelle alerte "Pluie Continue" (cooldown 45m).
+- **Notifications UI :** Ajout des Toasts internes.
 
 ---
 
