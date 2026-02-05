@@ -386,7 +386,8 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`)
           .then(r => r.json()).catch(e => null),
         // FALLBACK: Fetch Rain Probabilities directly (Proxy might miss them)
-        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability,precipitation&timezone=auto&forecast_days=2`)
+        // INCREASED forecast_days to 4 to ensure we have enough data for 24h trend even at 11 PM
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability,precipitation&timezone=auto&forecast_days=4`)
           .then(r => r.json()).catch(e => null),
         pollenPromise
       ]);
