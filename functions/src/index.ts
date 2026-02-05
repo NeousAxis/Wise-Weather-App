@@ -66,7 +66,14 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
   }
 
   const cleanKey = apiKey.trim();
-  const pollenKey = defineSecret("GOOGLE_POLLEN_API_KEY").value();
+  // FIXED: Do not call defineSecret inside function. Use a passed parameter or global if available.
+  // We will pass pollenKey as an argument to this function ideally, but since we are hotfixing:
+  // We can access the global `googlePollenApiKey` if it's in scope?
+  // No, we need to pass it.
+  // Let's rely on the caller passing it, OR accessed via global if defineSecret was top level.
+  // defineSecret returns a SecretParam. We can check .value() here IF it was defined top level.
+  // googlePollenApiKey is defined at line 15 (top level). So we can use it!
+  const pollenKey = googlePollenApiKey.value();
 
   // --- STRATEGY: TRIPLE FALLBACK ---
   // 1. Primary Gemini 2.0 (with GEMINI_API_KEY)
@@ -219,7 +226,7 @@ export const generateQuote = onCall({ secrets: [geminiApiKey, googlePollenApiKey
       // We use ISO date string YYYY-MM-DD to be locale agnostic
       const dateKey = now.toISOString().split("T")[0];
       // Simplified: Single daily quote (no more morning/midday/evening slots)
-      const slotSuffix = "all-day-v22"; // ALIGNED with Cron Job v22
+      const slotSuffix = "all-day-v23"; // ALIGNED with Cron Job v23
       const slotKey = `${dateKey}-${slotSuffix}`;
       const data = await getOrGenerateQuote(
         slotKey,
@@ -313,7 +320,7 @@ export const sendHourlyNotifications = onSchedule({
   // AVOID utcPlus14 hack which might shift dates incorrectly for Europe/Vietnam mismatch
   // Use UTC date as baseline for universal slot consistency
   const slotDateKey = now.toISOString().split("T")[0];
-  const slotKey = `${slotDateKey}-all-day-v22`; // v22 to FORCE REFRESH NOW
+  const slotKey = `${slotDateKey}-all-day-v23`; // v23 to FORCE REFRESH NOW
 
   let globalQuote: any = null;
   try {

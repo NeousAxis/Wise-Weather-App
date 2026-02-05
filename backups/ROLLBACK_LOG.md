@@ -13,7 +13,14 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.2.52` (v2.6.3-Rain-Trend) - 4 Feb 2026
+### ✅ [ACTUEL] `v2.2.53` (v2.6.4-Quote-Fix) - 5 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **CRITIQUE :** Correction du crash `defineSecret` dans le backend (Runtime Error).
+- **Reset IA :** Passage en `v23` pour forcer une nouvelle génération de citation immédiatement et effacer le cache corrompu.
+- **Graphique Pluie :** Extension de `forecast_days` de 2 à 4 jours pour éviter que le graphique ne se coupe en fin de soirée.
+
+### ✅ `v2.2.52` (v2.6.3-Rain-Trend) - 4 Feb 2026
 **État :** Production Stable
 **Contenu :**
 - **Feature :** Graphique "Rain Trend (24h)" dynamique et connecté à l'API Open-Meteo.
