@@ -171,3 +171,17 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 ### 4. 🌦️ Contribution : Options Étendues en Prod [APPLIQUÉ]
 - **Changement** : Déblocage des conditions "Showers" (Averses), "Fog" (Brouillard) et "Mist" (Brume) pour tous les utilisateurs en production.
 - **UI** : Ajout d'un indicateur "More Options..." sous le bouton Pluie pour guider vers ces nouvelles options.
+
+---
+
+## 🗓️ 5 Février 2026 - Hotfix : Citation & Rain Trend
+
+### 1. 🚨 Backend : Correction Crash Citation [APPLIQUÉ]
+- **Problème** : L'envoi de la citation de 7h échouait silencieusement.
+- **Cause** : Utilisation illégale de `defineSecret` à l'intérieur d'une fonction, provoquant une *Runtime Error*.
+- **Correction** : Nettoyage du code et utilisation correcte des variables globales. Passage du slot en `v23` pour forcer le rafraîchissement.
+
+### 2. 📉 UI : Extension du Graphique Pluie (Fix 22h) [APPLIQUÉ]
+- **Problème** : Le graphique "Rain Trend" s'arrêtait avant la fin des 24h en fin de soirée (ex: à 18h quand il est 22h).
+- **Cause** : L'API ne fournissait que 2 jours de prévisions, insuffisant pour couvrir "Maintenant + 24h" en fin de journée.
+- **Correction** : Augmentation de la requête API (`forecast_days=4`) pour garantir un buffer de données suffisant en permanence. Le graphique est maintenant stable et complet 24h/24.
