@@ -376,6 +376,13 @@ export const sendHourlyNotifications = onSchedule({
           title: qTitle,
           body: `"${qContent.text}"\n— ${qContent.author}`,
         },
+        android: {
+          priority: "high",
+          notification: { channelId: "daily-quotes", sound: "default" },
+        },
+        apns: {
+          payload: { aps: { sound: "default" } },
+        },
         data: {
           type: "quote",
           quote: JSON.stringify(globalQuote),
@@ -720,6 +727,13 @@ export const sendHourlyNotifications = onSchedule({
               weatherMessages.push({
                 token: data.token,
                 notification: { title: msgTitle, body: msgBody },
+                android: {
+                  priority: "high",
+                  notification: { channelId: "weather-alerts", sound: "default" },
+                },
+                apns: {
+                  payload: { aps: { sound: "default" } },
+                },
                 data: { type: isForecastAlert ? "weather_forecast" : "weather_alert" },
                 webpush: { fcm_options: { link: "/?action=contribution" } },
               });
