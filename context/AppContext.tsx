@@ -485,6 +485,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       const mappedWeather: WeatherData = {
         current: {
           temperature: data.current.temperature_2m,
+          time: data.current.time,
           weatherCode: data.current.weather_code,
           windSpeed: data.current.wind_speed_10m,
           isDay: (function () {
@@ -936,9 +937,11 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
                 // CASE A: We have a precise locality
                 // If the locality is NOT contained in the main city name (to avoid "Paris (Paris)")
                 if (!mainCity.toLowerCase().includes(effectiveSubArea.toLowerCase())) {
-                  // MAIN: Combloux
-                  // SUB: Bonneville
-                  finalName = effectiveSubArea;
+                  // FORMAT: "Combloux (Bonneville)"
+                  // Front-end splits by '(': 
+                  // Part 1 (Combloux) -> Main Title (Big)
+                  // Part 2 (Bonneville) -> Subtitle (Small)
+                  finalName = `${effectiveSubArea} (${mainCity})`;
                 } else {
                   finalName = mainCity;
                 }
