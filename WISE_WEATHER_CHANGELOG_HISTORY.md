@@ -247,3 +247,7 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 
 ### 4. ↩️ UX : Hotfix Style Alertes [v2.2.60]
 - **Modification** : Rétablissement immédiat des titres en MAJUSCULES (ex: "NEIGE EN COURS") suite au feedback utilisateur, annulant la proposition de minuscules testée en v2.2.59.
+
+### 5. 🏔️ Module Weather Community [v2.2.61]
+- **Problème** : Les rapports spécifiques Montagne (Avalanche, Neige) n'apparaissaient pas dans la frise chronologique comparative.
+- **Ajout** : Intégration des badges **Risque Avalanche** et **Niveau de Neige** dans les cartes horaires si des données sont disponibles.

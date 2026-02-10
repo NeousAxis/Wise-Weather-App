@@ -2,6 +2,11 @@
 
 ## 📅 Historique des Versions (Dernières en haut)
 
+### ✅ `v2.2.61` (Feature-Mountain-Community) - 10 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **Feature :** Affichage des données Montagne (Avalanche / Neige) dans le module historique "Weather Community".
+
 ### ✅ `v2.2.60` (v2.7.2-Style-Hotfix) - 10 Feb 2026
 **État :** Production Stable
 **Contenu :**

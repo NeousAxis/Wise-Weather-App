@@ -1236,6 +1236,8 @@ const CommunityCarousel = () => {
           let displayConditions: string[] = [];
           let confidence = ConfidenceLevel.LOW;
           let hasReports = false;
+          let maxAvalancheRisk = 0;
+          let maxSnowLevel = 0;
 
           if (reportsForHour.length > 0) {
             hasReports = true;
@@ -1258,6 +1260,12 @@ const CommunityCarousel = () => {
             // Total reports might be 5, but consensus is only 3.
 
             const topConditionCount = displayConditions.length > 0 ? conditionCounts[displayConditions[0]] : 0;
+
+            // NEW: Aggregate Mountain Data
+            reportsForHour.forEach(r => {
+              if (r.avalancheRisk && r.avalancheRisk > maxAvalancheRisk) maxAvalancheRisk = r.avalancheRisk;
+              if (r.snowLevel && r.snowLevel > maxSnowLevel) maxSnowLevel = r.snowLevel;
+            });
 
             if (topConditionCount >= 5) {
               confidence = ConfidenceLevel.HIGH;
@@ -1288,12 +1296,31 @@ const CommunityCarousel = () => {
 
                 {hasReports ? (
                   <>
-                    <div className="flex -space-x-2 my-2">
-                      {displayConditions.slice(0, 3).map((condition, ci) => (
-                        <div key={ci} className="bg-purple-100 p-1.5 rounded-full border-2 border-white z-10">
-                          {getWeatherIconFromLabel(condition, 14)}
+                    <div className="flex flex-col items-center gap-1 my-2">
+                      {/* Standard Conditions */}
+                      {displayConditions.length > 0 && (
+                        <div className="flex -space-x-2">
+                          {displayConditions.slice(0, 3).map((condition, ci) => (
+                            <div key={ci} className="bg-purple-100 p-1.5 rounded-full border-2 border-white z-10">
+                              {getWeatherIconFromLabel(condition, 14)}
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
+
+                      {/* Mountain Data Badges */}
+                      <div className="flex gap-1 flex-wrap justify-center">
+                        {maxAvalancheRisk > 0 && (
+                          <span className="bg-red-50 text-red-600 text-[10px] px-1.5 py-0.5 rounded font-bold border border-red-100 flex items-center shadow-sm whitespace-nowrap">
+                            ⚠️ {maxAvalancheRisk}/5
+                          </span>
+                        )}
+                        {maxSnowLevel > 0 && (
+                          <span className="bg-blue-50 text-blue-600 text-[10px] px-1.5 py-0.5 rounded font-bold border border-blue-100 flex items-center shadow-sm whitespace-nowrap">
+                            ❄️ {maxSnowLevel}cm
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-auto">
                       <Badge label={`${t('community.confidence')} : ${t(`confidence.${confidence.toLowerCase()}`)}`} level={confidence} />
