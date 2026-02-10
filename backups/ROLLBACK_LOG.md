@@ -1,5 +1,29 @@
 # 🔄 ROLLBACK LOG & VERSION HISTORY
 
+## 📅 Historique des Versions (Dernières en haut)
+
+### ✅ [ACTUEL] `v2.2.57` (v2.6.8-Cloud-Submenu) - 7 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **UI Contribution :** Implémentation du sous-menu (dropdown) pour **Cloudy** qui contient désormais **Fog** (Brouillard) et **Mist** (Brume).
+- **Consistance :** Ajout de l'indicateur "More Options..." sous Cloudy et Rain.
+
+### ✅ `v2.2.56` (v2.6.7-UI-Cloud-Tweak) - 7 Feb 2026
+**État :** Production Stable
+# 🔄 ROLLBACK LOG & VERSION HISTORY
+
+## 📅 Historique des Versions (Dernières en haut)
+
+### ✅ `v2.2.56` (v2.6.7-UI-Cloud-Tweak) - 7 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **UI :** Iconographie simplifiée pour le Brouillard (Fog) et Brume (Mist) -> Nuage (Cloud).
+- **Confirmation :** Averse (Showers) reste avec Pluie (Rain).
+
+### ✅ `v2.2.55` (v2.6.6-Push-Perf-Fix) - 7 Feb 2026
+**État :** Production Stable
+# 🔄 ROLLBACK LOG & VERSION HISTORY
+
 Ce document permet de revenir rapidement à une version stable précédente sans avoir besoin de copies complètes du dossier (économise de l'espace disque).
 
 ## 🚀 Comment restaurer une version ?
@@ -13,7 +37,20 @@ git reset --hard <TAG_OU_COMMIT_ID>
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ [ACTUEL] `v2.2.53` (v2.6.4-Quote-Fix) - 5 Feb 2026
+### ✅ `v2.2.55` (v2.6.6-Push-Perf-Fix) - 7 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **CRITIQUE (Push) :** Fix des notifications silencieuses sur iOS via `alert` dictionary dans APNS.
+- **Performance :** Refonte `fetchWeather` (Split Core/Background) pour un démarrage instantané (<2s).
+- **Bug UI :** Correction du graphique "Rain Trend" qui disparaissait (Timezone Fix).
+
+### ✅ `v2.2.54` (v2.6.5-Sound-Priority-Fix) - 6 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **CRITIQUE (Notifications) :** Ajout des paramètres `sound: "default"` et `priority: "high"` (Android) / `sound` (iOS) pour les Citations et les Alertes Pluie.
+- **Pourquoi :** Les notifications arrivaient silencieusement et étaient manquées pas l'utilisateur (fausse impression de non-réception).
+
+### ✅ `v2.2.53` (v2.6.4-Quote-Fix) - 5 Feb 2026
 **État :** Production Stable
 **Contenu :**
 - **CRITIQUE :** Correction du crash `defineSecret` dans le backend (Runtime Error).

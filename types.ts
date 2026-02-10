@@ -12,6 +12,7 @@ export interface WeatherData {
     visibility?: number; // meters
     aqi?: number; // WAQI index
     uvIndex?: number;
+    time: string; // ISO string (Local Time from API)
     pollen?: {
       alder?: number;      // Aulne (hiver)
       birch?: number;      // Bouleau (printemps)

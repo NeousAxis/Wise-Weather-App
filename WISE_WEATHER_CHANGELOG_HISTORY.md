@@ -185,3 +185,42 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 - **Problème** : Le graphique "Rain Trend" s'arrêtait avant la fin des 24h en fin de soirée (ex: à 18h quand il est 22h).
 - **Cause** : L'API ne fournissait que 2 jours de prévisions, insuffisant pour couvrir "Maintenant + 24h" en fin de journée.
 - **Correction** : Augmentation de la requête API (`forecast_days=4`) pour garantir un buffer de données suffisant en permanence. Le graphique est maintenant stable et complet 24h/24.
+
+## 🗓️ 7 Février 2026 - Stabilisation Push & Performance
+
+### 1. 🔔 Notifications : Fix Push Silencieux iOS [APPLIQUÉ]
+- **Problème** : Les notifications de pluie et citations arrivaient dans l'historique mais ne s'affichaient pas par-dessus l'écran de verrouillage ou les autres apps (mode silencieux/invisible).
+- **Cause** : Configuration APNS incorrecte. L'ajout de `content-available: 1` pour le background fetch masquait involontairement le dictionnaire `alert` nécessaire pour l'affichage visuel.
+- **Correction** : Ajout explicite du bloc `alert: { title, body }` dans le payload APNS, en plus du `content-available`.
+- **Résultat** : Les notifications réveillent l'app en arrière-plan ET s'affichent visuellement à l'utilisateur.
+
+### 2. ⚡ Performance : Démarrage Instantané (Split Fetch) [APPLIQUÉ]
+- **Problème** : L'écran d'accueil mettait jusqu'à 30 secondes à s'afficher (Contribution Modal bloqué).
+- **Cause** : La fonction `fetchWeather` attendait la réponse de TOUTES les APIs (Météo + Qualité Air + Pollen + Pluie) avant de rendre la main. Si une API (ex: Pollen) était lente, tout l'écran gelait.
+- **Correction** : Refactoring en 2 temps :
+    1. **Phase 1 (Immédiate)** : Chargement bloquant uniquement pour la Météo de base (Proxy). L'UI s'affiche en < 2s.
+    2. **Phase 2 (Background)** : Chargement différé des données secondaires (Air, Pollen, Pluie) qui viennent enrichir l'interface quelques secondes plus tard sans bloquer l'interaction.
+
+### 3. 📉 Correction Graphique "Rain Trend" Disparu [APPLIQUÉ]
+- **Problème** : Le graphique de pluie disparaissait aléatoirement ou nécessitait un redémarrage.
+- **Cause** : Désynchronisation Timezone. L'app calculait l'index de départ en UTC alors que l'API renvoyait des heures locales, causant un index `-1` (données introuvables).
+- **Correction** : Utilisation stricte de la propriété `current.time` renvoyée par l'API (Heure Locale) pour aligner parfaitement les données du graphique avec l'heure affichée.
+
+## 🗓️ 7 Février 2026 - Tweak UI Météo [v2.2.56]
+
+### 1. ☁️ Iconographie : Brouillard & Brume [APPLIQUÉ]
+- **Modification** : Les conditions `Fog` (Brouillard) et `Mist` (Brume) utilisent désormais l'icône **Nuageux** (Cloud) au lieu de l'icône Brume spécifique (souvent confuse ou manquante).
+- **Couleur** : Assignation d'un gris clair (`#94A3B8` et `#CBD5E1`) pour différencier du nuage blanc classique.
+
+### 2. 🌧️ Iconographie : Averses [CONFIRMÉ]
+- **Confirmation** : La condition `Showers` (Averse) reste mappée sur l'icône **Pluie** (Rain), comme demandé ("laisser Averse avec Pluie").
+
+## 🗓️ 7 Février 2026 - UX Contribution (More Options) [v2.2.57]
+
+### 1. 📂 UI : Sous-menus Unifiés [APPLIQUÉ]
+- **Modification** : Le comportement "More Options..." (Sous-menu) n'est plus exclusif à la Pluie.
+- **Nuageux** : Cliquer sur **Nuageux** ouvre désormais un sous-menu contenant **Nuageux**, **Brouillard** (Fog) et **Brume** (Mist).
+- **Consistance** : L'interface affiche clairement "More Options..." sous les deux boutons principaux (Cloudy & Rain) pour indiquer à l'utilisateur que des précisions sont disponibles.
+
+### 2. 🎯 Sélection Hiérarchique
+- **Logique** : Si l'utilisateur sélectionne une sous-option (ex: Fog), le bouton parent (Cloudy) reste allumé pour montrer la catégorie active.

@@ -258,12 +258,9 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
     }
   };
 
-  const currentHourIndex = weather.hourly.time.findIndex(t => {
-    const d = new Date(t);
-    const now = new Date();
-    // Simple current hour match
-    return d.getHours() === now.getHours() && d.getDate() === now.getDate();
-  });
+  // Robust Index Finding using weather.current.time (Local from API) to avoid timezone mismatches
+  const currentIsoHour = weather.current.time.slice(0, 13); // Match YYYY-MM-DDTHH
+  const currentHourIndex = weather.hourly.time.findIndex(t => t.startsWith(currentIsoHour));
 
   // Fallback if not found (timezone issues), take last available or middle
   const safeIndex = currentHourIndex !== -1 ? currentHourIndex : Math.floor(weather.hourly.time.length / 2);
@@ -597,15 +594,12 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         if (!hourlyProbs || hourlyProbs.length === 0) return null;
 
         // Recalculate safe index for "Now"
-        const now = new Date();
-        const currentIsoHour = now.toISOString().slice(0, 13); // YYYY-MM-DDTHH
+        // Use same robust index finding as main dashboard (Local API Time)
+        // This fixes the "Disappearing Graph" bug caused by UTC/Local Time mismatches
+        const currentIsoHour = weather.current.time.slice(0, 13);
         let startIndex = weather?.hourly?.time?.findIndex((t: string) => t.startsWith(currentIsoHour)) ?? -1;
 
-        // Fallback: Use local time matching if ISO fails (API returns local string)
-        if (startIndex === -1 && weather?.hourly?.time) {
-          startIndex = weather.hourly.time.findIndex(t => new Date(t).getTime() >= now.getTime() - 60 * 60 * 1000);
-        }
-
+        // Safety Fallback
         let safeIdx = startIndex !== -1 ? startIndex : 0;
 
         // Get Full 24h Buffer (for scaling logic)
@@ -1700,10 +1694,12 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
             case 'Sunny': type = 'sun'; color = '#FFFFFF'; break;
             case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break;
             case 'Rain': type = 'rain'; color = '#FFFFFF'; break;
+            case 'Showers': type = 'rain'; color = '#FFFFFF'; break; // Averse -> Pluie
             case 'Windy': type = 'wind'; color = '#FFFFFF'; break;
             case 'Snow': type = 'snow'; color = '#FFFFFF'; break;
             case 'Storm': type = 'storm'; color = '#FFFFFF'; break;
             case 'Mist': type = 'cloud'; color = '#CBD5E1'; break;
+            case 'Fog': type = 'cloud'; color = '#94A3B8'; break; // Brouillard -> Nuageux
             case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break;
             case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
             default: type = 'sun'; color = '#FFFFFF';
@@ -1746,10 +1742,12 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
             case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
             case 'Cloudy': type = 'cloud'; break;
             case 'Rain': type = 'rain'; break;
+            case 'Showers': type = 'rain'; break;
             case 'Windy': type = 'wind'; break;
             case 'Snow': type = 'snow'; break;
             case 'Storm': type = 'storm'; break;
             case 'Mist': type = 'cloud'; color = '#CBD5E1'; break;
+            case 'Fog': type = 'cloud'; color = '#94A3B8'; break;
             case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break;
             case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
             default: type = 'sun';
@@ -1791,10 +1789,12 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
               case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
               case 'Cloudy': type = 'cloud'; break;
               case 'Rain': type = 'rain'; break;
+              case 'Showers': type = 'rain'; break;
               case 'Windy': type = 'wind'; break;
               case 'Snow': type = 'snow'; break;
               case 'Storm': type = 'storm'; break;
               case 'Mist': type = 'cloud'; color = '#CBD5E1'; break;
+              case 'Fog': type = 'cloud'; color = '#94A3B8'; break;
               case 'Whiteout': type = 'snow'; color = '#F8FAFC'; break;
               case 'Ice': type = 'snow'; color = '#7DD3FC'; break;
               default: type = 'sun';
@@ -1966,12 +1966,16 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
   const [contributionRank, setContributionRank] = useState(0);
   const isStaging = typeof window !== 'undefined' && (window.location.hostname.includes('staging') || window.location.hostname.includes('localhost'));
 
-  const [subView, setSubView] = useState<'main' | 'rain'>('main');
+  const [subView, setSubView] = useState<'main' | 'rain' | 'cloudy'>('main');
 
   const toggle = (label: string) => {
-    // DEV MODE LOGIC: Clicking 'Rain' opens the Rain Menu
+    // Sub-menu Logic
     if (label === 'Rain' && subView === 'main') {
       setSubView('rain');
+      return;
+    }
+    if (label === 'Cloudy' && subView === 'main') {
+      setSubView('cloudy');
       return;
     }
 
@@ -2096,32 +2100,40 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
               // MAIN VIEW
               ['Sunny', 'Cloudy', 'Rain', 'Storm', 'Windy', 'Snow']
                 .filter(cond => !(cond === 'Sunny' && weather?.current?.isDay === 0))
-                .map((cond) => (
-                  <button
-                    key={cond}
-                    onClick={() => toggle(cond)}
-                    className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${selected.includes(cond) || (cond === 'Rain' && ['Rain', 'Showers', 'Fog', 'Mist'].some(r => selected.includes(r)))
-                      ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
-                      : 'border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100'
-                      }`}
-                  >
-                    <div className="mb-2">
-                      {getWeatherIconFromLabel(cond, 32)}
-                    </div>
-                    <span className="font-medium">{t(`condition.${cond}`) || cond}</span>
-                    {/* Indicator for Rain */}
-                    {cond === 'Rain' && <div className="text-[10px] text-blue-400 mt-1 font-bold">More Options...</div>}
-                  </button>
-                ))
+                .map((cond) => {
+                  // Determine if active (either directly selected OR one of its children selected)
+                  const isRainActive = cond === 'Rain' && ['Rain', 'Showers'].some(r => selected.includes(r));
+                  const isCloudyActive = cond === 'Cloudy' && ['Cloudy', 'Mist', 'Fog'].some(r => selected.includes(r));
+                  const isActive = selected.includes(cond) || isRainActive || isCloudyActive;
+
+                  return (
+                    <button
+                      key={cond}
+                      onClick={() => toggle(cond)}
+                      className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${isActive
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
+                        : 'border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100'
+                        }`}
+                    >
+                      <div className="mb-2">
+                        {getWeatherIconFromLabel(cond, 32)}
+                      </div>
+                      <span className="font-medium">{t(`condition.${cond}`) || cond}</span>
+                      {/* Indicator for Sub-menus */}
+                      {(cond === 'Rain' || cond === 'Cloudy') && <div className="text-[10px] text-blue-400 mt-1 font-bold">More Options...</div>}
+                    </button>
+                  );
+                })
             ) : (
-              // RAIN SUB-VIEW (DEV ONLY)
+              // SUB-VIEWS
               <>
                 <div className="col-span-2 flex items-center justify-start pb-2">
                   <button onClick={() => setSubView('main')} className="flex items-center gap-1 text-sm font-bold text-gray-500 hover:text-gray-900">
                     <ChevronDown className="rotate-90" size={16} /> Back
                   </button>
                 </div>
-                {['Rain', 'Showers', 'Fog', 'Mist'].map((cond) => (
+                {/* Dynamic List based on SubView */}
+                {(subView === 'rain' ? ['Rain', 'Showers'] : ['Cloudy', 'Mist', 'Fog']).map((cond) => (
                   <button
                     key={cond}
                     onClick={() => toggle(cond)}
@@ -2191,10 +2203,6 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
             <Wand2 size={24} />
             <span className="font-semibold">{t('feedback.feature')}</span>
           </a>
-          <button onClick={() => { testPush(); onClose(); }} className="w-full flex items-center gap-4 p-4 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-left">
-            <Bell size={24} />
-            <span className="font-semibold">{t('feedback.push_notification')}</span>
-          </button>
         </div>
       </div>
 
@@ -2591,14 +2599,26 @@ const AlertsModal = ({ onClose }: { onClose: () => void }) => {
 };
 
 const SettingsModal = ({ onClose }: { onClose: () => void }) => {
-  const { userTier, userPlan, userExpiresAt, language, t, testPush } = useContext(AppContext)!;
+  const { userTier, userPlan, userExpiresAt, language, t, requestNotifications, notificationsEnabled } = useContext(AppContext)!;
   const isContributor = typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
+  const [refreshing, setRefreshing] = useState(false);
 
   const planLabel = isContributor ? (language === 'fr' ? 'Mode Contributeur' : 'Contributor Mode') :
     userTier === UserTier.FREE ? (language === 'fr' ? 'Pack Gratuit' : 'Free Pack') :
       userTier === UserTier.STANDARD ? (language === 'fr' ? 'Pack Standard' : 'Standard Pack') :
-        userTier === UserTier.TRAVELER ? (language === 'fr' ? 'Pack Traveler' : 'Traveler Pack') : // Fix for Traveler Label
+        userTier === UserTier.TRAVELER ? (language === 'fr' ? 'Pack Traveler' : 'Traveler Pack') :
           (language === 'fr' ? 'Pack Ultimate' : 'Ultimate Pack');
+
+  const handleRefreshToken = async () => {
+    setRefreshing(true);
+    try {
+      await requestNotifications();
+      alert(language === 'fr' ? 'Token actualisé !' : 'Token refreshed!');
+    } catch (e) {
+      alert(language === 'fr' ? 'Erreur lors de l\'actualisation' : 'Error refreshing token');
+    }
+    setRefreshing(false);
+  };
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={onClose}>
@@ -2684,6 +2704,27 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
           </div>
         </div>
 
+        {/* NOTIFICATIONS SECTION */}
+        <div className="mt-6">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Notifications</h3>
+          <div className="bg-gray-50 rounded-2xl p-4 space-y-3 border border-gray-100">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500 font-medium text-sm">{language === 'fr' ? 'Push Notifications' : 'Push Notifications'}</span>
+              <span className={`font-bold text-sm px-2 py-0.5 rounded ${notificationsEnabled ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>
+                {notificationsEnabled ? (language === 'fr' ? 'Activé' : 'Enabled') : (language === 'fr' ? 'Désactivé' : 'Disabled')}
+              </span>
+            </div>
+            <button
+              onClick={handleRefreshToken}
+              disabled={refreshing}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors font-semibold text-sm disabled:opacity-50"
+            >
+              <Bell size={18} />
+              {refreshing ? (language === 'fr' ? 'Activation...' : 'Activating...') : (language === 'fr' ? 'Réactiver les alertes' : 'Reactivate Alerts')}
+            </button>
+          </div>
+        </div>
+
         <div className="mt-8">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Feedback</h3>
           <div className="space-y-2">
@@ -2699,12 +2740,6 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
               </div>
               <span className="text-sm font-semibold">{t('feedback.feature') || 'Suggest Feature'}</span>
             </a>
-            <button onClick={() => { testPush(); onClose(); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-left group">
-              <div className="bg-white p-1.5 rounded-lg shadow-sm group-hover:scale-110 transition-transform">
-                <Bell size={18} />
-              </div>
-              <span className="text-sm font-semibold">{t('feedback.push_notification') || 'Test Notification'}</span>
-            </button>
           </div>
         </div>
 

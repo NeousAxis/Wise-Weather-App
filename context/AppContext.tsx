@@ -922,32 +922,37 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
             let finalName = "";
 
             if (mainCity) {
-              // We have a major city/merged-city. Use it as primary.
-              finalName = mainCity;
-              // If we have a precision (District/Ward) that is different string-wise, append it.
-              // Logic Update: If mainCity IS the subArea (Nominatim weirdness where city="phường..."), 
-              // we don't want "Da Nang (Da Nang)". 
-              // But here mainCity is forced to "Da Nang". 
-              // The original `city` from JSON was "phường ngũ hành sơn".
-              // So we should check if that original city matches the subArea or if we can extract it.
-
-              // Actually, in the user's case: city="phường ngũ hành sơn". subArea might be undefined in that JSON!
-              // Let's re-read the DEBUG JSON: {"city":"phường ngũ hành sơn", ...} -> subArea is undefined!
-              // So `subArea` variable will be undefined.
-              // IF `subArea` is undefined, we should fallback to checking if `addr.city` looks like a district when we have forced mainCity.
+              // INVERTED LOGIC: Prioritize Precise Locality (subArea) as Main Title
+              // "Combloux" (subArea) should be main, "Bonneville" (mainCity/district) should be secondary.
 
               let effectiveSubArea = subArea;
+
+              // Fix for Nominatim where city might be the subArea in some countries
               if (!effectiveSubArea && mainCity !== addr.city && addr.city) {
-                // If we forced mainCity (to Da Nang) AND the original 'city' field exists but is different (e.g. "phường..."),
-                // treat the original 'city' field as the sub-area.
                 effectiveSubArea = addr.city;
               }
 
-              if (effectiveSubArea && !mainCity.toLowerCase().includes(effectiveSubArea.toLowerCase())) {
-                finalName += ` (${effectiveSubArea})`;
+              if (effectiveSubArea) {
+                // CASE A: We have a precise locality
+                // If the locality is NOT contained in the main city name (to avoid "Paris (Paris)")
+                if (!mainCity.toLowerCase().includes(effectiveSubArea.toLowerCase())) {
+                  // MAIN: Combloux
+                  // SUB: Bonneville
+                  finalName = effectiveSubArea;
+                } else {
+                  finalName = mainCity;
+                }
+              } else {
+                // CASE B: No precise locality, use Main City
+                finalName = mainCity;
+
+                // If we have a quarter/neighbourhood that we missed
+                if (addr.suburb && addr.suburb !== mainCity) {
+                  finalName = addr.suburb; // Promote Suburb to Main
+                }
               }
             } else {
-              // Rural: Fallback to SubArea or State if nothing else
+              // Rural: Fallback to SubArea or State
               finalName = subArea || addr.state || "Unknown Location";
             }
 
