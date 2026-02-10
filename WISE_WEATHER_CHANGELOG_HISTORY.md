@@ -244,3 +244,6 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 - **Cause** : Le modèle analysait uniquement le code météo (ex: 61=Pluie faible) sans croiser avec la température locale.
 - **Correction** : Si une condition de Pluie est détectée ET que la température est inférieure à **2.5°C**, le backend force le type d'événement à "Neige".
 - **UX** : Maintien du style standard en **MAJUSCULES** (ex: "NEIGE EN COURS") pour une lisibilité maximale.
+
+### 4. ↩️ UX : Hotfix Style Alertes [v2.2.60]
+- **Modification** : Rétablissement immédiat des titres en MAJUSCULES (ex: "NEIGE EN COURS") suite au feedback utilisateur, annulant la proposition de minuscules testée en v2.2.59.
