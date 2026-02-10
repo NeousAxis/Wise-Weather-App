@@ -2,6 +2,20 @@
 
 ## 📅 Historique des Versions (Dernières en haut)
 
+### ✅ `v2.2.59` (v2.7.1-Locality-Format-Fix) - 10 Feb 2026
+**État :** Production Stable (Correction Finale UI)
+**Contenu :**
+- **UI Localisation :** Formatage explicite en deux parties `Ville (Région)` (ex: `Combloux (Bonneville)`) pour que l'interface affiche correctement la ville en Titre Principal.
+- **Météo :** Détection intelligente de la Neige (si Pluie + Temp < 2.5°C) pour corriger les erreurs de type "Pluie par 1°C".
+- **UX Notifications :** Titres d'alerte simplifiés et en minuscules (ex: "❄️ Neige en cours").
+
+### ✅ `v2.2.58` (v2.7.0-Locality-Fix) - 10 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **Localisation :** Priorisation de la **Localité Précise** (ex: Combloux) sur l'Arrondissement (ex: Bonneville) pour l'affichage principal.
+- **Notifications :** Ajout d'un bouton **"Réactiver les alertes"** dans les Paramètres pour régénérer le token FCM en cas de problème.
+- **Push Fix :** Correction des permissions et logs pour le debug des notifications matinales.
+
 ### ✅ [ACTUEL] `v2.2.57` (v2.6.8-Cloud-Submenu) - 7 Feb 2026
 **État :** Production Stable
 **Contenu :**

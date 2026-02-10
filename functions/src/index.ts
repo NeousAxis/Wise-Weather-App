@@ -576,28 +576,28 @@ export const sendHourlyNotifications = onSchedule({
 
               if (forecast.type === "storm") {
                 if (lang === "fr") {
-                  msgTitle = isStartingNow ? "⛈️ ORAGE EN COURS" : "⛈️ ORAGE IMMINENT";
-                  if (isDurationChange) msgTitle = "⛈️ ORAGE PERSISTANT";
+                  msgTitle = isStartingNow ? "⛈️ Orage en cours" : "⛈️ Orage imminent";
+                  if (isDurationChange) msgTitle = "⛈️ Orage persistant";
                   msgBody = isStartingNow
                     ? `DANGER ! Orage ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
                     : `DANGER ! Arrivée prévue à ${timeDisplay}.`;
                 } else {
-                  msgTitle = isStartingNow ? "⛈️ STORM ACTIVE" : "⛈️ STORM INCOMING";
-                  if (isDurationChange) msgTitle = "⛈️ STORM CONTINUES";
+                  msgTitle = isStartingNow ? "⛈️ Storm active" : "⛈️ Storm incoming";
+                  if (isDurationChange) msgTitle = "⛈️ Storm continues";
                   msgBody = isStartingNow
                     ? `DANGER! ${intensityLabelEn} Storm active (ends at ${endTimeDisplay}).`
                     : `DANGER! Storm arriving at ${timeDisplay}.`;
                 }
               } else if (forecast.type === "snow") {
                 if (lang === "fr") {
-                  msgTitle = isStartingNow ? "❄️ NEIGE EN COURS" : "❄️ NEIGE PRÉVUE";
-                  if (isDurationChange) msgTitle = "❄️ LA NEIGE CONTINUE";
+                  msgTitle = isStartingNow ? "❄️ Neige en cours" : "❄️ Neige prévue";
+                  if (isDurationChange) msgTitle = "❄️ La neige continue";
                   msgBody = isStartingNow
                     ? `${isIntermittent ? "Tombées de neige" : "Neige"} ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
                     : `${isIntermittent ? "Tombées de neige" : "Neige"} ${intensityLabelFr} à partir de ${timeDisplay}.`;
                 } else {
-                  msgTitle = isStartingNow ? "❄️ SNOWING" : "❄️ SNOW FORECAST";
-                  if (isDurationChange) msgTitle = "❄️ SNOW PERSISTS";
+                  msgTitle = isStartingNow ? "❄️ Snowing" : "❄️ Snow forecast";
+                  if (isDurationChange) msgTitle = "❄️ Snow persists";
                   msgBody = isStartingNow
                     ? `${intensityLabelEn} ${isIntermittent ? "Snow showers" : "Snow"} active (ends at ${endTimeDisplay}).`
                     : `${intensityLabelEn} ${isIntermittent ? "Snow showers" : "Snow"} starting at ${timeDisplay}.`;
@@ -605,14 +605,14 @@ export const sendHourlyNotifications = onSchedule({
               } else {
                 if (lang === "fr") {
                   if (isIntermittent) {
-                    msgTitle = isStartingNow ? "🌦️ AVERSES EN COURS" : "🌦️ AVERSES EN APPROCHE";
-                    if (isDurationChange) msgTitle = "🌦️ AVERSES: CHANGEMENT";
+                    msgTitle = isStartingNow ? "🌦️ Averses en cours" : "🌦️ Averses en approche";
+                    if (isDurationChange) msgTitle = "🌦️ Averses: changement";
                     msgBody = isStartingNow
                       ? `Averses ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
                       : `Début des averses ${intensityLabelFr} prévu à ${timeDisplay}.`;
                   } else {
-                    msgTitle = isStartingNow ? "🌧️ PLUIE EN COURS" : "🌧️ PLUIE IMMINENTE";
-                    if (isDurationChange) msgTitle = "🌧️ LA PLUIE CONTINUE";
+                    msgTitle = isStartingNow ? "🌧️ Pluie en cours" : "🌧️ Pluie imminente";
+                    if (isDurationChange) msgTitle = "🌧️ La pluie continue";
                     msgBody = isStartingNow
                       ? `Pluie ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
                       : `Début de la pluie ${intensityLabelFr} prévu à ${timeDisplay}.`;
@@ -906,6 +906,13 @@ function getDangerousForecast(
     else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
       isDangerous = true;
       detectedType = "rain";
+
+      // PRECISE SNOW DETECTION: If it's raining but temp < 2.5°C, usually it's Snow or Sleet.
+      // We prioritize alerting SNOW as it's more impactful.
+      if (current && current.temperature_2m < 2.5) {
+        detectedType = "snow";
+      }
+
       // Heavy rain: 63, 65, 67 (Freezing heavy), 81, 82 (Showers)
       // MODIFICATION: Include Code 80 (Slight Showers) as IMMEDIATE because showers are by definition "passing"
       // and checking persistence (2 slots) might miss a short 15min shower.

@@ -224,3 +224,23 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 
 ### 2. 🎯 Sélection Hiérarchique
 - **Logique** : Si l'utilisateur sélectionne une sous-option (ex: Fog), le bouton parent (Cloudy) reste allumé pour montrer la catégorie active.
+
+## 🗓️ 10 Février 2026 - UX : Notification & Localisation [v2.2.58]
+
+### 1. 🔔 Notifications : Debug & Reactivation [CONFIRMÉ]
+- **Problème** : Les notifications de 7h ne partaient pas pour certains comptes (ex: erreur 'NotRegistered' FCM).
+- **Solution** : Ajout d'une section "Notifications" dans le Modal Paramètres avec un bouton **Réactiver les alertes**.
+- **Rationale** : Permet à l'utilisateur de force-flush son token FCM (désinscription/réinscription) sans réinstaller l'app.
+- **Ajout** : Logs '[QUOTE-DEBUG]' activés pour tracer spécifiquement la fenêtre d'envoi (7h-8h) pour le compte '1TON5...'.
+
+### 2. 📍 UI : Localisation Précise [v2.7.0]
+- **Problème** : L'app affichait "Bonneville" (Arrondissement) comme titre principal alors que l'utilisateur était à "Combloux" (Village).
+- **Cause** : La logique priorisait 'mainCity' (Admin Level 2) au lieu de 'subArea' (Admin Level 3/4) pour éviter les doublons type "Paris (Paris)".
+- **Correction** : Formatage en **deux parties** `Ville (Région)` (ex: `Combloux (Bonneville)`). L'interface détecte les parenthèses et affiche automatiquement la partie gauche (Ville) en gros titre et la partie droite (Région) en sous-titre.
+- **Résultat** : L'utilisateur voit maintenant **"Combloux"** comme titre.
+
+### 3. ❄️ Backend : Détection Neige Précise [v2.2.59]
+- **Problème** : L'alerte annonçait "Pluie" alors qu'il faisait 1°C, contrairement à d'autres apps (Rain Viewer) qui annonçaient "Neige".
+- **Cause** : Le modèle analysait uniquement le code météo (ex: 61=Pluie faible) sans croiser avec la température locale.
+- **Correction** : Si une condition de Pluie est détectée ET que la température est inférieure à **2.5°C**, le backend force le type d'événement à "Neige".
+- **UX** : Les titres d'alerte passent en minuscules (Sentence Case) pour être moins agressifs et plus lisibles.
