@@ -1719,11 +1719,9 @@ export const getWeatherForecast = onCall(async (request) => {
       // If the event is starting very soon (or now), we override the CURRENT display.
       // This is what users check first when they get a notification.
       if (dangerousEvent.start <= 30) {
-        // Only override if current is considered "safe/dry" (Codes < 50) and we have rain/storm
-        if (uiData.current.weather_code < 50) {
-          console.log(`[PROXY] Overriding CURRENT weather (was ${uiData.current.weather_code} -> now ${forceCode})`);
-          uiData.current.weather_code = forceCode;
-        }
+        // ALWAYS override current if dangerous event is detected close (Priority to Safety)
+        console.log(`[PROXY] Overriding CURRENT weather (was ${uiData.current.weather_code} -> now ${forceCode})`);
+        uiData.current.weather_code = forceCode;
       }
 
       // CASE B: HOURLY FORECAST CONSISTENCY
@@ -1746,9 +1744,8 @@ export const getWeatherForecast = onCall(async (request) => {
         for (let i = 0; i < 3; i++) {
           const idx = startIndex + i;
           if (idx < uiData.hourly.weather_code.length) {
-            if (uiData.hourly.weather_code[idx] < 50) {
-              uiData.hourly.weather_code[idx] = forceCode;
-            }
+            // ALWAYS override hourly if dangerous event is active in that slot
+            uiData.hourly.weather_code[idx] = forceCode;
           }
         }
         console.log(`[PROXY] Patched 3 hourly slots starting at index ${startIndex} to match alert type: ${dangerousEvent.type}`);

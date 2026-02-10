@@ -2,10 +2,11 @@
 
 ## 📅 Historique des Versions (Dernières en haut)
 
-### ✅ `v2.2.62` (Optim-CacheFirst) - 10 Feb 2026
+### ✅ `v2.2.62` (Optim-CacheFirst & Safety-Fix) - 10 Feb 2026
 **État :** Production Stable
 **Contenu :**
-- **Perf :** Chargement instantané de la météo (Cache-First) puis mise à jour silencieuse via Backend.
+- **Perf :** Chargement instantané (Cache-First).
+- **Consensus :** Remplacement systématique de l'affichage par la Neige/Orage si détectés par le consensus de sécurité (supression filtre restrictif Pluie).
 
 ### ✅ `v2.2.61` (Feature-Mountain-Community) - 10 Feb 2026
 **État :** Production Stable

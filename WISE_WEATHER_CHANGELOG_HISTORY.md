@@ -252,6 +252,6 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 - **Problème** : Les rapports spécifiques Montagne (Avalanche, Neige) n'apparaissaient pas dans la frise chronologique comparative.
 - **Ajout** : Intégration des badges **Risque Avalanche** et **Niveau de Neige** dans les cartes horaires si des données sont disponibles.
 
-### 6. ⚡️ UX : Optimistic Loading (Cache-First) [v2.2.62]
-- **Amélioration** : Affichage immédiat des dernières données météo connues au démarrage.
-- **Bénéfice** : Suppression de l'effet d'attente (spinner) pendant la synchronisation avec le consensus backend.
+### 6. ⚡️ UX & Safety Fix [v2.2.62]
+- **UX** : Affichage immédiat (Cache-First).
+- **Sécurité** : Le Backend impose désormais la NEIGE ou l'ORAGE sur l'affichage principal et horaire dès que le consensus des 9 modèles le détecte, même si le modèle standard prévoyait de la pluie.
