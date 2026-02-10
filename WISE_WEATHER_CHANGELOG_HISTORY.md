@@ -251,3 +251,7 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 ### 5. 🏔️ Module Weather Community [v2.2.61]
 - **Problème** : Les rapports spécifiques Montagne (Avalanche, Neige) n'apparaissaient pas dans la frise chronologique comparative.
 - **Ajout** : Intégration des badges **Risque Avalanche** et **Niveau de Neige** dans les cartes horaires si des données sont disponibles.
+
+### 6. ⚡️ UX : Optimistic Loading (Cache-First) [v2.2.62]
+- **Amélioration** : Affichage immédiat des dernières données météo connues au démarrage.
+- **Bénéfice** : Suppression de l'effet d'attente (spinner) pendant la synchronisation avec le consensus backend.

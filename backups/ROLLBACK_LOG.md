@@ -2,6 +2,11 @@
 
 ## 📅 Historique des Versions (Dernières en haut)
 
+### ✅ `v2.2.62` (Optim-CacheFirst) - 10 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **Perf :** Chargement instantané de la météo (Cache-First) puis mise à jour silencieuse via Backend.
+
 ### ✅ `v2.2.61` (Feature-Mountain-Community) - 10 Feb 2026
 **État :** Production Stable
 **Contenu :**

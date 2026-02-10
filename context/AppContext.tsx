@@ -344,6 +344,15 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   }, [user]);
 
   const fetchWeather = React.useCallback(async (lat: number, lng: number) => {
+    // 0. OPTIMISTIC UI: Load from cache instantly to avoid waiting
+    const cachedData = localStorage.getItem('wise_weather_cache');
+    if (cachedData && !weather) {
+      try {
+        const parsed = JSON.parse(cachedData);
+        setWeather(parsed);
+      } catch (e) { }
+    }
+
     setLoadingWeather(true);
     try {
       // 1. Prepare Pollen logic (it has internal cache logic)
@@ -397,6 +406,12 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         throw new Error(proxyResult?.error || "Proxy returned no data");
       }
       const data = proxyResult.data;
+
+      // SAFETY ALIGNMENT: Match Notification Logic (Snow if < 2.5°C)
+      // This ensures the dashboard doesn't contradict a strict "Snow Alert" sent by the system.
+      if (data.current && data.current.temperature_2m < 2.5 && data.current.weather_code >= 51 && data.current.weather_code <= 67) {
+        data.current.weather_code = 71; // Force visual to Snow (Safety)
+      }
 
       // Extract precipitation from direct fetch if available
       let precipitationProbs: number[] | undefined = undefined;
