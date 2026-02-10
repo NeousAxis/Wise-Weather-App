@@ -2720,7 +2720,7 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
               className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors font-semibold text-sm disabled:opacity-50"
             >
               <Bell size={18} />
-              {refreshing ? (language === 'fr' ? 'Activation...' : 'Activating...') : (language === 'fr' ? 'Réactiver les alertes' : 'Reactivate Alerts')}
+              {refreshing ? (language === 'fr' ? 'Activation...' : 'Activating...') : (language === 'fr' ? 'Activer les alertes' : 'Activate Alerts')}
             </button>
           </div>
         </div>

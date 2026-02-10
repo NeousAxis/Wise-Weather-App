@@ -576,28 +576,28 @@ export const sendHourlyNotifications = onSchedule({
 
               if (forecast.type === "storm") {
                 if (lang === "fr") {
-                  msgTitle = isStartingNow ? "⛈️ Orage en cours" : "⛈️ Orage imminent";
-                  if (isDurationChange) msgTitle = "⛈️ Orage persistant";
+                  msgTitle = isStartingNow ? "⛈️ ORAGE EN COURS" : "⛈️ ORAGE IMMINENT";
+                  if (isDurationChange) msgTitle = "⛈️ ORAGE PERSISTANT";
                   msgBody = isStartingNow
                     ? `DANGER ! Orage ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
                     : `DANGER ! Arrivée prévue à ${timeDisplay}.`;
                 } else {
-                  msgTitle = isStartingNow ? "⛈️ Storm active" : "⛈️ Storm incoming";
-                  if (isDurationChange) msgTitle = "⛈️ Storm continues";
+                  msgTitle = isStartingNow ? "⛈️ STORM ACTIVE" : "⛈️ STORM INCOMING";
+                  if (isDurationChange) msgTitle = "⛈️ STORM CONTINUES";
                   msgBody = isStartingNow
                     ? `DANGER! ${intensityLabelEn} Storm active (ends at ${endTimeDisplay}).`
                     : `DANGER! Storm arriving at ${timeDisplay}.`;
                 }
               } else if (forecast.type === "snow") {
                 if (lang === "fr") {
-                  msgTitle = isStartingNow ? "❄️ Neige en cours" : "❄️ Neige prévue";
-                  if (isDurationChange) msgTitle = "❄️ La neige continue";
+                  msgTitle = isStartingNow ? "❄️ NEIGE EN COURS" : "❄️ NEIGE PRÉVUE";
+                  if (isDurationChange) msgTitle = "❄️ LA NEIGE CONTINUE";
                   msgBody = isStartingNow
                     ? `${isIntermittent ? "Tombées de neige" : "Neige"} ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
                     : `${isIntermittent ? "Tombées de neige" : "Neige"} ${intensityLabelFr} à partir de ${timeDisplay}.`;
                 } else {
-                  msgTitle = isStartingNow ? "❄️ Snowing" : "❄️ Snow forecast";
-                  if (isDurationChange) msgTitle = "❄️ Snow persists";
+                  msgTitle = isStartingNow ? "❄️ SNOWING" : "❄️ SNOW FORECAST";
+                  if (isDurationChange) msgTitle = "❄️ SNOW PERSISTS";
                   msgBody = isStartingNow
                     ? `${intensityLabelEn} ${isIntermittent ? "Snow showers" : "Snow"} active (ends at ${endTimeDisplay}).`
                     : `${intensityLabelEn} ${isIntermittent ? "Snow showers" : "Snow"} starting at ${timeDisplay}.`;
@@ -605,14 +605,14 @@ export const sendHourlyNotifications = onSchedule({
               } else {
                 if (lang === "fr") {
                   if (isIntermittent) {
-                    msgTitle = isStartingNow ? "🌦️ Averses en cours" : "🌦️ Averses en approche";
-                    if (isDurationChange) msgTitle = "🌦️ Averses: changement";
+                    msgTitle = isStartingNow ? "🌦️ AVERSES EN COURS" : "🌦️ AVERSES EN APPROCHE";
+                    if (isDurationChange) msgTitle = "🌦️ AVERSES: CHANGEMENT";
                     msgBody = isStartingNow
                       ? `Averses ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
                       : `Début des averses ${intensityLabelFr} prévu à ${timeDisplay}.`;
                   } else {
-                    msgTitle = isStartingNow ? "🌧️ Pluie en cours" : "🌧️ Pluie imminente";
-                    if (isDurationChange) msgTitle = "🌧️ La pluie continue";
+                    msgTitle = isStartingNow ? "🌧️ PLUIE EN COURS" : "🌧️ PLUIE IMMINENTE";
+                    if (isDurationChange) msgTitle = "🌧️ LA PLUIE CONTINUE";
                     msgBody = isStartingNow
                       ? `Pluie ${intensityLabelFr} en cours (fin prévue: ${endTimeDisplay}).`
                       : `Début de la pluie ${intensityLabelFr} prévu à ${timeDisplay}.`;
@@ -732,7 +732,16 @@ export const sendHourlyNotifications = onSchedule({
                   notification: { channelId: "weather-alerts", sound: "default" },
                 },
                 apns: {
-                  payload: { aps: { sound: "default" } },
+                  payload: {
+                    aps: {
+                      alert: {
+                        title: msgTitle,
+                        body: msgBody,
+                      },
+                      sound: "default",
+                      "content-available": 1
+                    }
+                  },
                 },
                 data: { type: isForecastAlert ? "weather_forecast" : "weather_alert" },
                 webpush: { fcm_options: { link: "/?action=contribution" } },
