@@ -255,3 +255,16 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 ### 6. ⚡️ UX & Safety Fix [v2.2.62]
 - **UX** : Affichage immédiat (Cache-First).
 - **Sécurité** : Le Backend impose désormais la NEIGE ou l'ORAGE sur l'affichage principal et horaire dès que le consensus des 9 modèles le détecte, même si le modèle standard prévoyait de la pluie.
+
+## 🗓️ 11 Février 2026 - Visibilité & Montagne [v2.2.63]
+
+### 1. 👁️ UI : Affichage Visibilité [APPLIQUÉ]
+- **Problème** : La donnée de visibilité ("Brouillard", "50m") était saisie par l'utilisateur mais nulle part affichée.
+- **Ajout** : Intégration d'un badge **"👁️ 50m"** (Visibilité Min) à trois endroits clés :
+    1. **Carrousel Communautaire** (Historique horaire).
+    2. **Carte (Popup Standard)**.
+    3. **Carte (Marqueur Montagne)**.
+
+### 2. 🏔️ Logique : Déclenchement Smart Montagne [APPLIQUÉ]
+- **Changement** : Une visibilité faible (< 250m) est désormais considérée comme une "Condition Montagne" critique.
+- **Conséquence** : Cela force l'affichage du marqueur étendu "Montagne" sur la carte au lieu du point standard, garantissant que l'alerte brouillard est immédiatement visible sans avoir à cliquer.

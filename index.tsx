@@ -1238,6 +1238,7 @@ const CommunityCarousel = () => {
           let hasReports = false;
           let maxAvalancheRisk = 0;
           let maxSnowLevel = 0;
+          let minVisibility: number | null = null;
 
           if (reportsForHour.length > 0) {
             hasReports = true;
@@ -1265,6 +1266,13 @@ const CommunityCarousel = () => {
             reportsForHour.forEach(r => {
               if (r.avalancheRisk && r.avalancheRisk > maxAvalancheRisk) maxAvalancheRisk = r.avalancheRisk;
               if (r.snowLevel && r.snowLevel > maxSnowLevel) maxSnowLevel = r.snowLevel;
+
+              // NEW: Visibility Tracking
+              if (r.visibilityDist !== undefined && r.visibilityDist !== null) {
+                if (minVisibility === null || r.visibilityDist < minVisibility) {
+                  minVisibility = r.visibilityDist;
+                }
+              }
             });
 
             if (topConditionCount >= 5) {
@@ -1318,6 +1326,11 @@ const CommunityCarousel = () => {
                         {maxSnowLevel > 0 && (
                           <span className="bg-blue-50 text-blue-600 text-[10px] px-1.5 py-0.5 rounded font-bold border border-blue-100 flex items-center shadow-sm whitespace-nowrap">
                             ❄️ {maxSnowLevel}cm
+                          </span>
+                        )}
+                        {minVisibility !== null && (
+                          <span className="bg-gray-50 text-gray-600 text-[10px] px-1.5 py-0.5 rounded font-bold border border-gray-100 flex items-center shadow-sm whitespace-nowrap">
+                            👁️ {minVisibility}m
                           </span>
                         )}
                       </div>
@@ -1700,7 +1713,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
         const isLocked = distKm > accessRadiusKm;
 
         // Check if Mountain Report
-        const isMountain = (report.avalancheRisk != null) || (report.snowLevel != null);
+        const isMountain = (report.avalancheRisk != null) || (report.snowLevel != null) || (report.visibilityDist != null && report.visibilityDist <= 250);
 
         // ALWAYS RENDER CLEAN ICON (No more Blurring)
         let iconContent = '';
@@ -1747,6 +1760,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
         const avalancheBadge = (report.avalancheRisk != null) ? `<span class="bg-red-500 text-white text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm">⚠️ ${report.avalancheRisk}/5</span>` : '';
         const snowBadge = (report.snowLevel != null) ? `<span class="bg-blue-500 text-white text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm">❄️ ${report.snowLevel}cm</span>` : '';
+        const visibilityBadge = (report.visibilityDist != null) ? `<span class="bg-gray-100 text-gray-700 text-[9px] ${badgePx} ${badgePy} rounded font-bold ml-1 flex items-center shadow-sm border border-gray-300">👁️ ${report.visibilityDist}m</span>` : '';
 
         const countSize = isMountain ? "w-5 h-5 text-[10px]" : "w-4 h-4 text-[9px]";
         const countBadge = (report.count && report.count > 1)
@@ -1832,6 +1846,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
           const diffMins = Math.floor(diffMs / 60000);
           const timeAgo = diffMins < 1 ? (language === 'fr' ? "À l'instant" : 'Now') : `${diffMins} min`;
 
+
           const popupContent = `
             <div class="${bgClass} rounded-2xl shadow-xl border-2 border-white/20 px-3 py-2 flex flex-col items-center justify-center gap-1 animate-in zoom-in-95 duration-200">
                <div class="flex items-center justify-center gap-2">
@@ -1840,6 +1855,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
                </div>
                <div class="flex items-center gap-1.5 opacity-90">
                   <span class="text-[10px] font-bold text-white tracking-wide leading-none">${timeAgo}</span>
+                  ${(report.visibilityDist != null) ? `<span className="text-[10px] font-bold text-gray-200 border-l border-white/30 pl-1.5 ml-1.5">👁️ ${report.visibilityDist}m</span>` : ''}
                </div>
             </div>`;
 
@@ -1866,6 +1882,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
                 </div>
                 ${avalancheBadge}
                 ${snowBadge}
+                ${visibilityBadge}
                 ${tempDisplay ? `<span class="font-bold text-white text-base leading-none pt-0.5">${tempDisplay}</span>` : ''}
                 ${isLocked ? '<div class="absolute -top-2 -right-2 bg-gray-100 rounded-full p-0.5 shadow border border-gray-200"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>' : ''}
               </div>
@@ -1873,7 +1890,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
             </div>
           `;
 
-          const calculatedW = Math.max(50, 30 + (report.conditions.length * 20) + ((report.temp != null) ? 25 : 0) + (report.avalancheRisk ? 45 : 0) + (report.snowLevel != null ? 50 : 0));
+          const calculatedW = Math.max(50, 30 + (report.conditions.length * 20) + ((report.temp != null) ? 25 : 0) + (report.avalancheRisk ? 45 : 0) + (report.snowLevel != null ? 50 : 0) + (report.visibilityDist != null ? 50 : 0));
           const el = L.divIcon({ className: className, html: iconContent, iconSize: [calculatedW, 40], iconAnchor: [calculatedW / 2, 20] });
           const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
 

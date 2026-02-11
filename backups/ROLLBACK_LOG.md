@@ -2,6 +2,12 @@
 
 ## 📅 Historique des Versions (Dernières en haut)
 
+### ✅ `v2.2.63` (Visibility-Display) - 11 Feb 2026
+**État :** Production Stable
+**Contenu :**
+- **Feature :** Affichage de la visibilité (en mètres) dans le Carousel Communautaire et sur la Carte (Mode Montagne & Popup Standard).
+- **Fix :** Prise en compte de la visibilité faible (< 250m) pour débloquer le style "Montagne" sur la carte.
+
 ### ✅ `v2.2.62` (Optim-CacheFirst & Safety-Fix) - 10 Feb 2026
 **État :** Production Stable
 **Contenu :**
