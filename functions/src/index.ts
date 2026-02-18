@@ -3,7 +3,7 @@ import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldPath } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { defineSecret } from "firebase-functions/params";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -40,9 +40,10 @@ function getThemeForDay(day: number): string {
  * Helper to fetch quote data using OpenRouter.
  * @param {number} dayOfWeek
  * @param {string} apiKey
+ * @param {string[]} bannedQuotes - List of quotes to avoid
  * @return {Promise<any>}
  */
-async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
+async function fetchQuoteData(dayOfWeek: number, apiKey: string, bannedQuotes: string[] = []) {
   const theme = getThemeForDay(dayOfWeek);
 
   const today = new Date().toDateString();
@@ -56,7 +57,9 @@ async function fetchQuoteData(dayOfWeek: number, apiKey: string) {
     "3. Provide the quote in both English ('en') and French ('fr').\n" +
     "4. Return ONLY valid JSON. No markdown, no backticks, no introduction text.\n" +
     "5. Format: {\"en\": {\"text\": \"...\", \"author\": \"...\"}, " +
-    "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}";
+    "\"fr\": {\"text\": \"...\", \"author\": \"...\"}}\n" +
+    "6. ANTI-DUPLICATION: You must NOT use any of the following quotes (already used recently):\n" +
+    bannedQuotes.map(q => `- "${q.substring(0, 30)}..."`).join("\n");
 
   console.log(`[DEBUG-AUTH] Received API Key. Length: ${apiKey?.length || 0}, Prefix: ${apiKey ? apiKey.substring(0, 5) : 'NULL'}`);
 
@@ -179,8 +182,67 @@ async function getOrGenerateQuote(
 
   // 2. Generate
   try {
-    const quoteData = await fetchQuoteData(dayOfWeek, apiKey);
-    if (quoteData) {
+    // --- ANTI-DUPLICATION LOGIC ---
+    // User Rule: "A same quote cannot be used more than 2 times a year!"
+    // Strategy: Fetch last 365 quotes, count frequency, ban if count >= 2.
+    const historyLimit = 365;
+    const historySnap = await db.collection("daily_quotes")
+      .orderBy(FieldPath.documentId(), "desc")
+      .limit(historyLimit)
+      .get();
+
+    const freqMap = new Map<string, number>();
+    historySnap.forEach(doc => {
+      const d = doc.data();
+      if (d?.en?.text) {
+        const t = d.en.text.trim().toLowerCase();
+        freqMap.set(t, (freqMap.get(t) || 0) + 1);
+      }
+    });
+
+    const bannedList: string[] = [];
+    freqMap.forEach((count, text) => {
+      if (count >= 2) bannedList.push(text);
+    });
+
+    // Also ban very recent ones (last 7 days) even if count < 2 to avoid repetition
+    let recentCounter = 0;
+    historySnap.forEach(doc => {
+      if (recentCounter < 7) {
+        const d = doc.data();
+        if (d?.en?.text) bannedList.push(d.en.text.trim().toLowerCase());
+      }
+      recentCounter++;
+    });
+
+    // Simplify banned list for Prompt (Top 50 most frequent/recent to save tokens)
+    const promptBanned = [...new Set(bannedList)].slice(0, 50);
+
+    // RETRY LOOP (Max 3 attempts to get a fresh quote)
+    let finalQuote = null;
+    let attempts = 0;
+
+    while (attempts < 3 && !finalQuote) {
+      attempts++;
+      console.log(`[QUOTE-GEN] Generation Attempt ${attempts} (Banned count: ${bannedList.length})`);
+
+      const candidate = await fetchQuoteData(dayOfWeek, apiKey, promptBanned);
+
+      if (candidate && candidate.en && candidate.en.text) {
+        const candidateText = candidate.en.text.trim().toLowerCase();
+
+        // Strict Check
+        if (bannedList.includes(candidateText)) {
+          console.warn(`[QUOTE-GEN] Duplicate detected (Attempt ${attempts}): "${candidateText}". Retrying...`);
+          // Add to prompt banned for next try
+          promptBanned.push(candidateText);
+        } else {
+          finalQuote = candidate;
+        }
+      }
+    }
+
+    if (finalQuote) {
       // 3. Double Check
       // Protection against race condition
       const freshSnap = await docRef.get();
@@ -188,9 +250,12 @@ async function getOrGenerateQuote(
         return freshSnap.data();
       }
 
-      await docRef.set(quoteData);
-      return quoteData;
+      await docRef.set(finalQuote);
+      return finalQuote;
+    } else {
+      throw new Error("Failed to generate unique quote after 3 attempts.");
     }
+
   } catch (e) {
     console.error("Failed to generate quote for slot", slotKey, e);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -943,6 +943,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                 <div className="space-y-4 py-2 overflow-y-auto pr-1">
                   {(() => {
                     // Translation Map for common Google Pollen Codes
+                    // UPDATED 2026-02-18: Added Winter Pollens (Hazel, Ash) that were missing and causing "Hidden Red" issues
                     const translator: Record<string, string> = language === 'fr' ? {
                       "ALDER": "Aulne", "ASH": "Frêne", "BIRCH": "Bouleau", "COTTONWOOD": "Peuplier",
                       "ELM": "Orme", "HAZEL": "Noisetier", "JUNIPER": "Genévrier", "MAPLE": "Érable",
@@ -951,7 +952,8 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                       "GRASS": "Graminées (Herbes)", "MUGWORT": "Armoise", "OLIVE": "Olivier", "RAGWEED": "Ambroisie",
                       "TREE": "Arbres (Général)", "WEED": "Herbacées (Général)", "CASUARINA": "Filao"
                     } : {
-                      "GRASS": "Grass (General)", "TREE": "Tree (General)", "WEED": "Weed (General)"
+                      "GRASS": "Grass (General)", "TREE": "Tree (General)", "WEED": "Weed (General)",
+                      "HAZEL": "Hazel", "ASH": "Ash", "ALDER": "Alder", "BIRCH": "Birch"
                     };
 
                     // @ts-ignore
@@ -959,7 +961,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                     // @ts-ignore
                     const errorMsg = weather.current.pollen?._error as string;
 
-                    let itemsToRender = [];
+                    let itemsToRender: any[] = [];
 
                     if (dynamicItems && dynamicItems.length > 0) {
                       itemsToRender = [...dynamicItems]
@@ -973,7 +975,8 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                     } else if (dynamicItems && dynamicItems.length === 0 && !errorMsg) {
                       // Valid response but no items (e.g. Winter or Desert) AND NO ERROR
                       return (
-                        <div className="p-4 bg-blue-50 text-blue-600 rounded-xl text-center">
+                        <div className="p-4 bg-blue-50 text-blue-600 rounded-xl text-center flex flex-col items-center justify-center h-full">
+                          <Check size={32} className="mb-2 opacity-50" />
                           <p className="font-medium text-sm">
                             {language === 'fr' ? 'Aucun pollen actif détecté pour ce lieu.' : 'No active pollen detected for this location.'}
                           </p>
@@ -981,15 +984,24 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                         </div>
                       );
                     } else {
-                      // Legacy Fallback (should not happen if cache key updated, unless error)
-                      itemsToRender = [
-                        { key: 'alder', label: language === 'fr' ? 'Aulne' : 'Alder', val: weather.current.pollen?.alder || 0 },
-                        { key: 'birch', label: language === 'fr' ? 'Bouleau' : 'Birch', val: weather.current.pollen?.birch || 0 },
-                        { key: 'grass', label: language === 'fr' ? 'Graminées' : 'Grass', val: weather.current.pollen?.grass || 0 },
-                        { key: 'ragweed', label: language === 'fr' ? 'Ambroisie' : 'Ragweed', val: weather.current.pollen?.ragweed || 0 },
-                        { key: 'olive', label: language === 'fr' ? 'Olivier' : 'Olive', val: weather.current.pollen?.olive || 0 },
-                        { key: 'mugwort', label: language === 'fr' ? 'Armoise' : 'Mugwort', val: weather.current.pollen?.mugwort || 0 },
-                      ];
+                      // ERROR CASE (Fallback removed to avoid "Lying Green")
+                      // If errorMsg exists, show it. If not, it means undefined state.
+                      const displayError = errorMsg || (language === 'fr' ? "Données indisponibles (Erreur technique)" : "Data unavailable (Technical Error)");
+
+                      return (
+                        <div className="p-4 bg-red-50 text-red-600 rounded-xl text-center flex flex-col items-center justify-center h-full">
+                          <Bug size={32} className="mb-2 opacity-50" />
+                          <p className="font-bold text-sm">
+                            {language === 'fr' ? 'Erreur Pollen' : 'Pollen Error'}
+                          </p>
+                          <p className="text-xs mt-1 opacity-80 break-words w-full px-2">
+                            {displayError}
+                          </p>
+                          <p className="text-[10px] mt-2 italic opacity-60">
+                            {language === 'fr' ? 'Vérifiez votre connexion ou clé API.' : 'Check connection or API Key.'}
+                          </p>
+                        </div>
+                      );
                     }
 
                     return itemsToRender.map((item, idx) => {
