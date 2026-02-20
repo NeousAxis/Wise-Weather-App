@@ -248,7 +248,16 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 ### 4. ↩️ UX : Hotfix Style Alertes [v2.2.60]
 - **Modification** : Rétablissement immédiat des titres en MAJUSCULES (ex: "NEIGE EN COURS") suite au feedback utilisateur, annulant la proposition de minuscules testée en v2.2.59.
 
-### 5. 🏔️ Module Weather Community [v2.2.61]
+# Wise Weather Changelog History
+
+## [PROD] v2.3.2 - 2026-02-20
+### 🛡️ Hotfix: Map Stability & Error Handling
+- **FIX**: Correction du crash "White Screen of Death" (WSOD) sur l'onglet Carte.
+- **DÉTAIL**: Implémentation de guards d'intégrité sur la création de chaque marqueur Leaflet. Si une donnée (Ville ou Rapport) arrive avec des coordonnées invalides (`undefined`/`NaN`), elle est désormais ignorée au lieu de faire planter tout l'arbre React.
+- **SÉCURITÉ**: Blindage des appels `L.marker` et `setView` contre les données `location` incomplètes.
+
+## [PROD] v2.3.1 - 2026-02-18
+### 🏔️ Module Weather Community [v2.2.61]
 - **Problème** : Les rapports spécifiques Montagne (Avalanche, Neige) n'apparaissaient pas dans la frise chronologique comparative.
 - **Ajout** : Intégration des badges **Risque Avalanche** et **Niveau de Neige** dans les cartes horaires si des données sont disponibles.
 

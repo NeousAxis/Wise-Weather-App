@@ -1465,8 +1465,8 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
     function initMap(Leaflet: any) {
       if (!mapInstance.current) {
-        const initialLat = location ? location.lat : 48.8566;
-        const initialLng = location ? location.lng : 2.3522;
+        const initialLat = (location && typeof location.lat === 'number') ? location.lat : 48.8566;
+        const initialLng = (location && typeof location.lng === 'number') ? location.lng : 2.3522;
 
         const map = Leaflet.map(mapRef.current, {
           zoomControl: false,
@@ -1489,14 +1489,14 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
   }, []);
 
   useEffect(() => {
-    if (mapInstance.current && location) {
+    if (mapInstance.current && location && typeof location.lat === 'number' && typeof location.lng === 'number') {
       mapInstance.current.setView([location.lat, location.lng], 13);
     }
   }, [location]);
 
   useEffect(() => {
     const L = (window as any).L;
-    if (!L || !mapInstance.current) return;
+    if (!L || !mapInstance.current || !location || typeof location.lat !== 'number' || typeof location.lng !== 'number') return;
 
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
@@ -1609,7 +1609,9 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
           iconAnchor: [40, -10]
         });
 
-        markersRef.current.push(L.marker([location.lat, location.lng], { icon: el, zIndexOffset: 1000 }).addTo(mapInstance.current));
+        if (location && typeof location.lat === 'number' && typeof location.lng === 'number') {
+          markersRef.current.push(L.marker([location.lat, location.lng], { icon: el, zIndexOffset: 1000 }).addTo(mapInstance.current));
+        }
       }
 
       // 2. Major Cities Markers
@@ -1659,7 +1661,9 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
           iconSize: [0, 0],
           iconAnchor: [0, 0]
         });
-        markersRef.current.push(L.marker([city.lat, city.lng], { icon: el }).addTo(mapInstance.current));
+        if (typeof city.lat === 'number' && typeof city.lng === 'number') {
+          markersRef.current.push(L.marker([city.lat, city.lng], { icon: el }).addTo(mapInstance.current));
+        }
       });
 
     } else {
@@ -1871,6 +1875,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
                </div>
             </div>`;
 
+          if (typeof report.lat !== 'number' || typeof report.lng !== 'number') return;
           const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
 
           if (isLocked) {
@@ -1904,6 +1909,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
           const calculatedW = Math.max(50, 30 + (report.conditions.length * 20) + ((report.temp != null) ? 25 : 0) + (report.avalancheRisk ? 45 : 0) + (report.snowLevel != null ? 50 : 0) + (report.visibilityDist != null ? 50 : 0));
           const el = L.divIcon({ className: className, html: iconContent, iconSize: [calculatedW, 40], iconAnchor: [calculatedW / 2, 20] });
+          if (typeof report.lat !== 'number' || typeof report.lng !== 'number') return;
           const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
 
           if (isLocked) {
