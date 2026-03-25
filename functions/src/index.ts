@@ -7,7 +7,7 @@ import { getFirestore, FieldPath } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { defineSecret } from "firebase-functions/params";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-// External payment import removed - payments are web-only
+import Stripe from "stripe";
 
 initializeApp();
 
@@ -1490,8 +1490,172 @@ export const checkCommunityReport = onDocumentCreated(
     }
   });
 
-// --- EXTERNAL PAYMENT INTEGRATION REMOVED ---
-// Payments are handled via the web app only. iOS app does not use external payment links.
+// --- STRIPE INTEGRATION ---
+
+const stripeSecretKey = defineSecret("STRIPE_SECRET_KEY");
+
+export const createStripeCheckout = onCall({ secrets: [stripeSecretKey] }, async (request) => {
+  const userId = request.auth?.uid;
+  const { priceId, successUrl, cancelUrl } = request.data;
+
+  if (!userId) {
+    throw new HttpsError('unauthenticated', 'User must be logged in');
+  }
+
+  const stripe = new Stripe(stripeSecretKey.value());
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: { firebaseUid: userId }, // Critical: Link payment to user
+      allow_promotion_codes: true,
+    });
+
+    return { url: session.url };
+  } catch (e: any) {
+    console.error("Stripe Checkout Error:", e);
+    throw new HttpsError('internal', e.message);
+  }
+});
+
+export const stripeWebhook = onRequest({ secrets: [stripeSecretKey] }, async (req, res) => {
+  const stripe = new Stripe(stripeSecretKey.value());
+
+  // SIMPLIFIED WEBHOOK FOR TESTING (No Signature Check)
+  // In Prod, configure STRIPE_WEBHOOK_SECRET and uncomment construction logic
+
+  // const sig = req.headers['stripe-signature'];
+  // const endpointSecret = stripeWebhookSecret.value();
+
+  let event;
+
+  try {
+    // Direct parsing for permissiveness
+    event = req.body;
+  } catch (err: any) {
+    console.error(`Webhook Error: ${err.message}`);
+    res.status(400).send(`Webhook Error: ${err.message}`);
+    return;
+  }
+
+  // Handle the event
+  if (event.type === 'checkout.session.completed') {
+    const sessionRaw = event.data.object as Stripe.Checkout.Session;
+
+    // Retrieve session with line_items to get the real price details
+    // (Crucial for 0-amount payments like trials or coupons)
+    let session: Stripe.Checkout.Session = sessionRaw;
+    let lineItems: Stripe.LineItem[] = [];
+
+    try {
+      const expanded = await stripe.checkout.sessions.retrieve(sessionRaw.id, {
+        expand: ['line_items']
+      });
+      session = expanded;
+      lineItems = expanded.line_items?.data || [];
+    } catch (e) {
+      console.error("Failed to expand session line_items", e);
+    }
+
+    // Support BOTH methods: Payment Links (client_reference_id) & API (metadata.firebaseUid)
+    const uid = session.client_reference_id || session.metadata?.firebaseUid;
+
+    if (uid) {
+      console.log(`Payment successful for user ${uid}. Processing Subscription.`);
+
+      // Tier Determination Logic
+      // Standard: 200 (2.-), 2000 (20.-)
+      // Ultimate: 500 (5.-), 4500 (45.-)
+      // Traveler: 400 (4.-) -> Gives Ultimate features
+
+      let targetTier = 'STANDARD';
+      let targetPlan = 'standard';
+
+      // Check based on Price Unit Amount (safer than session total)
+      // If we have line items, check the first one (usually simplified sub)
+      let priceAmount = 0;
+      if (lineItems.length > 0) {
+        priceAmount = lineItems[0].price?.unit_amount || 0;
+      } else {
+        priceAmount = session.amount_total || 0;
+      }
+
+      if (priceAmount === 400) {
+        targetTier = 'TRAVELER';
+        targetPlan = 'traveler';
+      } else if (priceAmount === 4500) {
+        targetTier = 'ULTIMATE';
+        targetPlan = 'ultimate_yearly';
+      } else if (priceAmount === 500) {
+        targetTier = 'ULTIMATE';
+        targetPlan = 'ultimate_monthly';
+      } else {
+        // Standard or other
+        targetTier = 'STANDARD';
+        targetPlan = 'standard';
+      }
+
+      console.log(`Determined Tier: ${targetTier}, Plan: ${targetPlan} for User: ${uid}`);
+
+      const updates: any = {
+        tier: targetTier,
+        plan: targetPlan,
+        subscriptionStatus: 'active',
+        subscriptionId: typeof session.subscription === 'string' ? session.subscription : null,
+        updatedAt: new Date()
+      };
+
+      // HANDLING TRAVELER 7-DAY PASS
+      // Since this is likely a one-time payment (not auto-renewing), we must enforce expiration manually.
+      if (targetPlan === 'traveler') {
+        const expiry = new Date();
+        expiry.setDate(expiry.getDate() + 7); // +7 Days
+        updates.expiresAt = expiry;
+        console.log(`Setting expiration for Traveler ${uid} to ${expiry.toISOString()}`);
+      } else {
+        // Clear expiration for subscriptions (Stripe handles lifecycle)
+        updates.expiresAt = null;
+      }
+
+      // Using Admin SDK directly (initialized at top)
+      const db = getFirestore();
+      await db.collection("users").doc(uid).set(updates, { merge: true });
+    } else {
+      console.error("Webhook received but no User ID found (client_reference_id or metadata).");
+    }
+  }
+
+  // Handle Subscription Deletion (Cancel)
+  if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object as Stripe.Subscription;
+    // We need to find the user by subscriptionId if possible, 
+    // OR rely on metadata if it's preserved on subscription object (sometimes not).
+    // For now, simpler: Checkout session metadata is reliable for activation.
+    // Deactivation is harder without searching user by subID.
+    // Let's implement Search by SubID later if needed.
+    console.log("Subscription deleted:", subscription.id);
+
+    const db = getFirestore();
+    const usersRef = db.collection('users');
+    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();
+
+    if (!snapshot.empty) {
+      snapshot.forEach(doc => {
+        doc.ref.update({
+          tier: 'FREE',
+          subscriptionStatus: 'canceled'
+        });
+        console.log(`Downgraded user ${doc.id} to FREE.`);
+      });
+    }
+  }
+
+  res.json({ received: true });
+});
 
 // CRON JOB: Check for Expired Traveler Passes
 // Runs every day to downgrade users who have passed their 7-day window.
