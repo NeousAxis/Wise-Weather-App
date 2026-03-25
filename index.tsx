@@ -120,26 +120,6 @@ const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
 
 // --- Reusable Components ---
 
-const PremiumValue = ({ isLocked, children }: { isLocked: boolean, children: React.ReactNode }) => {
-  const { setShowPremium } = useContext(AppContext)!;
-
-  if (!isLocked) return <>{children}</>;
-
-  return (
-    <div className="relative group cursor-pointer w-full" onClick={() => setShowPremium(true)}>
-      <div className="blur-[4px] select-none pointer-events-none opacity-50 transition-all duration-300">
-        {children}
-      </div>
-      <div className="absolute inset-0 flex flex-col items-center justify-center z-10 transition-transform duration-300 group-hover:scale-105">
-        <div className="bg-white/90 p-1.5 rounded-full shadow-sm mb-0.5 group-hover:bg-yellow-100 transition-colors">
-          <Lock size={12} className="text-gray-600 group-hover:text-yellow-600 transition-colors" />
-        </div>
-        <span className="text-[8px] font-bold text-gray-600 uppercase tracking-wider group-hover:text-yellow-600 transition-colors">Premium</span>
-      </div>
-    </div>
-  );
-};
-
 // --- Features ---
 
 const QuoteBlock = () => {
@@ -259,15 +239,15 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
   };
 
   // Robust Index Finding using weather.current.time (Local from API) to avoid timezone mismatches
-  const currentIsoHour = weather.current.time.slice(0, 13); // Match YYYY-MM-DDTHH
-  const currentHourIndex = weather.hourly.time.findIndex(t => t.startsWith(currentIsoHour));
+  const currentIsoHour = (weather.current?.time || '').slice(0, 13); // Match YYYY-MM-DDTHH
+  const currentHourIndex = (weather.hourly?.time || []).findIndex(t => t.startsWith(currentIsoHour));
 
   // Fallback if not found (timezone issues), take last available or middle
-  const safeIndex = currentHourIndex !== -1 ? currentHourIndex : Math.floor(weather.hourly.time.length / 2);
+  const safeIndex = currentHourIndex !== -1 ? currentHourIndex : Math.floor((weather.hourly?.time || []).length / 2);
 
   // Calculate critical times to display
-  const sunriseTime = new Date(weather.daily.sunrise[0]);
-  const sunsetTime = new Date(weather.daily.sunset[0]);
+  const sunriseTime = new Date(weather.daily?.sunrise?.[0] || Date.now());
+  const sunsetTime = new Date(weather.daily?.sunset?.[0] || Date.now());
   const nowDate = new Date();
 
   // Build smart hourly forecast that includes sunrise and sunset
@@ -525,28 +505,23 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
       <div className="border-b border-gray-100 pb-6 mb-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('weather.hourly')}</h3>
-          {/* Small Badge for Tier Debug/Info */}
+          {/* Small Badge for Tier Debug/Info - hidden on iOS native */}
+          {!Capacitor.isNativePlatform() && (
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${userTier === UserTier.FREE ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}`}>
             {(() => {
-              // Check if really a Contributor (using localStorage as proxy since contextTier might be obscured)
-              // We use contextTier (base tier) to ensure we don't label a real Ultimate user as Contributor
               const isContributor = contextTier === UserTier.FREE && typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
-
               if (isContributor) return language === 'fr' ? 'CONTRIBUTEUR' : 'CONTRIBUTOR';
-
-              // Normal Labels
               if (userTier === UserTier.FREE) return language === 'fr' ? 'GRATUIT' : 'FREE';
               return userTier;
             })()}
           </span>
+          )}
         </div>
 
         <div className="flex overflow-x-auto gap-8 pb-2 scrollbar-hide">
           {(() => {
-            // Logic: Standard/Ultimate/Traveler get 24h, Free gets 3h
-            const isPremium = userTier === UserTier.STANDARD || userTier === UserTier.ULTIMATE || userTier === UserTier.TRAVELER;
-            const limit = isPremium ? 24 : 3;
-            const visibleItems = displayTimes.slice(0, limit);
+            // iOS: All users get full 24h access
+            const visibleItems = displayTimes.slice(0, 24);
 
             return (
               <>
@@ -564,16 +539,6 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                   </div>
                 ))}
 
-                {/* Lock Teaser - Explicitly show if not premium */}
-                {!isPremium && (
-                  <div className="flex flex-col items-center justify-center gap-2 flex-shrink-0 min-w-[3rem] opacity-60 cursor-pointer group" onClick={() => setShowPremium(true)}>
-                    <span className="text-sm font-medium text-gray-400">...</span>
-                    <div className="my-1 bg-gray-100 p-2 rounded-full group-hover:bg-yellow-100 transition-colors animate-pulse">
-                      <Lock size={16} className="text-gray-500 group-hover:text-yellow-600" />
-                    </div>
-                    <span className="text-xs font-bold text-gray-500 group-hover:text-yellow-600">+20h</span>
-                  </div>
-                )}
               </>
             );
           })()}
@@ -583,9 +548,8 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
 
       {/* RAIN EVOLUTION GRAPH */}
       {(() => {
-        // TIER LIMIT LOGIC (Align with Hourly Forecast)
-        const isPremium = [UserTier.STANDARD, UserTier.ULTIMATE, UserTier.TRAVELER].includes(userTier);
-        const limit = isPremium ? 24 : 3;
+        // iOS: All users get full 24h access
+        const limit = 24;
 
         // Calculate Dynamic Path Logic
         const hourlyProbs = weather?.hourly?.precipitation_probability;
@@ -687,19 +651,6 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                   />
                 </svg>
 
-                {/* 2. LOCKED OVERLAY (Right Side) */}
-                {!isPremium && (
-                  <div
-                    className="absolute inset-y-0 right-0 bg-gray-100/50 backdrop-blur-[1px] flex items-center justify-center border-l border-blue-100/50 cursor-pointer hover:bg-yellow-50/50 transition-colors group"
-                    style={{ left: `${lockedStartX}%` }}
-                    onClick={() => setShowPremium(true)}
-                  >
-                    <div className="flex flex-col items-center">
-                      <Lock size={12} className="text-gray-400 group-hover:text-yellow-600 mb-0.5" />
-                      <span className="text-[6px] font-bold text-gray-400 group-hover:text-yellow-600 uppercase">+20h</span>
-                    </div>
-                  </div>
-                )}
 
                 {/* Time Markers */}
                 <div className="absolute bottom-0 inset-x-0 flex justify-between px-2 text-[8px] text-blue-300 font-bold opacity-80 pb-0.5 pointer-events-none">
@@ -803,12 +754,10 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{language === 'fr' ? 'Index UV' : 'UV Index'}</p>
-                    <PremiumValue isLocked={false}>
-                      <div className="flex items-baseline gap-1">
+                    <div className="flex items-baseline gap-1">
                         <span className="font-semibold text-gray-700">{displayUV.toFixed(0)}</span>
                         <span className="text-[10px] text-gray-400 font-medium">/ 11</span>
                       </div>
-                    </PremiumValue>
                   </div>
                 </>
               );
@@ -839,12 +788,10 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
             </div>
             <div>
               <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{language === 'fr' ? 'Qualité Air' : 'Air Quality'}</p>
-              <PremiumValue isLocked={false}>
-                <div className="flex items-baseline gap-1">
+              <div className="flex items-baseline gap-1">
                   <span className="font-semibold text-gray-700">{weather.current.aqi?.toFixed(0)}</span>
                   <span className="text-[10px] text-gray-400 font-medium">/ 500</span>
                 </div>
-              </PremiumValue>
             </div>
           </div>
         )}
@@ -889,8 +836,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">Pollen</p>
-                    <PremiumValue isLocked={userTier === UserTier.FREE}>
-                      <div>
+                    <div>
                         <div className="flex items-baseline gap-1">
                           <span className="font-semibold text-gray-700">{maxPollen.toFixed(0)}</span>
                           <span className="text-[10px] text-gray-400 font-medium">/ 5</span>
@@ -903,7 +849,6 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                           )}
                         </p>
                       </div>
-                    </PremiumValue>
                   </div>
                 </>
               );
@@ -1739,8 +1684,8 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
         let iconsHtml = '';
         const svgSize = isMountain ? 18 : 20;
 
-        const displayConditions = isMountain ? report.conditions : report.conditions.slice(0, 1);
-        const hiddenCount = (!isMountain && report.conditions.length > 1) ? report.conditions.length - 1 : 0;
+        const displayConditions = isMountain ? (report.conditions || []) : (report.conditions || []).slice(0, 1);
+        const hiddenCount = (!isMountain && (report.conditions || []).length > 1) ? (report.conditions || []).length - 1 : 0;
 
         displayConditions.forEach(cond => {
           let type: any = 'sun';
@@ -1819,12 +1764,11 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
           iconContent = `
             <div class="absolute bottom-4 left-0 -translate-x-1/2">
-               <div class="${bgClass} rounded-full shadow-lg border border-white/20 px-3 py-2 flex items-center gap-2 whitespace-nowrap transform hover:scale-110 transition-transform ${isLocked ? 'opacity-80 grayscale-[0.5]' : ''}">
+               <div class="${bgClass} rounded-full shadow-lg border border-white/20 px-3 py-2 flex items-center gap-2 whitespace-nowrap transform hover:scale-110 transition-transform">
                   <div class="flex items-center gap-1.5">
                     ${genIconsHtml}
                   </div>
                   ${temp ? `<span class="font-bold text-white text-sm pt-0.5 leading-none">${temp}</span>` : ''}
-                  ${isLocked ? '<div class="absolute -top-2 -right-2 bg-gray-100 rounded-full p-0.5 shadow border border-gray-200"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>' : ''}
                </div>
                ${countBadge}
             </div>
@@ -1878,12 +1822,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
           if (typeof report.lat !== 'number' || typeof report.lng !== 'number') return;
           const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
 
-          if (isLocked) {
-            marker.on('click', () => {
-              alert(language === 'fr' ? "Hors de zone ! Passez Premium pour voir plus loin." : "Out of range! Upgrade to see further.");
-              setShowPremium(true);
-            });
-          } else {
+          if (!isLocked) {
             marker.bindPopup(popupContent, { closeButton: false, className: 'custom-popup-no-bg', offset: [0, -20], minWidth: 100 });
           }
           markersRef.current.push(marker);
@@ -1893,7 +1832,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
           const containerClass = "px-3 py-1.5 h-10 gap-2";
           iconContent = `
             <div class="relative">
-              <div class="${bgClass} rounded-full shadow-md ${containerClass} flex items-center justify-center transform hover:scale-110 transition-transform whitespace-nowrap border-2 border-white/20 ${isLocked ? 'opacity-80 grayscale-[0.5]' : ''}">
+              <div class="${bgClass} rounded-full shadow-md ${containerClass} flex items-center justify-center transform hover:scale-110 transition-transform whitespace-nowrap border-2 border-white/20">
                 <div class="flex gap-1 items-center">
                   ${iconsHtml}
                 </div>
@@ -1901,7 +1840,6 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
                 ${snowBadge}
                 ${visibilityBadge}
                 ${tempDisplay ? `<span class="font-bold text-white text-base leading-none pt-0.5">${tempDisplay}</span>` : ''}
-                ${isLocked ? '<div class="absolute -top-2 -right-2 bg-gray-100 rounded-full p-0.5 shadow border border-gray-200"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>' : ''}
               </div>
               ${countBadge}
             </div>
@@ -1912,17 +1850,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
           if (typeof report.lat !== 'number' || typeof report.lng !== 'number') return;
           const marker = L.marker([report.lat, report.lng], { icon: el, zIndexOffset: 2000 }).addTo(mapInstance.current);
 
-          if (isLocked) {
-            marker.on('click', () => {
-              alert(language === 'fr' ? "Hors de zone ! Passez Premium pour voir plus loin." : "Out of range! Upgrade to see further.");
-              setShowPremium(true);
-            });
-          } else {
-            // Mountain doesn't really have a popup in code prior, but if it did, bind here. 
-            // Logic seems to assume visuals are enough? Or maybe I missed the bindPopup for mountain.
-            // Looking at previous code, Mountain mode didn't have bindPopup logic shown in snippet. 
-            // I'll leave it as is (no popup for mountain? or add it if needed. Safest is to follow existing logic: Click does nothing special on Mountain unless locked?)
-          }
+          // iOS: No premium gating on map markers
           markersRef.current.push(marker);
         } // End Standard View Logic
       });
@@ -2053,9 +1981,11 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
   const submit = async () => {
     if (selected.length === 0) return;
     setIsSubmitting(true);
-    // Call API and get calculated gain and rank
+    // Call API and get calculated gain and rank — with timeout to prevent infinite "Sending..."
     try {
-      const result = await addReport(selected);
+      const resultPromise = addReport(selected);
+      const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 10000));
+      const result = await Promise.race([resultPromise, timeoutPromise]);
       setIsSubmitting(false);
       setPrecisionGain(result.gain);
       setContributionRank(result.rank);
@@ -2066,6 +1996,8 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
       // Handle Blocking Error
       if (e.message === "ALREADY_CONTRIBUTED") {
         alert(t("error.already_contributed") || "You have already contributed to this event. We are waiting for other users to confirm!");
+      } else if (e.message === 'TIMEOUT') {
+        alert(language === 'fr' ? 'Erreur de connexion. Veuillez vous connecter dans Settings.' : 'Connection error. Please sign in from Settings.');
       } else {
         alert("Error sending report. Please try again.");
       }
@@ -2272,310 +2204,190 @@ const FeedbackModal = ({ onClose }: { onClose: () => void }) => {
   );
 };
 
+// PremiumModal — Full IAP implementation via cordova-plugin-purchase (StoreKit)
 const PremiumModal = ({ onClose }: { onClose: () => void }) => {
-  const { language, simulateSubscription, user, userTier, userPlan } = useContext(AppContext)!;
-  const [billing, setBilling] = useState<'monthly' | 'yearly'>('yearly');
+  const { language, user, userTier, setShowPremium } = useContext(AppContext)!;
+  const [purchasing, setPurchasing] = useState<string | null>(null);
 
-  // Detect active Contributor mode directly (independent of App state for immediate UI feedback)
-  const isContributor = typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
+  const isNative = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform();
 
   const tiers = [
     {
+      id: 'free',
       name: language === 'fr' ? 'Gratuit' : 'Free',
-      price: 'CHF 0.-',
+      price: language === 'fr' ? '0 CHF' : 'CHF 0',
       period: '',
-      color: 'bg-gradient-to-br from-gray-100 to-gray-200',
+      productId: null,
+      tier: UserTier.FREE,
+      features: language === 'fr'
+        ? ['Météo actuelle', 'Prévisions 3 jours', 'Carte basique']
+        : ['Current weather', '3-day forecast', 'Basic map'],
+      color: 'from-gray-100 to-gray-200',
       textColor: 'text-gray-700',
-      features: [
-        language === 'fr' ? '✓ Carte Communauté : 200 km' : '✓ Community Map: 200 km',
-        language === 'fr' ? 'Météo actuelle + 3h' : 'Current weather + 3h',
-        language === 'fr' ? 'UV + Pollution' : 'UV + Pollution',
-        language === 'fr' ? 'Alertes vitales uniquement' : 'Vital alerts only',
-        language === 'fr' ? 'Poster des rapports' : 'Post reports'
-      ],
-      cta: language === 'fr' ? 'Basique' : 'Basic',
-      disabled: true,
-      tierId: 'FREE'
+      btnVariant: 'secondary' as const,
+      current: userTier === UserTier.FREE,
     },
     {
+      id: 'contributor',
       name: language === 'fr' ? 'Contributeur' : 'Contributor',
-      price: language === 'fr' ? 'Mode Participatif' : 'Participative Mode',
-      period: '',
-      color: 'bg-gradient-to-br from-green-500 to-emerald-700',
-      textColor: 'text-white',
-      features: [
-        language === 'fr' ? '✓ Carte Communauté : 200 km' : '✓ Community Map: 200 km',
-        language === 'fr' ? '✓ TOUTES OPTIONS (Local)' : '✓ ALL OPTIONS (Local)',
-        language === 'fr' ? '✓ 1 contribution = 1h accès' : '✓ 1 report = 1h access',
-        language === 'fr' ? '✓ Cumulable (infini)' : '✓ Stackable (infinite)',
-        language === 'fr' ? '✓ Publicités activées' : '✓ Ads enabled',
-        language === 'fr' ? '✓ Accès Solidaire ❤️' : '✓ Solidarity Access ❤️'
-      ],
-
-      cta: language === 'fr' ? 'Activer (Gratuit)' : 'Activate (Free)',
-      disabled: false,
-      tierId: 'CONTRIBUTOR'
+      price: language === 'fr' ? 'Gratuit' : 'Free',
+      period: language === 'fr' ? 'Mode participatif' : 'Participative mode',
+      productId: null,
+      tier: UserTier.CONTRIBUTOR,
+      features: language === 'fr'
+        ? ['Tout le Free +', 'Accès complet local', 'En échange de reports', 'Communauté active']
+        : ['All Free +', 'Full local access', 'In exchange for reports', 'Active community'],
+      color: 'from-green-100 to-emerald-200',
+      textColor: 'text-green-700',
+      btnVariant: 'primary' as const,
+      current: userTier === UserTier.CONTRIBUTOR || (userTier === UserTier.FREE && typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true'),
     },
     {
+      id: 'standard_plan',
       name: 'Standard',
-      price: billing === 'yearly' ? 'CHF 20.-' : 'CHF 2.-',
-      period: billing === 'yearly' ? (language === 'fr' ? '/ an' : '/ year') : (language === 'fr' ? '/ mois' : '/ month'),
-      savings: billing === 'yearly' ? '-17%' : null,
-      color: 'bg-gradient-to-br from-blue-400 to-blue-600',
-      textColor: 'text-white',
-      features: [
-        language === 'fr' ? '✓ Carte Communauté : 5000 km' : '✓ Community Map: 5000 km',
-        language === 'fr' ? '✓ Prévisions 24h' : '✓ 24h Forecast',
-        language === 'fr' ? '✓ Données Santé (UV, Pollution + Pollen)' : '✓ Health Data (UV, Pollution + Pollen)',
-        language === 'fr' ? '✓ Alertes confort (Pluie...)' : '✓ Comfort Alerts (Rain...)',
-        language === 'fr' ? '✓ Expérience complète' : '✓ Full Experience'
-      ],
-      cta: language === 'fr' ? 'Choisir Standard' : 'Choose Standard',
-      disabled: false,
-      tierId: 'STANDARD'
+      price: 'CHF 20',
+      period: language === 'fr' ? '/ mois' : '/ month',
+      productId: 'standard_plan',
+      tier: UserTier.STANDARD,
+      features: language === 'fr'
+        ? ['Tout le Contributeur +', 'Carte HD sans flou', 'Prévisions 7 jours', 'Qualité air détaillée']
+        : ['All Contributor +', 'HD map no blur', '7-day forecast', 'Detailed air quality'],
+      color: 'from-blue-100 to-indigo-200',
+      textColor: 'text-blue-700',
+      btnVariant: 'primary' as const,
+      current: userTier === UserTier.STANDARD,
     },
     {
+      id: 'ultimate_plan',
       name: 'Ultimate',
-      price: billing === 'yearly' ? 'CHF 45.-' : 'CHF 5.-',
-      period: billing === 'yearly' ? (language === 'fr' ? '/ an' : '/ year') : (language === 'fr' ? '/ mois' : '/ month'),
-      savings: billing === 'yearly' ? '-25%' : null,
-      color: 'bg-gradient-to-br from-yellow-400 via-orange-500 to-red-500',
-      textColor: 'text-white',
-      features: [
-        language === 'fr' ? '✓ Carte Communauté : MONDE' : '✓ Community Map: WORLDWIDE',
-        language === 'fr' ? '✓ Pack Standard' : '✓ Standard Pack',
-        language === 'fr' ? '✓ Détails Experts (Graphiques)' : '✓ Expert Details (Graphs)',
-        language === 'fr' ? '✓ Indices AIR, UV, Pollens' : '✓ AIR, UV, Pollen Indices',
-        language === 'fr' ? '✓ Comparaison J-1' : '✓ Yesterday comparison',
-        language === 'fr' ? '✓ Mode Montagne 🏔️' : '✓ Mountain Mode 🏔️'
-      ],
-      cta: language === 'fr' ? 'Choisir Ultimate' : 'Choose Ultimate',
-      disabled: false,
-      tierId: 'ULTIMATE'
+      price: 'CHF 40',
+      period: language === 'fr' ? '/ mois' : '/ month',
+      productId: 'ultimate_plan',
+      tier: UserTier.ULTIMATE,
+      features: language === 'fr'
+        ? ['Tout le Standard +', 'Alertes IA personnalisées', 'Pollen & UV avancés', 'Mode montagne pro']
+        : ['All Standard +', 'AI personalized alerts', 'Advanced pollen & UV', 'Pro mountain mode'],
+      color: 'from-purple-100 to-violet-200',
+      textColor: 'text-purple-700',
+      btnVariant: 'radiant' as const,
+      current: userTier === UserTier.ULTIMATE,
     },
     {
+      id: 'traveler_plan',
       name: 'Traveler',
-      price: 'CHF 4.-',
+      price: 'CHF 4',
       period: language === 'fr' ? '/ semaine' : '/ week',
-      savings: null,
-      color: 'bg-gradient-to-br from-purple-500 to-indigo-600',
-      textColor: 'text-white',
-      features: [
-        language === 'fr' ? '✓ Valable 1 semaine' : '✓ Valid for 1 week',
-        language === 'fr' ? '✓ Idéal pour les vacances' : '✓ Perfect for holidays',
-        language === 'fr' ? '✓ Fonctionnalités Ultimate' : '✓ Ultimate Features',
-        language === 'fr' ? '✓ Sans engagement' : '✓ No long commitment'
-      ],
-      cta: language === 'fr' ? 'Choisir Traveler' : 'Choose Traveler',
-      disabled: false,
-      tierId: 'TRAVELER'
-    }
+      productId: 'traveler_plan',
+      tier: UserTier.TRAVELER,
+      features: language === 'fr'
+        ? ['Accès Ultimate', 'Durée 7 jours', 'Idéal en voyage', 'Sans engagement']
+        : ['Ultimate access', '7-day duration', 'Ideal for travel', 'No commitment'],
+      color: 'from-orange-100 to-amber-200',
+      textColor: 'text-orange-700',
+      btnVariant: 'primary' as const,
+      current: userTier === UserTier.TRAVELER,
+    },
   ];
 
-  const handleSubscribe = async (tierIndex: number) => {
-    const tier = tiers[tierIndex];
+  const handlePurchase = async (tier: typeof tiers[0]) => {
+    // Free tier — nothing to do
+    if (tier.id === 'free') return;
 
-    if (tier.tierId === 'FREE') return;
-
-    if (tier.tierId === 'CONTRIBUTOR') {
-      if (isContributor) {
-        // Toggle OFF
-        if (confirm(language === 'fr' ? "Désactiver le mode Participatif ?" : "Disable Participatory Mode?")) {
-          // AWAIT the downgrade first
-          await simulateSubscription(UserTier.FREE);
-          localStorage.removeItem('wise_contributor_accepted');
-          onClose(); // No reload, just close
-        }
-        return;
-      }
-
-      const msg = language === 'fr'
-        ? "Voulez-vous activer le mode Participatif ?\n\nChaque contribution météo vous donne 1 HEURE d'accès complet (Local).\nLes heures se cumulent !"
-        : "Activate Participative Mode?\n\nEach weather contribution gives you 1 HOUR of full access (Local only).\nHours stack up!";
-
-      if (confirm(msg)) {
-        // AWAIT the downgrade first
-        await simulateSubscription(UserTier.FREE);
-
-        // CRITICAL: Reset the logic state (strikes, blocked status) so they start FRESH
-        localStorage.removeItem('wise_contributor_state_v2');
-
-        localStorage.setItem('wise_contributor_accepted', 'true');
-
-        // Set flag for auto-open with message after reload
-        localStorage.setItem('wise_contributor_activation_pending', 'true');
-
-        // Force reload to enable the 'staged' contributor logic
-        // alert(language === 'fr' ? "Mode Activé ! Faites une contribution pour gagner 1h." : "Mode Activated! Make a contribution to earn 1h.");
-        window.location.reload();
-        window.location.reload();
-      }
+    // Contributor — activate via localStorage (not an IAP)
+    if (tier.id === 'contributor') {
+      localStorage.setItem('wise_contributor_accepted', 'true');
+      onClose();
       return;
     }
 
-    // Determine which link to use
-    // Re-mapped indexes due to insertion of Contributor at [1]
-    const isStandard = tier.tierId === 'STANDARD';
-    const isYearly = billing === 'yearly';
-
-    let url = "";
-
-    if (isStandard) {
-      // Standard Links
-      url = isYearly
-        ? "https://buy.stripe.com/test_fZu3cuaeI0wI8J0gQ80RG02" // Standard Yearly
-        : "https://buy.stripe.com/test_00w9ASgD6bbm4sK6bu0RG00"; // Standard Monthly
-    } else if (tier.tierId === 'ULTIMATE') {
-      // Ultimate Links
-      url = isYearly
-        ? "https://buy.stripe.com/test_14A7sKeuYcfq7EWgQ80RG04" // Ultimate Yearly
-        : "https://buy.stripe.com/test_3cIfZgbiM4MY8J0czS0RG03"; // Ultimate Monthly
-    } else if (tier.tierId === 'TRAVELER') {
-      // Traveler (Weekly)
-      url = "https://buy.stripe.com/test_7sYeVc4Uo4MY7EW8jC0RG05";
+    // Paid tiers — IAP on native, message on web
+    if (!isNative) {
+      alert(language === 'fr' ? 'Les achats in-app sont disponibles uniquement sur iOS.' : 'In-app purchases are only available on iOS.');
+      return;
     }
 
-    // Append Client Reference ID (CRITICAL for Webhook activation)
-    if (user && user.uid) {
-      // Check if URL already has query params (Stripe links usually don't but to be safe)
-      const separator = url.includes('?') ? '&' : '?';
-      url += `${separator}client_reference_id=${user.uid}`;
-
-      // Optional: Prefill email if we have it (Anonymous users don't have email usually)
-      if (user.email) {
-        url += `&prefilled_email=${encodeURIComponent(user.email)}`;
-      }
-    } else {
-      console.warn("User ID missing during subscription attempt. Webhook may fail to identify user.");
-      // We let them proceed but activation might need manual support without UID
+    const store = window.CdvPurchase?.store;
+    if (!store) {
+      alert(language === 'fr' ? 'Le magasin n\'est pas encore prêt. Réessayez.' : 'Store not ready yet. Please retry.');
+      return;
     }
 
-    // Explicitly disable local contributor mode logic when switching to a paid plan
-    // This allows seamless switching: "Last action wins"
-    localStorage.removeItem('wise_contributor_accepted');
+    setPurchasing(tier.productId);
+    try {
+      await store.order(tier.productId!);
+    } catch (e) {
+      console.error('IAP order error:', e);
+    }
+    setPurchasing(null);
+  };
 
-    // Redirect to Stripe
-    window.location.href = url;
+  const btnLabel = (tier: typeof tiers[0]) => {
+    if (tier.current) return language === 'fr' ? 'Plan actuel' : 'Current plan';
+    if (purchasing === tier.productId) return language === 'fr' ? 'Achat...' : 'Purchasing...';
+    if (tier.id === 'contributor') return language === 'fr' ? 'Activer' : 'Activate';
+    if (tier.id === 'free') return language === 'fr' ? 'Plan actuel' : 'Current plan';
+    return language === 'fr' ? 'S\'abonner' : 'Subscribe';
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in transition-opacity" onClick={onClose}>
-      <div
-        className="w-full max-h-[90vh] sm:h-auto sm:max-w-5xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-300"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header Compact */}
-        <div className="p-5 pb-2 text-center relative shrink-0">
-          <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-900 transition-colors p-2 bg-gray-50 rounded-full z-20">
-            <X size={20} />
+    <div className="fixed inset-0 z-[12000] flex flex-col bg-black/70 backdrop-blur-md animate-in fade-in" onClick={onClose}>
+      <div className="flex-1 flex flex-col w-full max-w-lg mx-auto overflow-hidden" onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="relative bg-gradient-to-r from-blue-600 to-purple-600 px-6 pt-10 pb-8 text-white text-center shrink-0 pt-safe" style={{paddingTop: 'calc(2.5rem + env(safe-area-inset-top))'}}>
+          <button onClick={onClose} className="absolute right-4 text-white/80 hover:text-white transition-colors" style={{top: 'calc(1rem + env(safe-area-inset-top))'}}>
+            <X size={28} />
           </button>
-
-          <Crown size={40} className="mx-auto mb-2 text-yellow-500" />
-          <h2 className="text-2xl font-extrabold text-gray-900 leading-tight">
-            {language === 'fr' ? 'Passez à Premium' : 'Upgrade to Premium'}
-          </h2>
-        </div>
-
-        {/* Billing Toggle - Compact */}
-        <div className="flex justify-center mb-4 shrink-0 px-4">
-          <div className="bg-gray-100 p-1 rounded-full flex relative">
-            <button
-              onClick={() => setBilling('monthly')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all z-10 ${billing === 'monthly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              {language === 'fr' ? 'Mensuel' : 'Monthly'}
-            </button>
-            <button
-              onClick={() => setBilling('yearly')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all z-10 flex items-center gap-1 ${billing === 'yearly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              {language === 'fr' ? 'Annuel' : 'Yearly'}
-              <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full ml-1">
-                -20%
-              </span>
-            </button>
+          <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Crown size={32} className="text-yellow-300" />
           </div>
+          <h2 className="text-2xl font-extrabold">
+            {language === 'fr' ? 'Wise Weather Premium' : 'Wise Weather Premium'}
+          </h2>
+          <p className="text-white/80 text-sm mt-1">
+            {language === 'fr' ? 'Choisissez votre plan' : 'Choose your plan'}
+          </p>
         </div>
 
-        {/* Cards Container - Horizontal Scroll / Grid */}
-        <div className="flex-1 overflow-x-auto overflow-y-auto sm:overflow-visible p-4 pt-0">
-          <div className="flex sm:grid sm:grid-cols-5 gap-4 min-w-max sm:min-w-0 mx-auto px-2 sm:px-0 h-full items-stretch snap-x snap-mandatory">
-            {tiers.map((tier, index) => (
+        {/* Scrollable cards */}
+        <div className="flex-1 overflow-x-auto overflow-y-auto px-4 py-6">
+          <div className="flex gap-4 pb-4" style={{ minWidth: 'max-content' }}>
+            {tiers.map(tier => (
               <div
-                key={tier.name}
-                className={`snap-center w-[85vw] sm:w-auto flex flex-col rounded-2xl relative overflow-hidden transition-all duration-300 border ${tier.tierId === 'CONTRIBUTOR' ? 'border-green-400 ring-2 ring-green-400/20 shadow-lg scale-[1.01] z-10' :
-                  tier.tierId === 'ULTIMATE' ? 'border-yellow-400 ring-2 ring-yellow-400/20 shadow-lg scale-[1.01] z-10' :
-                    'border-gray-200 shadow-md'
-                  } bg-white`}
+                key={tier.id}
+                className={`w-64 shrink-0 rounded-2xl bg-gradient-to-b ${tier.color} border border-white/60 shadow-xl p-5 flex flex-col`}
               >
-                {/* Header Card */}
-                <div className={`p-4 bg-gradient-to-br ${tier.color} ${tier.textColor} relative shrink-0`}>
-                  {tier.savings && (
-                    <div className="absolute top-3 right-3 bg-white/20 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-bold text-white border border-white/30">
-                      {tier.savings}
-                    </div>
-                  )}
-                  <h3 className="text-xl font-bold">{tier.name}</h3>
-                  <div className="flex items-baseline mt-1">
-                    <span className="text-2xl font-extrabold">{tier.price}</span>
-                    {tier.period && <span className="text-xs opacity-80 ml-1 font-medium">{tier.period}</span>}
-                  </div>
+                <h3 className={`text-lg font-extrabold ${tier.textColor}`}>{tier.name}</h3>
+                <div className="mt-1 mb-3">
+                  <span className={`text-2xl font-black ${tier.textColor}`}>{tier.price}</span>
+                  {tier.period && <span className={`text-sm ml-1 ${tier.textColor} opacity-70`}>{tier.period}</span>}
                 </div>
-
-                {/* Body Card */}
-                <div className="p-4 flex flex-col flex-1 bg-white">
-                  <ul className="space-y-2.5 mb-4 flex-1">
-                    {tier.features.map((feature, i) => (
-                      <li key={i} className="flex items-start gap-2.5 text-sm text-gray-600 leading-snug">
-                        {feature.startsWith('❌') ? (
-                          <span className="text-gray-400">{feature.substring(2)}</span>
-                        ) : (
-                          <>
-                            <div className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${tier.tierId === 'FREE' ? 'bg-gray-100' : 'bg-green-100'}`}>
-                              <Check size={10} className={tier.tierId === 'FREE' ? 'text-gray-400' : 'text-green-600'} />
-                            </div>
-                            <span>{feature}</span>
-                          </>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <button
-                    onClick={() => handleSubscribe(index)}
-                    className={`w-full py-2.5 px-4 rounded-xl font-bold text-sm transition-all mt-auto active:scale-95 ${
-                      // Active Plan Logic
-                      // 1. Contributor Check
-                      (tier.tierId === 'CONTRIBUTOR' && isContributor) ||
-                        // 2. Traveler Check (Explicit Plan Check)
-                        (tier.tierId === 'TRAVELER' && userPlan === 'traveler') ||
-                        // 3. Fallback Tier Check (Standard/Ultimate/Free) - ONLY if not Contributor/Traveler active on another card
-                        (tier.tierId === userTier && !isContributor && userPlan !== 'traveler')
-                        ? (tier.tierId === 'CONTRIBUTOR' ? 'bg-green-100 text-green-800 pointer-events-none' : 'bg-gray-100 text-gray-900 pointer-events-none ring-1 ring-gray-200')
-                        : tier.disabled
-                          ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
-                          : tier.tierId === 'CONTRIBUTOR'
-                            ? 'bg-green-600 text-white hover:bg-green-700 shadow-md'
-                            : 'bg-gray-900 text-white hover:bg-black shadow-md'
-                      }`}
-                  >
-                    {
-                      (tier.tierId === 'CONTRIBUTOR' && isContributor) ||
-                        (tier.tierId === 'TRAVELER' && userPlan === 'traveler') ||
-                        (tier.tierId === userTier && !isContributor && userPlan !== 'traveler')
-                        ? (tier.tierId === 'CONTRIBUTOR' ? (language === 'fr' ? 'Actif ✅' : 'Active ✅') : (language === 'fr' ? 'Actuel' : 'Current'))
-                        : tier.cta
-                    }
-                  </button>
-                </div>
+                <ul className="space-y-2 flex-1 mb-4">
+                  {tier.features.map((f, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                      <Check size={16} className="text-green-600 shrink-0 mt-0.5" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  onClick={() => handlePurchase(tier)}
+                  disabled={tier.current || purchasing === tier.productId}
+                  variant={tier.current ? 'secondary' : tier.btnVariant}
+                  className="w-full"
+                >
+                  {btnLabel(tier)}
+                </Button>
               </div>
             ))}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="bg-gray-50 p-3 text-center text-[10px] text-gray-400 shrink-0 border-t border-gray-100">
-          {language === 'fr' ? 'Annulez à tout moment • Paiement sécurisé via Stripe' : 'Cancel anytime • Secure payment via Stripe'}
+        <div className="px-6 py-4 text-center text-xs text-white/60 shrink-0">
+          {language === 'fr'
+            ? `Annulez à tout moment • Paiement sécurisé via ${isNative ? 'Apple' : 'Stripe'}`
+            : `Cancel anytime • Secure payment via ${isNative ? 'Apple' : 'Stripe'}`}
         </div>
       </div>
     </div>
@@ -2661,15 +2473,8 @@ const AlertsModal = ({ onClose }: { onClose: () => void }) => {
 };
 
 const SettingsModal = ({ onClose }: { onClose: () => void }) => {
-  const { userTier, userPlan, userExpiresAt, language, t, requestNotifications, notificationsEnabled } = useContext(AppContext)!;
-  const isContributor = typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
+  const { userTier, userPlan, userExpiresAt, language, t, requestNotifications, notificationsEnabled, setShowPremium } = useContext(AppContext)!;
   const [refreshing, setRefreshing] = useState(false);
-
-  const planLabel = isContributor ? (language === 'fr' ? 'Mode Contributeur' : 'Contributor Mode') :
-    userTier === UserTier.FREE ? (language === 'fr' ? 'Pack Gratuit' : 'Free Pack') :
-      userTier === UserTier.STANDARD ? (language === 'fr' ? 'Pack Standard' : 'Standard Pack') :
-        userTier === UserTier.TRAVELER ? (language === 'fr' ? 'Pack Traveler' : 'Traveler Pack') :
-          (language === 'fr' ? 'Pack Ultimate' : 'Ultimate Pack');
 
   const handleRefreshToken = async () => {
     setRefreshing(true);
@@ -2691,81 +2496,6 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
 
         <h2 className="text-2xl font-bold text-center text-gray-900 mb-6 mt-2">Settings</h2>
 
-        <div className="space-y-4">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Subscription</h3>
-          <div className="bg-gray-50 rounded-2xl p-4 space-y-3 border border-gray-100">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 font-medium text-sm">Plan</span>
-              <span className="bg-white text-gray-800 border border-gray-100 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide shadow-sm">
-                {planLabel}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 font-medium text-sm">Status</span>
-              {isContributor ? (
-                <span className="text-green-600 font-bold text-sm bg-green-50 px-2 py-0.5 rounded">
-                  {/* We don't have access to contributorLogic hook variables here directly unless we move the hook or context */}
-                  {/* Actually we can't easily get the 'hours left' without the hook instance from parent. */}
-                  {/* Simplified: just Active */}
-                  {language === 'fr' ? 'Actif (Mode Local)' : 'Active (Local Mode)'}
-                </span>
-              ) : userPlan === 'traveler' && userExpiresAt ? (
-                <span className={`font-bold text-sm px-2 py-0.5 rounded ${new Date() > userExpiresAt ? 'text-red-600 bg-red-50' : 'text-orange-600 bg-orange-50'}`}>
-                  {(() => {
-                    const diff = userExpiresAt.getTime() - Date.now();
-                    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-                    if (days <= 0) return language === 'fr' ? 'Expiré' : 'Expired';
-                    return language === 'fr' ? `${days} Jours Restants` : `${days} Days Left`;
-                  })()}
-                </span>
-              ) : (
-                <span className="text-green-600 font-bold text-sm bg-green-50 px-2 py-0.5 rounded">Active</span>
-              )}
-            </div>
-
-            {userPlan !== 'traveler' && !isContributor && userTier !== UserTier.FREE && (
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500 font-medium text-sm">Renewal</span>
-                <span className="font-bold text-gray-900 text-sm">Auto-renew</span>
-              </div>
-            )}
-
-            {/* Show Expiration Date for Traveler explicitly if needed */}
-            {/* Show Expiration Date for Traveler explicitly - ALWAYS if plan is traveler */}
-            {userPlan === 'traveler' && userExpiresAt && (
-              <div className="mt-4 pt-3 border-t border-gray-200/50 space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 font-medium text-sm">Expires</span>
-                  <span className="font-bold text-gray-900 text-sm">{userExpiresAt.toLocaleDateString()}</span>
-                </div>
-                {/* Calculated Purchase Date: Expiry - 7 Days */}
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 font-medium text-sm">{language === 'fr' ? 'Acheté le' : 'Purchased on'}</span>
-                  <span className="font-bold text-gray-900 text-sm">
-                    {(() => {
-                      const purchaseDate = new Date(userExpiresAt.getTime());
-                      purchaseDate.setDate(purchaseDate.getDate() - 7);
-                      return `${purchaseDate.toLocaleDateString()} ${purchaseDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-                    })()}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center mt-1">
-                  <span className="text-gray-500 font-medium text-sm">{language === 'fr' ? 'Temps Restant' : 'Time Left'}</span>
-                  <span className={`font-bold text-sm ${new Date() > userExpiresAt ? 'text-red-600' : 'text-orange-600'}`}>
-                    {(() => {
-                      const diff = userExpiresAt.getTime() - Date.now();
-                      const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-                      if (days <= 0) return language === 'fr' ? 'Expiré' : 'Expired';
-                      return language === 'fr' ? `${days} Jours` : `${days} Days`;
-                    })()}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
         {/* NOTIFICATIONS SECTION */}
         <div className="mt-6">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Notifications</h3>
@@ -2782,7 +2512,31 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
               className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors font-semibold text-sm disabled:opacity-50"
             >
               <Bell size={18} />
-              {refreshing ? (language === 'fr' ? 'Activation...' : 'Activating...') : (language === 'fr' ? 'Activer les alertes' : 'Activate Alerts')}
+              {refreshing
+                ? (language === 'fr' ? 'Activation...' : 'Activating...')
+                : notificationsEnabled
+                  ? (language === 'fr' ? 'Notifications activées ✓' : 'Notifications enabled ✓')
+                  : (language === 'fr' ? 'Activer les alertes' : 'Activate Alerts')}
+            </button>
+          </div>
+        </div>
+
+        {/* Upgrade Section */}
+        <div className="mt-6">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">
+            {language === 'fr' ? 'Abonnement' : 'Subscription'}
+          </h3>
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-4 border border-blue-100">
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-gray-500 font-medium text-sm">{language === 'fr' ? 'Plan actuel' : 'Current plan'}</span>
+              <span className="font-bold text-sm px-2 py-0.5 rounded bg-blue-100 text-blue-700">{userTier}</span>
+            </div>
+            <button
+              onClick={() => { onClose(); setTimeout(() => setShowPremium(true), 200); }}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:opacity-90 transition-all font-semibold text-sm shadow-md"
+            >
+              <Crown size={18} />
+              {language === 'fr' ? 'Voir les offres Premium' : 'View Premium Plans'}
             </button>
           </div>
         </div>
@@ -2805,14 +2559,6 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
           </div>
         </div>
 
-        <div className="mt-8 pt-6 border-t border-gray-100">
-          <button
-            className="w-full py-3 rounded-full border border-red-100 text-red-400 font-semibold hover:bg-red-50 hover:text-red-500 transition-colors text-sm"
-            onClick={() => alert("Subscription cancellation logic needed")}
-          >
-            Cancel Subscription
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -2841,19 +2587,24 @@ const MountainModal = ({ onClose, onReportSuccess }: { onClose: () => void, onRe
     if (selected.length === 0) return;
     setIsSubmitting(true);
     try {
-      await addReport(selected, {
+      const reportPromise = addReport(selected, {
         snowLevel,
-        // Only send avalanche risk if explicitly unlocked by the user
         avalancheRisk: avalancheUnlocked ? avalancheRisk : undefined,
         visibilityDist: visibility,
-        windExposure: 'ridge' // Defaulting to ridge for now or add selector if needed
+        windExposure: 'ridge'
       });
+      const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 10000));
+      await Promise.race([reportPromise, timeoutPromise]);
       setIsSubmitting(false);
       if (onReportSuccess) onReportSuccess();
       setShowSuccess(true);
-    } catch (e) {
+    } catch (e: any) {
       setIsSubmitting(false);
-      alert("Error sending report.");
+      if (e.message === 'TIMEOUT') {
+        alert(language === 'fr' ? 'Erreur de connexion. Veuillez vous connecter dans Settings.' : 'Connection error. Please sign in from Settings.');
+      } else {
+        alert("Error sending report.");
+      }
     }
   };
 
@@ -3119,12 +2870,11 @@ const App = () => {
     // setTimeout to ensure params are read even if hydration delays
     setTimeout(handleUrlParams, 500);
 
-    // Initial Coach Mark check (v2 for new multi-step)
-    const hasSeenTuto = localStorage.getItem('has_seen_tuto_v2');
-    if (!hasSeenTuto) {
-      // Small delay to ensure UI is ready
-      setTimeout(() => setTutorialStep(1), 1000);
-    }
+    // Initial Coach Mark check (v2 for new multi-step) — disabled for iOS
+    // const hasSeenTuto = localStorage.getItem('has_seen_tuto_v2');
+    // if (!hasSeenTuto) {
+    //   setTimeout(() => setTutorialStep(1), 1000);
+    // }
 
     // 2. Check when App comes to Foreground (for background instances)
     const handleFocus = () => {
@@ -3185,11 +2935,71 @@ const App = () => {
     };
   }, [language, userPlan, userExpiresAt, tutorialStep]);
 
+  // IAP Initialization (cordova-plugin-purchase / StoreKit)
+  useEffect(() => {
+    if (typeof Capacitor === 'undefined' || !Capacitor.isNativePlatform()) return;
+
+    const initStore = () => {
+      const CdvPurchase = window.CdvPurchase;
+      if (!CdvPurchase?.store) {
+        console.warn('[IAP] CdvPurchase.store not available yet');
+        return;
+      }
+      const store = CdvPurchase.store;
+
+      // Register subscription products
+      store.register([
+        { id: 'standard_plan', type: CdvPurchase.ProductType.PAID_SUBSCRIPTION, platform: CdvPurchase.Platform.APPLE_APPSTORE },
+        { id: 'ultimate_plan', type: CdvPurchase.ProductType.PAID_SUBSCRIPTION, platform: CdvPurchase.Platform.APPLE_APPSTORE },
+        { id: 'traveler_plan', type: CdvPurchase.ProductType.PAID_SUBSCRIPTION, platform: CdvPurchase.Platform.APPLE_APPSTORE },
+      ]);
+
+      // Handle approved transactions
+      store.when().approved(async (transaction: CdvPurchaseTransaction) => {
+        const productId = transaction.products?.[0]?.id;
+        let newTier: UserTier = UserTier.FREE;
+        let daysToAdd = 30;
+        if (productId === 'standard_plan') { newTier = UserTier.STANDARD; daysToAdd = 30; }
+        else if (productId === 'ultimate_plan') { newTier = UserTier.ULTIMATE; daysToAdd = 30; }
+        else if (productId === 'traveler_plan') { newTier = UserTier.TRAVELER; daysToAdd = 7; }
+
+        if (newTier !== UserTier.FREE && user) {
+          try {
+            const { doc: fsDoc, setDoc: fsSetDoc } = await import('firebase/firestore');
+            const firebaseModule = await import('./firebase');
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + daysToAdd);
+            await fsSetDoc(fsDoc(firebaseModule.db, 'users', user.uid), {
+              tier: newTier,
+              expiresAt,
+            }, { merge: true });
+            console.log(`[IAP] Tier updated to ${newTier}, expires ${expiresAt.toISOString()}`);
+          } catch (err) {
+            console.error('[IAP] Firestore write error:', err);
+          }
+        }
+        transaction.finish();
+      });
+
+      // Initialize
+      store.initialize([CdvPurchase.Platform.APPLE_APPSTORE]);
+      console.log('[IAP] Store initialized');
+    };
+
+    // Try immediately, then fallback to deviceready
+    if (window.CdvPurchase?.store) {
+      initStore();
+    } else {
+      document.addEventListener('deviceready', initStore, { once: true });
+    }
+  }, [user]);
+
   // Auto-clean useEffect REMOVED to prevent race conditions with Firestore sync.
   // The flag is now managed explicitly in handleSubscribe and PremiumModal.
 
-  // Ad display logic: Show ads for ALL Free users OR anyone who accepted Contributor mode (even if Stripe mistakenly thinks they are Ultimate)
-  const showAds = userTier === UserTier.FREE || (typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true');
+  // Ad display logic: Show ads for ALL Free users OR anyone who accepted Contributor mode
+  // Hidden on iOS native to avoid App Store rejection (no IAP configured)
+  const showAds = !Capacitor.isNativePlatform() && (userTier === UserTier.FREE || (typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true'));
 
   // 5. General Auto-Prompt (App Launch Only)
   // Auto-open Contribution Modal on Launch AND Resume (iOS/Android)
@@ -3221,9 +3031,9 @@ const App = () => {
   }, []);
 
   return (
-    <div className={`min-h-screen relative overflow-hidden font-sans ${showAds ? 'pb-32' : 'pb-20'}`}>
+    <div className={`min-h-screen relative overflow-hidden font-sans pt-safe ${showAds ? 'pb-32' : 'pb-20'}`}>
       {/* Header - Fixed & Glassy */}
-      <header className="fixed top-0 w-full z-40 bg-white/80 backdrop-blur-md border-b border-gray-100/50 h-16 flex items-center justify-between px-4 transition-all duration-300">
+      <header className="fixed top-0 w-full z-40 bg-white/80 backdrop-blur-md border-b border-gray-100/50 pt-safe h-16 flex items-center justify-between px-4 transition-all duration-300" style={{height: 'calc(4rem + env(safe-area-inset-top))'}}>
         <button
           onClick={() => setPage('home')}
           className="flex items-center gap-2 hover:opacity-80 transition-opacity"
@@ -3234,18 +3044,6 @@ const App = () => {
           </span>
         </button>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowPremium(true)}
-            className={`w-8 h-8 rounded-full flex items-center justify-center mr-1 relative overflow-hidden group transition-all ${userTier === UserTier.FREE
-              ? 'bg-yellow-50 border border-yellow-200 text-yellow-600 hover:bg-yellow-100'
-              : 'bg-gradient-to-br from-yellow-400 to-orange-500 text-white shadow-md border-orange-400'
-              }`}
-          >
-            {userTier === UserTier.FREE && (
-              <div className="absolute inset-0 bg-yellow-400/20 animate-pulse rounded-full"></div>
-            )}
-            <Crown size={18} className="relative z-10" />
-          </button>
           <button
             onClick={() => setUnit(unit === 'celsius' ? 'fahrenheit' : 'celsius')}
             className={`w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50 ${tutorialStep === 2 ? 'relative z-[70] ring-4 ring-white ring-offset-4 ring-offset-black/50' : ''}`}
@@ -3370,7 +3168,7 @@ const App = () => {
       )}
 
       {/* Main Content */}
-      <main className={`transition-all duration-300 ${page === 'map' ? 'h-screen pt-0' : 'pt-20'}`}>
+      <main className={`transition-all duration-300 ${page === 'map' ? 'h-screen pt-0' : 'pt-20'}`} style={page !== 'map' ? {paddingTop: 'calc(5rem + env(safe-area-inset-top))'} : undefined}>
         {page === 'home' && (
           <div key={language} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <QuoteBlock />
@@ -3414,19 +3212,6 @@ const App = () => {
                   {/* HELPFUL DIRECTIVES */}
                   {(!isLocal || !contributorLogic.isAccessGranted) && (
                     <div className="mt-1 pt-1 border-t border-red-200 text-[9px] text-red-700 leading-tight">
-                      {!isLocal && (
-                        <div className="flex flex-col gap-1 mb-1">
-                          <div className="flex gap-1 items-center">
-                            <span>⚠️ {language === 'fr' ? 'Local uniquement (<5km)' : 'Local only (<5km)'}</span>
-                          </div>
-                          <button
-                            onClick={() => setShowPremium(true)}
-                            className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-2 py-1 rounded shadow text-[9px] font-bold mt-0.5 animate-pulse hover:scale-105 transition-transform"
-                          >
-                            {language === 'fr' ? '🌍 Passer en Mondial' : '🌍 Go Worldwide'}
-                          </button>
-                        </div>
-                      )}
                       {!contributorLogic.isAccessGranted && (
                         <div className="font-bold">
                           {language === 'fr' ? '👉 Faites une contribution (+1h)' : '👉 Make a contribution (+1h)'}
@@ -3492,14 +3277,13 @@ const App = () => {
         </button>
 
         {/* 2. ALERTS */}
-        {/* 2. ALERTS (Locked for Free) */}
+        {/* 2. ALERTS */}
         <button
-          onClick={() => effectiveTierMap === UserTier.FREE ? setShowPremium(true) : setShowAlerts(true)}
-          className={`flex flex-col items-center gap-1 transition-colors ${showAlerts ? 'text-primary' : 'hover:text-gray-600'} ${effectiveTierMap === UserTier.FREE ? 'opacity-40 grayscale' : ''}`}
+          onClick={() => setShowAlerts(true)}
+          className={`flex flex-col items-center gap-1 transition-colors ${showAlerts ? 'text-primary' : 'hover:text-gray-600'}`}
         >
           <div className="relative">
             <Bell size={24} strokeWidth={showAlerts ? 2.5 : 2} />
-            {effectiveTierMap === UserTier.FREE && <Lock size={12} className="absolute -top-1 -right-1 text-gray-500" />}
           </div>
           <span>{language === 'fr' ? 'Alertes' : 'Alerts'}</span>
         </button>
@@ -3643,28 +3427,12 @@ const App = () => {
           }}
           onOpenMountainMode={() => {
             setShowContribution(false);
-            // STRICT ACCESS CONTROL: Mountain Mode is for ULTIMATE or TRAVELER only.
-            // (Contributors get 'ULTIMATE' via effectiveTierMap if valid).
-            // Standard users must Upgrade.
-            const hasMountainAccess = effectiveTierMap === UserTier.ULTIMATE || effectiveTierMap === UserTier.TRAVELER;
-
-            if (hasMountainAccess) {
-              setShowMountainModal(true);
-            } else {
-              // Trigger Upsell
-              // Maybe show a specific alert or just open Premium Modal?
-              // Let's open Premium Modal which shows the comparison.
-              // Ideally we'd scroll them to Ultimate, but general modal is fine.
-              if (language === 'fr') {
-                alert("🏔️ Le Mode Montagne est réservé aux membres ULTIMATE.\n\nMettez à niveau pour voir la météo et la neige signalées par la communauté !");
-              } else {
-                alert("🏔️ Mountain Mode is for ULTIMATE members only.\n\nUpgrade to see community weather and snow reports!");
-              }
-              setShowPremium(true);
-            }
+            // iOS: All users have access to Mountain Mode
+            setShowMountainModal(true);
           }}
         />
       )}
+      {/* Premium Modal — IAP via StoreKit */}
       {showPremium && <PremiumModal onClose={() => setShowPremium(false)} />}
 
       {/* Alerts Modal */}
@@ -3692,8 +3460,8 @@ const App = () => {
                 : "Your Traveler Pack expires in less than 24h. Don't forget to renew to keep access."}
             </p>
             <div className="flex flex-col gap-3">
-              <Button onClick={() => { setShowExpirationWarning(false); setShowPremium(true); }} className="w-full bg-orange-600 hover:bg-orange-700 text-white">
-                {language === 'fr' ? 'Renouveler Maintenant' : 'Renew Now'}
+              <Button onClick={() => { setShowExpirationWarning(false); }} className="w-full bg-orange-600 hover:bg-orange-700 text-white">
+                {language === 'fr' ? 'OK' : 'OK'}
               </Button>
               <button onClick={() => setShowExpirationWarning(false)} className="text-gray-400 text-sm font-medium hover:text-gray-600">
                 {language === 'fr' ? 'Plus tard' : 'Later'}

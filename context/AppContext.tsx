@@ -1,10 +1,25 @@
 import React, { createContext, useState, useEffect } from 'react';
-import { auth, db, functions } from '../firebase';
+import { auth, db, functions, messaging } from '../firebase';
 import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
-import { getMessaging, getToken, onMessage } from "firebase/messaging"; // Import Messaging
+import { getToken, onMessage } from "firebase/messaging";
 import { doc, onSnapshot, getFirestore, enableIndexedDbPersistence, collection, writeBatch, Timestamp, GeoPoint, getDoc, setDoc, query, orderBy, limit, addDoc, serverTimestamp } from "firebase/firestore";
 import { httpsCallable } from 'firebase/functions';
 import { Language, Unit, WeatherData, CommunityReport, SearchResult, DailyQuote, UserTier } from '../types';
+
+// Capacitor native detection — computed once (never changes during runtime)
+const isNative = typeof (window as any).Capacitor !== 'undefined' && (window as any).Capacitor.isNativePlatform();
+
+// Cloud Function direct fetch — bypasses httpsCallable which hangs in WKWebView
+const CF_BASE = 'https://us-central1-wise-weather-app.cloudfunctions.net';
+async function callFunctionDirect(name: string, data: any) {
+  const resp = await fetch(`${CF_BASE}/${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data })
+  });
+  const json = await resp.json();
+  return { data: json.result || json };
+}
 import { TRANSLATIONS } from '../constants';
 
 interface AppContextType {
@@ -386,19 +401,38 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
       // 2. LAUNCH ALL BIG CALLS IN PARALLEL
       console.log("Launching parallel weather data fetch...");
-      const getWeatherForecastFn = httpsCallable(functions, 'getWeatherForecast');
+
+      const weatherPayload = { lat, lng, token: localStorage.getItem('fcm_token') };
+
+      // On native iOS: use direct fetch (fast). On web: use Firebase SDK (supports auth).
+      const weatherPromise = isNative
+        ? callFunctionDirect('getWeatherForecast', weatherPayload)
+        : httpsCallable(functions, 'getWeatherForecast')(weatherPayload);
+
+      // Same for pollen — direct on native
+      let pollenWithTimeout: Promise<any>;
+      if (cachedPollen) {
+        pollenWithTimeout = Promise.resolve({ success: true, data: JSON.parse(cachedPollen) });
+      } else if (isNative) {
+        pollenWithTimeout = callFunctionDirect('getPollenForecast', { lat, lng, lang: language })
+          .then(res => {
+            const result = res.data as any;
+            if (result.success && result.data) localStorage.setItem(cacheKey, JSON.stringify(result.data));
+            return result;
+          }).catch(e => ({ success: false, error: e.message }));
+      } else {
+        pollenWithTimeout = pollenPromise;
+      }
 
       const [proxyRes, waqiData, airJson, rainJson, pollenResult] = await Promise.all([
-        getWeatherForecastFn({ lat, lng, token: localStorage.getItem('fcm_token') }),
+        weatherPromise,
         fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`)
           .then(r => r.json()).catch(e => null),
         fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`)
           .then(r => r.json()).catch(e => null),
-        // FALLBACK: Fetch Rain Probabilities directly (Proxy might miss them)
-        // INCREASED forecast_days to 4 to ensure we have enough data for 24h trend even at 11 PM
         fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability,precipitation&timezone=auto&forecast_days=4`)
           .then(r => r.json()).catch(e => null),
-        pollenPromise
+        pollenWithTimeout
       ]);
 
       const proxyResult = (proxyRes.data as any);
@@ -474,7 +508,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       // FIX: Use API's current time (Local) instead of System UTC time to avoid timezone mismatch
       // data.current.time is "YYYY-MM-DDTHH:mm" in Local Time (due to timezone=auto).
       // data.hourly.time is "YYYY-MM-DDTHH:00" in Local Time.
-      const currentApiTime = data.current.time as string;
+      const currentApiTime = (data.current?.time || '') as string;
       const currentHourPrefix = currentApiTime.slice(0, 13); // Match YYYY-MM-DDTHH
       let hourIndex = data.hourly.time.findIndex((t: string) => t.startsWith(currentHourPrefix));
 
@@ -557,7 +591,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       } else {
         setAlertsCount(0);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Weather fetch failed", error);
     } finally {
       setLoadingWeather(false);
@@ -630,48 +664,38 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     }
 
     try {
-      const messaging = getMessaging();
+      if (!messaging) { console.warn('Push notifications not available in this environment'); return; }
       const token = await getToken(messaging, { vapidKey });
 
       if (token) {
         localStorage.setItem('fcm_token', token);
       }
 
-      if (token && loc) {
-        console.log("FCM Token retrieved, updating with location:", token, loc);
-        // Subscribe via Cloud Function
+      if (token) {
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const userId = user ? user.uid : (auth.currentUser?.uid || null);
+        const payload: any = { token, timezone: timeZone, userId };
+        if (loc) { payload.lat = loc.lat; payload.lng = loc.lng; payload.language = language; }
+        console.log("Registering push with UserId:", userId, loc ? '(with location)' : '(quotes only)');
+
         try {
-          const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
-          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          // Inject language state into subscription
-          // Use 'user' state logic to avoid auth race conditions
-          const userId = user ? user.uid : (auth.currentUser?.uid || null);
-          console.log("Registering push with UserId:", userId);
-          await subscribeFn({ token, timezone: timeZone, lat: loc.lat, lng: loc.lng, language: language, userId });
+          if (isNative) {
+            await callFunctionDirect('subscribeToNotifications', payload);
+          } else {
+            await httpsCallable(functions, 'subscribeToNotifications')(payload);
+          }
           console.log("Subscribed/Updated notifications on server.");
         } catch (subError) {
           console.error("Subscription Cloud Function Error", subError);
         }
 
         // Also save to user doc for good measure (if logged in)
-        if (auth.currentUser) {
+        if (loc && auth.currentUser) {
           await setDoc(doc(db, 'users', auth.currentUser.uid), {
             fcmToken: token,
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timeZone,
             notificationsEnabled: true
           }, { merge: true });
-        }
-      } else {
-        // If no location yet, we might skip sending to server until we have it?
-        // Or send without location (just timezone)?
-        // The new logic REQUIRES location for weather alerts.
-        // But works for Quotes without it.
-        if (token && !loc) {
-          // Register just for quotes
-          const subscribeFn = httpsCallable(functions, 'subscribeToNotifications');
-          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          const userId = auth.currentUser?.uid || null;
-          await subscribeFn({ token, timezone: timeZone, userId });
         }
       }
     } catch (error) {
@@ -750,7 +774,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       }
 
       const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
-      const messaging = getMessaging();
+      if (!messaging) { alert('Push notifications non disponibles dans cet environnement.'); return; }
 
       // Explicitly wait for SW ready to ensure context is safe
       const registration = await navigator.serviceWorker.ready;
@@ -773,7 +797,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   // Foreground Listener
   useEffect(() => {
     try {
-      const messaging = getMessaging();
+      if (!messaging) return;
       const unsubscribe = onMessage(messaging, (payload) => {
         console.log('Foreground Message:', payload);
 
@@ -851,9 +875,11 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
 
       // Call Cloud Function
       try {
-        const generateQuoteFn = httpsCallable<void, any>(functions, 'generateQuote');
-        console.log("Calling generateQuote Cloud Function...");
-        const result = await generateQuoteFn();
+        console.log("Calling generateQuote Cloud Function...", isNative ? '(direct fetch)' : '(SDK)');
+
+        const result = isNative
+          ? await callFunctionDirect('generateQuote', {})
+          : await httpsCallable<void, any>(functions, 'generateQuote')();
         const response: any = result.data; // Type assertion
 
         if (response.success && response.data) {
@@ -1161,31 +1187,42 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    // 1. Toujours tenter la géolocalisation en priorité au démarrage
+    let resolved = false;
+
+    const onSuccess = (position: GeolocationPosition) => {
+      if (resolved) return;
+      resolved = true;
+      const { latitude, longitude } = position.coords;
+      console.log("GPS Position acquired:", latitude, longitude);
+      updateLocation(latitude, longitude, undefined, undefined, 'gps');
+      fetchWeather(latitude, longitude);
+    };
+
+    const onFallback = (reason: string) => {
+      if (resolved) return;
+      resolved = true;
+      console.warn("GPS fallback triggered:", reason);
+      if (location) {
+        fetchWeather(location.lat, location.lng);
+      } else {
+        // Fallback ultime à Genève (ville principale de l'utilisateur)
+        updateLocation(46.2044, 6.1432, "Genève", "Switzerland", 'manual');
+        fetchWeather(46.2044, 6.1432);
+      }
+    };
+
+    // 1. Tenter la géolocalisation
     if (navigator.geolocation) {
+      // Hard timeout de 8 secondes au cas où le callback GPS ne se déclenche jamais
+      const hardTimeout = setTimeout(() => onFallback('hard timeout 8s'), 8000);
+
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          console.log("GPS Position acquired:", latitude, longitude);
-          updateLocation(latitude, longitude, undefined, undefined, 'gps');
-          // FORCE fetch immediately with new coordinates
-          fetchWeather(latitude, longitude);
-        },
-        (err) => {
-          console.warn("GPS failed or denied, using cache/default:", err.message);
-          // 2. Fallback au cache SEULEMENT si le GPS échoue
-          if (location) {
-            fetchWeather(location.lat, location.lng);
-          } else {
-            // 3. Fallback ultime à Paris
-            updateLocation(48.8566, 2.3522, "Paris", "France", 'manual');
-          }
-        },
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        (pos) => { clearTimeout(hardTimeout); onSuccess(pos); },
+        (err) => { clearTimeout(hardTimeout); onFallback(err.message); },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
       );
-    } else if (location) {
-      // Pas de GPS dispo sur le navigateur, utiliser le cache
-      fetchWeather(location.lat, location.lng);
+    } else {
+      onFallback('no geolocation API');
     }
   }, []); // Exécuter une seule fois au montage de l'app
 
