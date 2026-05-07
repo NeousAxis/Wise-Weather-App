@@ -1717,16 +1717,18 @@ export const getWeatherForecast = onCall(async (request) => {
     // 1. Fetch Standard Data (for UI - Graphs, Hourly, etc.)
     // We use the same fields as the frontend used to fetch directly
     const uiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
-      `&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,visibility,precipitation` +
-      `&hourly=temperature_2m,weather_code,uv_index` +
+      `&current=temperature_2m,relative_humidity_2m,is_day,weather_code,wind_speed_10m,wind_direction_10m,visibility,precipitation` +
+      `&hourly=temperature_2m,weather_code,uv_index,wind_speed_10m,wind_direction_10m,precipitation_probability,precipitation` +
       `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset` +
-      `&timezone=auto&past_days=1&forecast_days=2`;
+      `&timezone=auto&past_days=1&forecast_days=8`;
 
     // 2. Fetch Safety Data (Background Worker Logic)
     // EXACT copy of the logic in 'checkWeatherNotifications'
     const safetyUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
       `&current=weather_code,wind_speed_10m` +
       `&minutely_15=weather_code` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
+      `&timezone=auto&past_days=1&forecast_days=8` +
       `&models=meteofrance_seamless,meteofrance_arpege_world,ecmwf_ifs04,gfs_seamless,jma_seamless,gem_seamless,icon_seamless,cma_grapes_global,bom_access_global`;
 
     const [uiRes, safetyRes] = await Promise.all([
@@ -1797,6 +1799,88 @@ export const getWeatherForecast = onCall(async (request) => {
         }
         console.log(`[PROXY] Patched 3 hourly slots starting at index ${startIndex} to match alert type: ${dangerousEvent.type}`);
       }
+    }
+
+    // CASE C: 7-DAY FORECAST CONSENSUS (MULTI-MODEL)
+    // We aggregate the 9 safety models with the UI model to provide a highly accurate "consensus" forecast.
+    if (safetyData.daily && uiData.daily && uiData.daily.weather_code) {
+      const MODELS = ['meteofrance_seamless', 'meteofrance_arpege_world', 'ecmwf_ifs04', 'gfs_seamless', 'jma_seamless', 'gem_seamless', 'icon_seamless', 'cma_grapes_global', 'bom_access_global'];
+
+      const getSeverity = (code: number) => {
+        if (code >= 95) return 5; // Storm
+        if (code === 71 || code === 73 || code === 75 || code === 77 || code === 85 || code === 86) return 4; // Snow
+        if (code === 65 || code === 67 || code === 82) return 3; // Heavy Rain
+        if (code >= 51 && code <= 63 || code === 80 || code === 81) return 2; // Rain / Drizzle
+        if (code >= 1 && code <= 3) return 1; // Clouds
+        return 0; // Clear
+      };
+
+      for (let i = 0; i < uiData.daily.time.length; i++) {
+        let maxSum = uiData.daily.temperature_2m_max[i] || 0;
+        let minSum = uiData.daily.temperature_2m_min[i] || 0;
+        let countMax = uiData.daily.temperature_2m_max[i] !== null ? 1 : 0;
+        let countMin = uiData.daily.temperature_2m_min[i] !== null ? 1 : 0;
+
+        const severityVotes = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        const codesBySeverity: Record<number, number[]> = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [] };
+
+        // The UI Model (Best Match) gets 2 votes for stability
+        const uiCode = uiData.daily.weather_code[i];
+        const uiSev = getSeverity(uiCode);
+        severityVotes[uiSev as keyof typeof severityVotes] += 2;
+        codesBySeverity[uiSev].push(uiCode);
+        codesBySeverity[uiSev].push(uiCode);
+
+        for (const mod of MODELS) {
+          const codeArr = safetyData.daily[`weather_code_${mod}`];
+          if (codeArr && codeArr[i] !== null && codeArr[i] !== undefined) {
+            const modCode = codeArr[i];
+            const modSev = getSeverity(modCode);
+            severityVotes[modSev as keyof typeof severityVotes]++;
+            codesBySeverity[modSev].push(modCode);
+          }
+          const maxArr = safetyData.daily[`temperature_2m_max_${mod}`];
+          if (maxArr && maxArr[i] !== null && maxArr[i] !== undefined) {
+            maxSum += maxArr[i];
+            countMax++;
+          }
+          const minArr = safetyData.daily[`temperature_2m_min_${mod}`];
+          if (minArr && minArr[i] !== null && minArr[i] !== undefined) {
+            minSum += minArr[i];
+            countMin++;
+          }
+        }
+
+        // Find the winning severity (in case of tie, higher severity wins for safety)
+        let winningSeverity = uiSev;
+        let maxVotes = 0;
+        for (let sev = 0; sev <= 5; sev++) {
+          const votes = severityVotes[sev as keyof typeof severityVotes];
+          if (votes >= maxVotes && votes > 0) {
+            maxVotes = votes;
+            winningSeverity = sev;
+          }
+        }
+
+        // Within the winning severity, pick the most frequent specific weather code
+        const codesInWinningSev = codesBySeverity[winningSeverity];
+        const codeCounts: Record<number, number> = {};
+        let bestCode = uiCode;
+        let maxCodeVotes = 0;
+
+        for (const c of codesInWinningSev) {
+          codeCounts[c] = (codeCounts[c] || 0) + 1;
+          if (codeCounts[c] > maxCodeVotes) {
+            maxCodeVotes = codeCounts[c];
+            bestCode = c;
+          }
+        }
+
+        uiData.daily.weather_code[i] = bestCode;
+        if (countMax > 0) uiData.daily.temperature_2m_max[i] = Number((maxSum / countMax).toFixed(1));
+        if (countMin > 0) uiData.daily.temperature_2m_min[i] = Number((minSum / countMin).toFixed(1));
+      }
+      console.log(`[PROXY] Applied 10-model MAJORITY consensus to 7-day forecast.`);
     }
 
     // 4. ROBUST is_day CALCULATION
