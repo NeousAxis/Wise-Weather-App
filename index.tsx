@@ -13,6 +13,10 @@ import { TRANSLATIONS } from './constants';
 import { WeatherData, CommunityReport, ConfidenceLevel, SearchResult, UserTier } from './types';
 import { useContributorLogic } from './src/hooks/useContributorLogic';
 
+// FEATURE FLAG — set to true to re-enable in-app purchases.
+// First App Store submission ships without paid offers (no IAP UI, no StoreKit init).
+const IAP_ENABLED = false;
+
 // --- Helpers ---
 
 const convertTemp = (temp: number, unit: 'celsius' | 'fahrenheit') => {
@@ -165,6 +169,8 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
   const userTier = tierOverride || contextTier;
   const [showAirDetails, setShowAirDetails] = useState(false);
   const [showRainGraph, setShowRainGraph] = useState(false);
+  const [showWindGraph, setShowWindGraph] = useState(false);
+  const [show7DayForecast, setShow7DayForecast] = useState(false);
   const [activeGraph, setActiveGraph] = useState<'uv' | 'aqi' | 'pollen' | null>(null);
 
   // Helper for 24h Data (for Expert Graph)
@@ -506,7 +512,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('weather.hourly')}</h3>
           {/* Small Badge for Tier Debug/Info - hidden on iOS native */}
-          {!Capacitor.isNativePlatform() && (
+          {!(typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) && (
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${userTier === UserTier.FREE ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}`}>
             {(() => {
               const isContributor = contextTier === UserTier.FREE && typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
@@ -652,13 +658,13 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                 </svg>
 
 
-                {/* Time Markers */}
+                {/* Time Markers (Absolute Hours) */}
                 <div className="absolute bottom-0 inset-x-0 flex justify-between px-2 text-[8px] text-blue-300 font-bold opacity-80 pb-0.5 pointer-events-none">
-                  <span>Now</span>
-                  <span className={`${limit < 6 ? 'opacity-30' : ''}`}>6h</span>
-                  <span className={`${limit < 12 ? 'opacity-30' : ''}`}>12h</span>
-                  <span className={`${limit < 18 ? 'opacity-30' : ''}`}>18h</span>
-                  <span className={`${limit < 24 ? 'opacity-30' : ''}`}>24h</span>
+                  <span>{new Date().getHours()}h</span>
+                  <span className={`${limit < 6 ? 'opacity-30' : ''}`}>{(new Date().getHours() + 6) % 24}h</span>
+                  <span className={`${limit < 12 ? 'opacity-30' : ''}`}>{(new Date().getHours() + 12) % 24}h</span>
+                  <span className={`${limit < 18 ? 'opacity-30' : ''}`}>{(new Date().getHours() + 18) % 24}h</span>
+                  <span className={`${limit < 24 ? 'opacity-30' : ''}`}>{(new Date().getHours() + 24) % 24}h</span>
                 </div>
               </div>
             )}
@@ -666,8 +672,155 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         );
       })()}
 
+      {/* WIND EVOLUTION GRAPH */}
+      {(() => {
+        // iOS: All users get full 24h access
+        const limit = 24;
+
+        const hourlySpeeds = weather?.hourly?.wind_speed_10m;
+        const hourlyDirs = weather?.hourly?.wind_direction_10m;
+
+        if (!hourlySpeeds || hourlySpeeds.length === 0) return null;
+
+        const currentIsoHour = weather.current.time.slice(0, 13);
+        let startIndex = weather?.hourly?.time?.findIndex((t: string) => t.startsWith(currentIsoHour)) ?? -1;
+        let safeIdx = startIndex !== -1 ? startIndex : 0;
+
+        const visibleSpeeds = (hourlySpeeds || []).slice(safeIdx, safeIdx + limit);
+        const visibleDirs = (hourlyDirs || []).slice(safeIdx, safeIdx + limit);
+
+        if (!visibleSpeeds || visibleSpeeds.length < 2) return null;
+
+        const getWindDirectionLabel = (degrees: number) => {
+          const directions = language === 'fr'
+            ? ["N", "NE", "E", "SE", "S", "SO", "O", "NO"]
+            : ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+          const idx = Math.round(((degrees %= 360) < 0 ? degrees + 360 : degrees) / 45) % 8;
+          return directions[idx];
+        };
+
+        const width = 100;
+        const height = 20;
+        const totalPoints = 24;
+        const xStep = width / (totalPoints - 1);
+
+        const maxSpeed = Math.max(...(visibleSpeeds.length > 0 ? visibleSpeeds : [10]));
+        const scaleMax = Math.max(30, maxSpeed);
+
+        const points = visibleSpeeds.map((spd, i) => {
+          const x = i * xStep;
+          const y = height - ((spd || 0) / scaleMax) * height;
+          return `${x},${y}`;
+        });
+
+        const linePath = `M ${points.join(' L ')}`;
+        const lastX = (visibleSpeeds.length - 1) * xStep;
+        const areaPath = `${linePath} L ${lastX},${height} L 0,${height} Z`;
+
+        return (
+          <div className="mb-6 animate-in fade-in slide-in-from-top-2">
+            <button
+              onClick={() => setShowWindGraph(!showWindGraph)}
+              className="w-full flex justify-between items-center mb-2 px-1 hover:bg-gray-50 rounded-lg p-1 transition-colors"
+            >
+              <h3 className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest flex items-center gap-1">
+                <Wind size={10} className="text-cyan-500" />
+                <span>
+                  {language === 'fr' ? 'Vent' : 'Wind'} ({limit}h)
+                  <span className="ml-1 text-cyan-400 font-normal opacity-80">• {weather.current.windSpeed} km/h</span>
+                </span>
+              </h3>
+              <div className="flex items-center gap-2">
+                <ChevronDown size={14} className={`text-cyan-400 transition-transform duration-300 ${showWindGraph ? 'rotate-180' : ''}`} />
+              </div>
+            </button>
+
+            {showWindGraph && (
+              <div className="relative h-16 w-full bg-cyan-50/50 rounded-xl overflow-hidden border border-cyan-100 animate-in slide-in-from-top-1 fade-in duration-200">
+                <svg viewBox="0 0 100 20" preserveAspectRatio="none" className="absolute inset-0 w-full h-full text-cyan-400">
+                  <path d={areaPath} fill="currentColor" className="opacity-20 transition-all duration-500" />
+                  <path d={linePath} fill="none" stroke="currentColor" strokeWidth="0.5" strokeLinecap="round" strokeLinejoin="round" className="transition-all duration-500" />
+                </svg>
+
+                <div className="absolute inset-0 flex" style={{ width: `${(visibleSpeeds.length / 24) * 100}%` }}>
+                  {visibleDirs.map((dir, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center justify-start pt-1.5 h-full">
+                      {i % 3 === 0 && (
+                        <>
+                          <span className="text-[8px] font-bold text-cyan-700/80 mb-0.5">{getWindDirectionLabel(dir)}</span>
+                          <ArrowDown
+                            size={7}
+                            className="text-cyan-600 opacity-50"
+                            style={{ transform: `rotate(${dir}deg)` }}
+                          />
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Time Markers (Absolute Hours) */}
+                <div className="absolute bottom-0 inset-x-0 flex justify-between px-2 text-[8px] text-cyan-600 font-bold opacity-80 pb-0.5 pointer-events-none">
+                  <span>{new Date().getHours()}h</span>
+                  <span className={`${limit < 6 ? 'opacity-30' : ''}`}>{(new Date().getHours() + 6) % 24}h</span>
+                  <span className={`${limit < 12 ? 'opacity-30' : ''}`}>{(new Date().getHours() + 12) % 24}h</span>
+                  <span className={`${limit < 18 ? 'opacity-30' : ''}`}>{(new Date().getHours() + 18) % 24}h</span>
+                  <span className={`${limit < 24 ? 'opacity-30' : ''}`}>{(new Date().getHours() + 24) % 24}h</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* 7-DAY FORECAST (Collapsible) */}
+      <div className="mb-6 animate-in fade-in slide-in-from-top-2">
+        <button
+          onClick={() => setShow7DayForecast(!show7DayForecast)}
+          className="w-full flex justify-between items-center mb-2 px-1 hover:bg-gray-50 rounded-lg p-1 transition-colors group"
+        >
+          <h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest flex items-center gap-1 group-hover:text-blue-600 transition-colors">
+            <Layers size={10} className="text-blue-500 group-hover:text-blue-600 transition-colors" />
+            <span>{language === 'fr' ? 'Prévisions sur 7 jours' : '7-Day Forecast'}</span>
+          </h3>
+          <div className="flex items-center gap-2">
+            <ChevronDown size={14} className={`text-blue-400 transition-transform duration-300 ${show7DayForecast ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+
+        {show7DayForecast && (
+          <div className="mt-3 space-y-1 animate-in slide-in-from-top-2 fade-in duration-300 px-2 pb-2">
+            {weather.daily.time.map((dateStr, index) => {
+              if (index === 0) return null; // skip yesterday (past_days=1 means index 0 = yesterday)
+
+              const d = new Date(dateStr);
+              const dayName = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-US', { weekday: 'long' }).format(d);
+              const code = weather.daily.weather_code ? weather.daily.weather_code[index] : 0;
+              const maxT = convertTemp(weather.daily.temperature_2m_max[index], unit);
+              const minT = convertTemp(weather.daily.temperature_2m_min[index], unit);
+              const isToday = index === 1;
+
+              return (
+                <div key={dateStr} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 rounded-lg px-2 transition-colors">
+                  <span className={`w-24 font-medium capitalize text-sm ${isToday ? 'text-blue-600 font-bold' : 'text-gray-600'}`}>
+                    {isToday ? (language === 'fr' ? "Aujourd'hui" : 'Today') : dayName}
+                  </span>
+                  <div className="flex items-center justify-center flex-1 opacity-90">
+                    {getWeatherIcon(code, 22, "", 1)}
+                  </div>
+                  <div className="flex items-center gap-4 w-24 justify-end">
+                    <span className="text-gray-400 text-sm font-medium w-6 text-right">{minT}°</span>
+                    <span className="text-gray-800 text-sm font-bold w-6 text-right">{maxT}°</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Stats Grid - Unified Layout */}
-      <div className="grid grid-cols-2 gap-y-6 gap-x-8 mb-8">
+      <div className="grid grid-cols-2 gap-y-6 gap-x-8 mb-8 border-t border-gray-100 pt-6">
         {/* Sunrise */}
         <div className="flex items-center gap-3">
           <div className="p-2 bg-yellow-50 rounded-full text-yellow-600">
@@ -687,17 +840,6 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
           <div>
             <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.sunset')}</p>
             <p className="font-semibold text-gray-700">{formatTime(weather.daily.sunset[0])}</p>
-          </div>
-        </div>
-
-        {/* Wind */}
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-50 rounded-full text-blue-600">
-            <Wind size={20} />
-          </div>
-          <div>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wide">{t('weather.wind')}</p>
-            <p className="font-semibold text-gray-700">{weather.current.windSpeed} km/h</p>
           </div>
         </div>
 
@@ -2521,25 +2663,27 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
           </div>
         </div>
 
-        {/* Upgrade Section */}
-        <div className="mt-6">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">
-            {language === 'fr' ? 'Abonnement' : 'Subscription'}
-          </h3>
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-4 border border-blue-100">
-            <div className="flex justify-between items-center mb-3">
-              <span className="text-gray-500 font-medium text-sm">{language === 'fr' ? 'Plan actuel' : 'Current plan'}</span>
-              <span className="font-bold text-sm px-2 py-0.5 rounded bg-blue-100 text-blue-700">{userTier}</span>
+        {/* Upgrade Section — hidden when IAP_ENABLED=false (first App Store submission) */}
+        {IAP_ENABLED && (
+          <div className="mt-6">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">
+              {language === 'fr' ? 'Abonnement' : 'Subscription'}
+            </h3>
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-4 border border-blue-100">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-gray-500 font-medium text-sm">{language === 'fr' ? 'Plan actuel' : 'Current plan'}</span>
+                <span className="font-bold text-sm px-2 py-0.5 rounded bg-blue-100 text-blue-700">{userTier}</span>
+              </div>
+              <button
+                onClick={() => { onClose(); setTimeout(() => setShowPremium(true), 200); }}
+                className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:opacity-90 transition-all font-semibold text-sm shadow-md"
+              >
+                <Crown size={18} />
+                {language === 'fr' ? 'Voir les offres Premium' : 'View Premium Plans'}
+              </button>
             </div>
-            <button
-              onClick={() => { onClose(); setTimeout(() => setShowPremium(true), 200); }}
-              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:opacity-90 transition-all font-semibold text-sm shadow-md"
-            >
-              <Crown size={18} />
-              {language === 'fr' ? 'Voir les offres Premium' : 'View Premium Plans'}
-            </button>
           </div>
-        </div>
+        )}
 
         <div className="mt-8">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Feedback</h3>
@@ -2936,7 +3080,9 @@ const App = () => {
   }, [language, userPlan, userExpiresAt, tutorialStep]);
 
   // IAP Initialization (cordova-plugin-purchase / StoreKit)
+  // Skipped entirely for first App Store submission (IAP_ENABLED=false).
   useEffect(() => {
+    if (!IAP_ENABLED) return;
     if (typeof Capacitor === 'undefined' || !Capacitor.isNativePlatform()) return;
 
     const initStore = () => {
@@ -2999,7 +3145,7 @@ const App = () => {
 
   // Ad display logic: Show ads for ALL Free users OR anyone who accepted Contributor mode
   // Hidden on iOS native to avoid App Store rejection (no IAP configured)
-  const showAds = !Capacitor.isNativePlatform() && (userTier === UserTier.FREE || (typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true'));
+  const showAds = !(typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) && (userTier === UserTier.FREE || (typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true'));
 
   // 5. General Auto-Prompt (App Launch Only)
   // Auto-open Contribution Modal on Launch AND Resume (iOS/Android)
@@ -3432,8 +3578,8 @@ const App = () => {
           }}
         />
       )}
-      {/* Premium Modal — IAP via StoreKit */}
-      {showPremium && <PremiumModal onClose={() => setShowPremium(false)} />}
+      {/* Premium Modal — IAP via StoreKit. Disabled for first App Store submission. */}
+      {IAP_ENABLED && showPremium && <PremiumModal onClose={() => setShowPremium(false)} />}
 
       {/* Alerts Modal */}
       {showAlerts && <AlertsModal onClose={() => setShowAlerts(false)} />}

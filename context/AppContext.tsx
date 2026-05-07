@@ -531,6 +531,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           time: data.current.time,
           weatherCode: data.current.weather_code,
           windSpeed: data.current.wind_speed_10m,
+          windDirection: data.current.wind_direction_10m,
           isDay: (function () {
             try {
               if (data.daily && data.daily.sunrise && data.daily.sunset) {
@@ -563,14 +564,17 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           uv_index: data.hourly.uv_index,
           european_aqi: hourlyEuropeanAqi,
           precipitation_probability: precipitationProbs,
-          precipitation: precipitationAmount
+          precipitation: precipitationAmount,
+          wind_speed_10m: data.hourly.wind_speed_10m,
+          wind_direction_10m: data.hourly.wind_direction_10m
         },
         daily: {
           temperature_2m_max: data.daily.temperature_2m_max,
           temperature_2m_min: data.daily.temperature_2m_min,
           sunrise: data.daily.sunrise,
           sunset: data.daily.sunset,
-          time: data.daily.time
+          time: data.daily.time,
+          weather_code: data.daily.weather_code
         },
         hourlyAirQuality: hourlyAir,
         yesterday: {

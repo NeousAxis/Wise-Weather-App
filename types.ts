@@ -7,6 +7,7 @@ export interface WeatherData {
     temperature: number;
     weatherCode: number;
     windSpeed: number;
+    windDirection?: number;
     isDay: number;
     relativeHumidity: number;
     visibility?: number; // meters
@@ -37,6 +38,8 @@ export interface WeatherData {
     european_aqi?: number[];
     precipitation_probability?: number[];
     precipitation?: number[];
+    wind_speed_10m?: number[];
+    wind_direction_10m?: number[];
   };
   daily: {
     temperature_2m_max: number[];
@@ -44,6 +47,7 @@ export interface WeatherData {
     sunrise: string[];
     sunset: string[];
     time: string[];
+    weather_code?: number[];
   };
   hourlyAirQuality?: {
     pm2_5: number[];
