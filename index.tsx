@@ -363,23 +363,23 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
   return (
     <Card className="mx-4 mb-6 p-6">
       {/* Top Header Section */}
-      <div className="flex justify-between items-start mb-8">
-        <div>
+      <div className="flex justify-between items-start gap-4 mb-8">
+        <div className="flex-1 min-w-0">
           {cityName.includes('(') ? (
             <>
-              <h2 className="text-3xl font-bold text-foreground tracking-tight leading-tight">
-                {cityName.split('(')[0].trim()}
-              </h2>
-              <p className="text-lg text-gray-400 font-medium mt-0.5">
+              <h2 className="text-3xl font-bold text-foreground tracking-tight leading-tight break-words">
                 {cityName.split('(')[1].replace(')', '').trim()}
+              </h2>
+              <p className="text-lg text-gray-400 font-medium mt-0.5 break-words">
+                {cityName.split('(')[0].trim()}
               </p>
             </>
           ) : (
-            <h2 className="text-3xl font-bold text-foreground tracking-tight">{cityName}</h2>
+            <h2 className="text-3xl font-bold text-foreground tracking-tight break-words">{cityName}</h2>
           )}
           <p className="text-gray-500 font-medium mt-1 text-sm">{t('weather.official_forecast')}</p>
         </div>
-        <div className="text-right">
+        <div className="text-right flex-shrink-0">
           <div className="flex items-center justify-end gap-3">
             {(() => {
               // SYNC STRATEGY: Use CURRENT weather code (Patched by Backend Safety Proxy)

@@ -13,10 +13,3 @@
     margin-top: env(safe-area-inset-top);
   }
 }
-
-/* Belt-and-suspenders: ensure body never sits under the iOS status bar */
-@supports (padding: env(safe-area-inset-top)) {
-  body {
-    padding-top: env(safe-area-inset-top);
-  }
-}
