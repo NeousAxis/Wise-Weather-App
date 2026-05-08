@@ -170,7 +170,6 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
   const [showAirDetails, setShowAirDetails] = useState(false);
   const [showRainGraph, setShowRainGraph] = useState(false);
   const [showWindGraph, setShowWindGraph] = useState(false);
-  const [show7DayForecast, setShow7DayForecast] = useState(false);
   const [activeGraph, setActiveGraph] = useState<'uv' | 'aqi' | 'pollen' | null>(null);
 
   // Helper for 24h Data (for Expert Graph)
@@ -773,52 +772,6 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         );
       })()}
 
-      {/* 7-DAY FORECAST (Collapsible) */}
-      <div className="mb-6 animate-in fade-in slide-in-from-top-2">
-        <button
-          onClick={() => setShow7DayForecast(!show7DayForecast)}
-          className="w-full flex justify-between items-center mb-2 px-1 hover:bg-gray-50 rounded-lg p-1 transition-colors group"
-        >
-          <h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest flex items-center gap-1 group-hover:text-blue-600 transition-colors">
-            <Layers size={10} className="text-blue-500 group-hover:text-blue-600 transition-colors" />
-            <span>{language === 'fr' ? 'Prévisions sur 7 jours' : '7-Day Forecast'}</span>
-          </h3>
-          <div className="flex items-center gap-2">
-            <ChevronDown size={14} className={`text-blue-400 transition-transform duration-300 ${show7DayForecast ? 'rotate-180' : ''}`} />
-          </div>
-        </button>
-
-        {show7DayForecast && (
-          <div className="mt-3 space-y-1 animate-in slide-in-from-top-2 fade-in duration-300 px-2 pb-2">
-            {weather.daily.time.map((dateStr, index) => {
-              if (index === 0) return null; // skip yesterday (past_days=1 means index 0 = yesterday)
-
-              const d = new Date(dateStr);
-              const dayName = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-US', { weekday: 'long' }).format(d);
-              const code = weather.daily.weather_code ? weather.daily.weather_code[index] : 0;
-              const maxT = convertTemp(weather.daily.temperature_2m_max[index], unit);
-              const minT = convertTemp(weather.daily.temperature_2m_min[index], unit);
-              const isToday = index === 1;
-
-              return (
-                <div key={dateStr} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 rounded-lg px-2 transition-colors">
-                  <span className={`w-24 font-medium capitalize text-sm ${isToday ? 'text-blue-600 font-bold' : 'text-gray-600'}`}>
-                    {isToday ? (language === 'fr' ? "Aujourd'hui" : 'Today') : dayName}
-                  </span>
-                  <div className="flex items-center justify-center flex-1 opacity-90">
-                    {getWeatherIcon(code, 22, "", 1)}
-                  </div>
-                  <div className="flex items-center gap-4 w-24 justify-end">
-                    <span className="text-gray-400 text-sm font-medium w-6 text-right">{minT}°</span>
-                    <span className="text-gray-800 text-sm font-bold w-6 text-right">{maxT}°</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       {/* Stats Grid - Unified Layout */}
       <div className="grid grid-cols-2 gap-y-6 gap-x-8 mb-8 border-t border-gray-100 pt-6">
         {/* Sunrise */}
@@ -1278,6 +1231,60 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
 
 
     </Card >
+  );
+};
+
+const SevenDayForecastSection = () => {
+  const { weather, language, unit } = useContext(AppContext)!;
+  const [show7DayForecast, setShow7DayForecast] = useState(false);
+
+  if (!weather || !weather.daily || !weather.daily.time || weather.daily.time.length < 2) return null;
+
+  return (
+    <Card className="mx-4 mb-6 p-6">
+      <button
+        onClick={() => setShow7DayForecast(!show7DayForecast)}
+        className="w-full flex justify-between items-center px-1 hover:bg-gray-50 rounded-lg p-1 transition-colors group"
+      >
+        <h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest flex items-center gap-1 group-hover:text-blue-600 transition-colors">
+          <Layers size={10} className="text-blue-500 group-hover:text-blue-600 transition-colors" />
+          <span>{language === 'fr' ? 'Prévisions sur 7 jours' : '7-Day Forecast'}</span>
+        </h3>
+        <div className="flex items-center gap-2">
+          <ChevronDown size={14} className={`text-blue-400 transition-transform duration-300 ${show7DayForecast ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {show7DayForecast && (
+        <div className="mt-3 space-y-1 animate-in slide-in-from-top-2 fade-in duration-300 px-2 pb-2">
+          {weather.daily.time.map((dateStr, index) => {
+            if (index === 0) return null; // skip yesterday (past_days=1 => index 0 = yesterday)
+
+            const d = new Date(dateStr);
+            const dayName = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-US', { weekday: 'long' }).format(d);
+            const code = weather.daily.weather_code ? weather.daily.weather_code[index] : 0;
+            const maxT = convertTemp(weather.daily.temperature_2m_max[index], unit);
+            const minT = convertTemp(weather.daily.temperature_2m_min[index], unit);
+            const isToday = index === 1;
+
+            return (
+              <div key={dateStr} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 rounded-lg px-2 transition-colors">
+                <span className={`w-24 font-medium capitalize text-sm ${isToday ? 'text-blue-600 font-bold' : 'text-gray-600'}`}>
+                  {isToday ? (language === 'fr' ? "Aujourd'hui" : 'Today') : dayName}
+                </span>
+                <div className="flex items-center justify-center flex-1 opacity-90">
+                  {getWeatherIcon(code, 22, "", 1)}
+                </div>
+                <div className="flex items-center gap-4 w-24 justify-end">
+                  <span className="text-gray-400 text-sm font-medium w-6 text-right">{minT}°</span>
+                  <span className="text-gray-800 text-sm font-bold w-6 text-right">{maxT}°</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
   );
 };
 
@@ -3177,7 +3184,7 @@ const App = () => {
   }, []);
 
   return (
-    <div className={`min-h-screen relative overflow-hidden font-sans pt-safe ${showAds ? 'pb-32' : 'pb-20'}`}>
+    <div className={`min-h-screen relative overflow-hidden font-sans ${showAds ? 'pb-32' : 'pb-20'}`}>
       {/* Header - Fixed & Glassy */}
       <header className="fixed top-0 w-full z-40 bg-white/80 backdrop-blur-md border-b border-gray-100/50 pt-safe h-16 flex items-center justify-between px-4 transition-all duration-300" style={{height: 'calc(4rem + env(safe-area-inset-top))'}}>
         <button
@@ -3319,6 +3326,7 @@ const App = () => {
           <div key={language} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <QuoteBlock />
             <WeatherDashboard tierOverride={effectiveTierMap} />
+            <SevenDayForecastSection />
             <CommunityCarousel />
           </div>
         )}
