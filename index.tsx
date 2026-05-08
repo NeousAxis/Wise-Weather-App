@@ -3443,7 +3443,17 @@ const App = () => {
         </button>
 
         {/* 3. CONTRIBUTION (Center) */}
-        <div className="relative -top-5 flex items-center justify-center pointer-events-none">
+        <div className="relative -top-5 flex flex-col items-center justify-center pointer-events-none">
+          {/* Subtle hint above the share button — persistent, animated gently to draw attention */}
+          <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap animate-in fade-in slide-in-from-bottom-1 duration-700">
+            <div className="bg-white/95 backdrop-blur-sm border border-gray-100 rounded-full px-3 py-1 shadow-sm flex items-center gap-1.5 animate-bounce-slow">
+              <span className="text-[10px] font-semibold text-gray-700 tracking-tight">
+                {language === 'fr' ? 'Partagez votre météo' : 'Share your weather'}
+              </span>
+            </div>
+            {/* Tiny pointer arrow under the chip */}
+            <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-white/95 border-r border-b border-gray-100 rotate-45"></div>
+          </div>
           {/* Wrap button in pointer-events-auto to ensure clickability despite container style */}
           <button
             onClick={() => setShowContribution(true)}

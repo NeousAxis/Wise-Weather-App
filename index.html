@@ -33,6 +33,7 @@
           },
           animation: {
             'radiant': 'radiant 4s linear infinite',
+            'bounce-slow': 'bounce-slow 2.4s ease-in-out infinite',
           },
           keyframes: {
             radiant: {
@@ -42,6 +43,10 @@
               '100%': {
                 'background-position': '0% 200%'
               },
+            },
+            'bounce-slow': {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%':       { transform: 'translateY(-3px)' },
             },
           }
         }
