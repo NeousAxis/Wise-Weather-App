@@ -3040,11 +3040,13 @@ const App = () => {
     // setTimeout to ensure params are read even if hydration delays
     setTimeout(handleUrlParams, 500);
 
-    // Initial Coach Mark check (v2 for new multi-step) — disabled for iOS
-    // const hasSeenTuto = localStorage.getItem('has_seen_tuto_v2');
-    // if (!hasSeenTuto) {
-    //   setTimeout(() => setTutorialStep(1), 1000);
-    // }
+    // Initial Coach Mark — DISABLED on iOS too.
+    // Set the flag proactively so any user previously stuck in the tutorial
+    // loop (highlighted elements at z-70 above the z-60 overlay) gets
+    // unstuck on next launch.
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('has_seen_tuto_v2', 'true');
+    }
 
     // 2. Check when App comes to Foreground (for background instances)
     const handleFocus = () => {
