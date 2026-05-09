@@ -3173,34 +3173,11 @@ const App = () => {
   // Hidden on iOS native to avoid App Store rejection (no IAP configured)
   const showAds = !(typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) && (userTier === UserTier.FREE || (typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true'));
 
-  // 5. General Auto-Prompt (App Launch Only)
-  // Auto-open Contribution Modal on Launch AND Resume (iOS/Android)
-  const autoOpenRef = useRef(false);
-
-  useEffect(() => {
-    // 1. Initial Launch
-    const hasSeenIntro = localStorage.getItem('has_seen_tuto_v2');
-    if (hasSeenIntro && !autoOpenRef.current) {
-      autoOpenRef.current = true;
-      setTimeout(() => setShowContribution(true), 500);
-    }
-
-    // 2. Resume / Visibility Change (Back from Background)
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        const hasSeen = localStorage.getItem('has_seen_tuto_v2');
-        if (hasSeen) {
-          // Force reopen even if already opened before in session
-          // We add a tiny delay to ensure UI is repainted
-          console.log("App Resumed: Opening Contribution Modal");
-          setTimeout(() => setShowContribution(true), 300);
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
+  // 5. General Auto-Prompt — REMOVED.
+  // The contribution modal used to auto-open on every launch and on every
+  // resume from background. Now superseded by the persistent "Partagez votre
+  // météo" hint chip floating above the share FAB. Users tap the FAB at
+  // their own pace; no more uninvited popup interrupting the experience.
 
   return (
     <div className={`min-h-screen relative overflow-hidden font-sans ${showAds ? 'pb-32' : 'pb-20'}`}>
