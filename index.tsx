@@ -105,6 +105,29 @@ const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
 
 
 /**
+ * Single source of truth for the icon shown for the CURRENT hour anywhere
+ * in the UI (dashboard top icon, hourly forecast first slot, map current
+ * marker). Same intent as web: applies real-time precipitation override,
+ * then current-hour precipitation_probability override.
+ */
+const getEffectiveCurrentCode = (weather: WeatherData): number => {
+  const code = weather.current.weatherCode;
+  const temp = weather.current.temperature;
+  const precipNow = weather.current.precipitation || 0;
+  if (precipNow >= 0.1 && code < 50) return temp <= 1 ? 71 : 61;
+  const t = weather.current.time;
+  if (t && weather.hourly?.precipitation_probability && weather.hourly.time) {
+    const hourPrefix = t.slice(0, 13);
+    const idx = weather.hourly.time.findIndex((x: string) => x.startsWith(hourPrefix));
+    if (idx !== -1) {
+      const prob = weather.hourly.precipitation_probability[idx] || 0;
+      return overrideCodeForRain(code, prob, temp);
+    }
+  }
+  return code;
+};
+
+/**
  * Reconcile the WMO weather_code with hourly precipitation_probability.
  * Open-Meteo's "best_match" model can return code=0 (clear) for an hour
  * while precipitation_probability is 60-90%, which makes the UI inconsistent
@@ -400,22 +423,9 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         <div className="text-right flex-shrink-0">
           <div className="flex items-center justify-end gap-3">
             {(() => {
-              // SYNC STRATEGY: Use CURRENT weather code (Patched by Backend Safety Proxy)
-              // This ensures the local icon matches the notification alert immediately
-              let displayCode = weather.current.weatherCode;
-
-              // PRECIPITATION OVERRIDE LOGIC
-              // If real-time precipitation is detected but hourly shows clear/cloudy,
-              // override to show rain/snow icon
-              const precip = weather.current.precipitation || 0;
-              const temp = weather.current.temperature;
-
-              if (precip >= 0.1 && displayCode < 50) {
-                // It is precipitating but hourly says clear/cloudy. Force precipitation icon.
-                if (temp <= 1) displayCode = 71; // Force Snow
-                else displayCode = 61; // Force Rain
-              }
-
+              // Unified current icon — same logic used by hourly forecast and
+              // map current marker, so all three surfaces stay consistent.
+              const displayCode = getEffectiveCurrentCode(weather);
               return (
                 <div className="flex flex-col items-end">
                   {getWeatherIcon(displayCode, 48, "", isDayNow)}
@@ -1681,7 +1691,8 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
           Math.abs(userPosition.lat - location.lat) < 0.001 &&
           Math.abs(userPosition.lng - location.lng) < 0.001;
 
-        const code = weather.current.weatherCode;
+        // Unified current code (matches hourly + dashboard top icon)
+        const code = getEffectiveCurrentCode(weather);
         let iconType: 'sun' | 'moon' | 'rain' | 'cloud' | 'storm' | 'snow' | 'wind' = 'sun';
         let iconColor = '#F59E0B'; // Yellow
 
