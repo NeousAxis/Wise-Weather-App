@@ -41,6 +41,7 @@ interface AppContextType {
   dailyQuote: DailyQuote | null;
   t: (key: string) => string;
   requestNotifications: () => Promise<void>;
+  disableNotifications: () => Promise<void>;
   notificationsEnabled: boolean;
   testPush: () => Promise<void>;
   lastNotification: { title: string, body: string, data?: any } | null;
@@ -770,6 +771,19 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     }
   };
 
+  // Disable push: drop the FCM token so the server stops alerting this device.
+  // Browser/OS-level permission can only be revoked by the user from Settings.
+  const disableNotifications = async () => {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('fcm_token');
+      }
+      setNotificationsEnabled(false);
+    } catch (e) {
+      console.error('Error disabling notifications', e);
+    }
+  };
+
   const testPush = async () => {
     try {
       if (!("Notification" in window)) {
@@ -1270,6 +1284,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       dailyQuote,
       t,
       requestNotifications,
+      disableNotifications,
       notificationsEnabled,
       testPush,
       lastNotification,

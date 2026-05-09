@@ -529,17 +529,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
       <div className="border-b border-gray-100 pb-6 mb-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('weather.hourly')}</h3>
-          {/* Small Badge for Tier Debug/Info - hidden on iOS native */}
-          {!(typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) && (
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${userTier === UserTier.FREE ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}`}>
-            {(() => {
-              const isContributor = contextTier === UserTier.FREE && typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
-              if (isContributor) return language === 'fr' ? 'CONTRIBUTEUR' : 'CONTRIBUTOR';
-              if (userTier === UserTier.FREE) return language === 'fr' ? 'GRATUIT' : 'FREE';
-              return userTier;
-            })()}
-          </span>
-          )}
+          {/* V1 launch: tier badge removed — no paid plans, no need to label. */}
         </div>
 
         <div className="flex overflow-x-auto gap-8 pb-2 scrollbar-hide">
@@ -2641,16 +2631,41 @@ const AlertsModal = ({ onClose }: { onClose: () => void }) => {
 };
 
 const SettingsModal = ({ onClose }: { onClose: () => void }) => {
-  const { userTier, userPlan, userExpiresAt, language, t, requestNotifications, notificationsEnabled, setShowPremium } = useContext(AppContext)!;
+  const { userTier, userPlan, userExpiresAt, language, t, requestNotifications, disableNotifications, notificationsEnabled, setShowPremium } = useContext(AppContext)!;
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefreshToken = async () => {
     setRefreshing(true);
     try {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied') {
+        alert(language === 'fr'
+          ? 'Tu as refusé les notifications. Active-les depuis Réglages iOS → Wise Weather → Notifications.'
+          : 'You previously denied notifications. Enable them in iOS Settings → Wise Weather → Notifications.');
+        return;
+      }
       await requestNotifications();
-      alert(language === 'fr' ? 'Token actualisé !' : 'Token refreshed!');
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        alert(language === 'fr' ? 'Notifications activées ✓' : 'Notifications enabled ✓');
+      } else {
+        alert(language === 'fr' ? 'Permission refusée.' : 'Permission denied.');
+      }
     } catch (e) {
-      alert(language === 'fr' ? 'Erreur lors de l\'actualisation' : 'Error refreshing token');
+      alert(language === 'fr' ? 'Erreur lors de l\'activation' : 'Error during activation');
+    }
+    setRefreshing(false);
+  };
+
+  const handleDisableAlerts = async () => {
+    const confirmMsg = language === 'fr'
+      ? 'Êtes-vous sûr de vouloir désactiver les alertes ?\n\nL\'app ne pourra plus vous prévenir en cas de pluie, neige ou orage à venir, ni vous envoyer la citation matinale. Vous perdez une partie des fonctionnalités principales.'
+      : 'Are you sure you want to disable alerts?\n\nThe app will no longer be able to warn you about incoming rain, snow or storms, nor deliver your morning quote. You will lose part of the core functionality.';
+    if (!window.confirm(confirmMsg)) return;
+    setRefreshing(true);
+    try {
+      await disableNotifications();
+      alert(language === 'fr' ? 'Alertes désactivées.' : 'Alerts disabled.');
+    } catch (e) {
+      alert(language === 'fr' ? 'Erreur lors de la désactivation' : 'Error disabling alerts');
     }
     setRefreshing(false);
   };
@@ -2674,18 +2689,25 @@ const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                 {notificationsEnabled ? (language === 'fr' ? 'Activé' : 'Enabled') : (language === 'fr' ? 'Désactivé' : 'Disabled')}
               </span>
             </div>
-            <button
-              onClick={handleRefreshToken}
-              disabled={refreshing}
-              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors font-semibold text-sm disabled:opacity-50"
-            >
-              <Bell size={18} />
-              {refreshing
-                ? (language === 'fr' ? 'Activation...' : 'Activating...')
-                : notificationsEnabled
-                  ? (language === 'fr' ? 'Notifications activées ✓' : 'Notifications enabled ✓')
-                  : (language === 'fr' ? 'Activer les alertes' : 'Activate Alerts')}
-            </button>
+            {notificationsEnabled ? (
+              <button
+                onClick={handleDisableAlerts}
+                disabled={refreshing}
+                className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 transition-colors font-semibold text-sm disabled:opacity-50"
+              >
+                <Bell size={18} />
+                {refreshing ? (language === 'fr' ? 'Désactivation...' : 'Disabling...') : (language === 'fr' ? 'Désactiver les alertes' : 'Disable Alerts')}
+              </button>
+            ) : (
+              <button
+                onClick={handleRefreshToken}
+                disabled={refreshing}
+                className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors font-semibold text-sm disabled:opacity-50"
+              >
+                <Bell size={18} />
+                {refreshing ? (language === 'fr' ? 'Activation...' : 'Activating...') : (language === 'fr' ? 'Activer les alertes' : 'Activate Alerts')}
+              </button>
+            )}
           </div>
         </div>
 
