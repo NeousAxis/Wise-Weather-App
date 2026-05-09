@@ -277,3 +277,93 @@ Pour éviter de fatiguer l'utilisateur (Notification Fatigue), les alertes suive
 ### 2. 🏔️ Logique : Déclenchement Smart Montagne [APPLIQUÉ]
 - **Changement** : Une visibilité faible (< 250m) est désormais considérée comme une "Condition Montagne" critique.
 - **Conséquence** : Cela force l'affichage du marqueur étendu "Montagne" sur la carte au lieu du point standard, garantissant que l'alerte brouillard est immédiatement visible sans avoir à cliquer.
+
+---
+
+## 🗓️ 7-9 Mai 2026 — V1 LAUNCH SPRINT [v2.4.0 / iOS Build 26→36]
+
+Sprint complet de préparation au lancement App Store (iOS) + propagation web. Décision stratégique : **lancer une V1 sans abonnements** pour passer la review Apple, puis réintroduire les paid plans en V2.
+
+### 1. 🆕 Wind Graph 24h dépliable [v2.4.0]
+- **Ajout** : Nouvelle section dépliable cyan sous le Rain Graph, sur le Dashboard.
+- **Données** : `hourly.wind_speed_10m` pour la courbe + `hourly.wind_direction_10m` pour la boussole.
+- **UI** : Petites flèches `ArrowDown` rotées de `${dir}deg` (0° = vent venant du Nord) avec abréviation cardinale traduite (N/NE/E/SE/S/SO/O/NO en FR, N/NE/E/SE/S/SW/W/NW en EN), affichées tous les 3 slots.
+- **Header** : `Vent (24h) • XX km/h` avec la vitesse actuelle mise en évidence.
+
+### 2. 🆕 7-Day Forecast standalone [v2.4.0]
+- **Ajout** : Nouveau composant `SevenDayForecastSection`, carte dédiée placée **entre WeatherDashboard et CommunityCarousel** (pas dans le dashboard).
+- **Données** : `daily.weather_code` (consensus 10 modèles côté backend), min/max température, dayName traduit.
+- **UI** : "Aujourd'hui" mis en évidence en bleu/bold ; les 6 jours suivants listés ligne par ligne avec icône météo + min° / max°.
+
+### 3. 🛡️ Backend : Consensus 10 modèles 7 jours [v2.4.0]
+- **Endpoint** : `getWeatherForecast` (Cloud Function) — déployé en prod.
+- **Logique** : Vote pondéré par sévérité (0=Clear → 5=Storm) sur 9 safety models + UI model avec bonus de stabilité (UI = 2 votes). En cas d'égalité, sévérité plus haute gagne (priorité sécurité). Au sein de la sévérité gagnante, code météo le plus fréquent. Températures min/max moyennées.
+- **URLs Open-Meteo étendues** : `forecast_days=8`, `wind_direction_10m`, `precipitation_probability` horaire, `weather_code` daily multi-modèles.
+
+### 4. ⏰ Time markers absolus (Rain & Wind Graph) [v2.4.0]
+- **Avant** : "Now / 6h / 12h / 18h / 24h" (relatifs).
+- **Après** : Heures absolues `(currentHour + offset) % 24 + "h"` (ex: 14h → `14h, 20h, 2h, 8h, 14h`).
+
+### 5. 🏷️ Inversion ordre titre ville [v2.4.0]
+- **Format** : `MainCity (gros titre) / SubArea (sous-titre)` (ex: `Genève / Coulouvrenière`).
+- **Inverse** la décision v2.2.59 suite au feedback utilisateur.
+- **CSS** : `flex-1 min-w-0 break-words` côté titre + `flex-shrink-0` côté température, pour responsive sur les longs noms.
+
+### 6. 🗑️ Stats Grid sans Wind [v2.4.0]
+- Cellule Wind retirée du Stats Grid (information déplacée dans le header du Wind Graph).
+- Le grid affiche maintenant : Lever/Coucher soleil, Humidité, Visibilité, UV, Air, Pollen.
+- Ajout de `border-t border-gray-100 pt-6` comme séparateur visuel.
+
+### 7. 💡 Hint chip "Partagez votre météo" [v2.4.0]
+- Petite chip flottante persistante au-dessus du bouton orange contribution (FAB).
+- Animation `bounce-slow` (2.4s, ±3px vertical) — visible sans être agressive.
+- `pointer-events: none` → ne bloque jamais aucun clic.
+- Bilingue FR/EN.
+
+### 8. 🚫 Auto-popup contribution supprimée [v2.4.0]
+- Avant : Modal "Quel temps fait-il ?" forcée à chaque ouverture + chaque retour de background.
+- Après : Suppression complète. Le hint chip remplace fonctionnellement le tuto.
+
+### 9. 🚫 Tuto multi-step désactivé [v2.4.0]
+- Bug architectural : éléments highlightés (z-70) au-dessus du dark overlay (z-60). Tap déclenchait l'action de l'élément, pas l'avancement du tuto. Boucle.
+- `localStorage.setItem('has_seen_tuto_v2', 'true')` posé proactivement à chaque boot → débloque tout utilisateur encore coincé sur une vieille build.
+
+### 10. 🎁 V1 launch : Tout le monde sur ULTIMATE [v2.4.0]
+- `userTier` initial forcé à `UserTier.ULTIMATE` (web + iOS).
+- Override Firestore tier sync : peu importe ce que dit Firestore, la valeur résultante est `ULTIMATE`.
+- **Aucun paywall, aucun lock, aucun "+20h" overlay.**
+- `showAds = false` partout — la pub était l'incitation au premium.
+- Bouton Crown header retiré, bloc Subscription Settings retiré, badge ULTIMATE/FREE retiré, Cancel Subscription retiré.
+
+### 11. 📱 iOS-only : Capacitor + safe-area + IAP gated [Build 26→36]
+- **`viewport-fit=cover`** dans `<meta viewport>` → débloque `env(safe-area-inset-*)` sur iOS.
+- Utilities `.pt-safe / .mt-safe / .pb-safe` dans index.css.
+- 2 références `Capacitor.isNativePlatform()` non guardées corrigées (`typeof Capacitor !== 'undefined'`) pour éviter le crash dev preview.
+- Feature flag `IAP_ENABLED = false` gate Subscription section, PremiumModal, StoreKit init.
+- **3 subscriptions ASC supprimées** (standard_plan, ultimate_plan, traveler_plan + group "Wise Weather Plans") après rejet Apple Guideline 2.1(b). **Backup complet : [`IAP_BACKUP.md`](IAP_BACKUP.md)** — restoration playbook + métadonnées + localizations FR/EN.
+
+### 12. 🐛 Fix "soleil + pluie en même temps" [v2.4.0]
+- **Cause** : Open-Meteo `weather_code` peut être 0 (clair) pour une heure dont `precipitation_probability` est 70%. UI inconsistante (icône soleil + courbe pluie élevée).
+- **Helper** `overrideCodeForRain(code, precipProb, temp)` : ≥60% → force pluie 61 (ou neige 71 si temp ≤ 2°C), ≥40% → partiellement nuageux 2.
+
+### 13. 🐛 Fix icône courante incohérente Map vs Hourly [v2.4.0]
+- **Helper unifié `getEffectiveCurrentCode(weather)`** :
+  1. Précipitation réelle ≥0.1mm tombe maintenant → force rain/snow.
+  2. Sinon, applique `overrideCodeForRain` sur la prob horaire courante.
+- Source unique pour : Dashboard top icon, Hourly first slot, Map "Prévisions Officielles" current marker.
+
+### 14. 🔔 Notifications : feedback + désactivation [v2.4.0]
+- **Activation** : Affichage explicite du résultat (API absente → "Ajouter à l'écran d'accueil", denied → "Réglages navigateur", granted → "✓").
+- **Désactivation** : Nouveau bouton **rouge** "Désactiver les alertes" (visible quand activées). Confirme dialog avec avertissement explicite ("L'app ne pourra plus prévenir pluie/neige/orage ni envoyer la citation matinale, vous perdez une partie des fonctionnalités principales").
+- **Backend** : `disableNotifications()` dans AppContext supprime le token FCM (Firestore + localStorage).
+
+### 15. 🚀 Soumissions Apple successives
+- **Build 30** soumise le 7 mai 2026 → **REJECTED** Guideline 2.1(b) (IAPs configurés en ASC mais pas accessibles dans l'app).
+- **Action correctrice** : 3 subscriptions + group supprimés de App Store Connect (cohérence : pas d'IAP en ASC = Apple ne cherche plus dans l'app).
+- **Build 30 ré-soumise** après suppression ASC, état `WAITING_FOR_REVIEW`.
+- **Builds 31-36** uploadées via fastlane sur App Store Connect, liées automatiquement à 2 groupes TestFlight Internal (`Dev Build 26+` et `Internal Testers`) pour itération rapide pendant la review.
+
+### 16. 🧷 Sauvegardes
+- **Web** : branche `backup/with-subscriptions-2026-05-09` (commit `d032bb4`) — snapshot de la version avec abonnements Stripe actifs avant les modifs V1.
+- **iOS** : tout le code IAP (PremiumModal, StoreKit init, marketing copy bilingue) reste dans `index.tsx`, simplement gated par `IAP_ENABLED = false`. Aucun code à réécrire pour la V2.
+- **IAP V2 restoration** : ~30 min code (déjà codé) + ~1h ASC manuel (recréation des 3 subscriptions). Voir [IAP_BACKUP.md](IAP_BACKUP.md).
