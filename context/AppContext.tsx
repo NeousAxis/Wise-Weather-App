@@ -208,7 +208,10 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [lastNotification, setLastNotification] = useState<{ title: string, body: string, data?: any } | null>(null);
-  const [userTier, setUserTier] = useState<UserTier>(UserTier.FREE);
+  // First App Store submission ships everyone with ULTIMATE access (no IAP).
+  // When IAPs are re-enabled in V2, revert this to UserTier.FREE and let the
+  // tier be driven by the user's actual subscription state from the backend.
+  const [userTier, setUserTier] = useState<UserTier>(UserTier.ULTIMATE);
   const [userPlan, setUserPlan] = useState<string>(''); // Default empty
   const [userExpiresAt, setUserExpiresAt] = useState<Date | null>(null); // State for expiration
   const [showPremium, setShowPremium] = useState(false);
@@ -292,7 +295,9 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
           }
         }
 
-        setUserTier(effectiveTier);
+        // V1 OVERRIDE: every user gets ULTIMATE access until IAPs are re-enabled.
+        // Drop this line and restore `setUserTier(effectiveTier)` when IAPs ship.
+        setUserTier(UserTier.ULTIMATE);
       }
     });
 

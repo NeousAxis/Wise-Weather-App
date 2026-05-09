@@ -3169,9 +3169,10 @@ const App = () => {
   // Auto-clean useEffect REMOVED to prevent race conditions with Firestore sync.
   // The flag is now managed explicitly in handleSubscribe and PremiumModal.
 
-  // Ad display logic: Show ads for ALL Free users OR anyone who accepted Contributor mode
-  // Hidden on iOS native to avoid App Store rejection (no IAP configured)
-  const showAds = !(typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) && (userTier === UserTier.FREE || (typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true'));
+  // V1 OVERRIDE: ads removed entirely. They were the incentive to upgrade to a
+  // paid subscription; with IAPs disabled and every user on ULTIMATE, ads no
+  // longer make sense. Restore the previous logic when IAPs are re-enabled.
+  const showAds = false;
 
   // 5. General Auto-Prompt — REMOVED.
   // The contribution modal used to auto-open on every launch and on every
