@@ -104,6 +104,23 @@ const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
 
 
 
+/**
+ * Reconcile the WMO weather_code with hourly precipitation_probability.
+ * Open-Meteo's "best_match" model can return code=0 (clear) for an hour
+ * while precipitation_probability is 60-90%, which makes the UI inconsistent
+ * (sun icon shown even though the rain graph below predicts rain).
+ */
+const overrideCodeForRain = (code: number, precipProb: number, temp: number): number => {
+  if (typeof precipProb !== 'number' || precipProb <= 0) return code;
+  if (code >= 51) return code;
+  if (precipProb >= 60) {
+    if (typeof temp === 'number' && temp <= 2) return 71;
+    return 61;
+  }
+  if (precipProb >= 40 && code <= 1) return 2;
+  return code;
+};
+
 const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
   switch (label) {
     case 'Sunny': return <Sun size={size} className={`text-yellow-500 ${className}`} />;
@@ -322,10 +339,12 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
             isSlotDay = (h >= 6 && h < 18) ? 1 : 0;
           }
 
+          const tempVal = weather.hourly.temperature_2m[idx];
+          const probVal = weather.hourly.precipitation_probability ? weather.hourly.precipitation_probability[idx] : 0;
           criticalTimes.push({
             time: timeVal,
-            temp: weather.hourly.temperature_2m[idx],
-            code: weather.hourly.weather_code[idx],
+            temp: tempVal,
+            code: overrideCodeForRain(weather.hourly.weather_code[idx], probVal, tempVal),
             isDay: isSlotDay
           });
         }
