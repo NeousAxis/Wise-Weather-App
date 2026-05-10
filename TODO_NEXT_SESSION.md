@@ -1,47 +1,44 @@
 # 📋 Wise Weather — TODO Prochaine Session
 
-## 🗓️ Mise à jour : 9 Mai 2026 — V1 LAUNCH SPRINT terminé (v2.4.0)
+## 🗓️ Mise à jour : 10 Mai 2026 — V1 POLISH SPRINT terminé (v2.4.1 / iOS Build 39)
 
 ---
 
-## ✅ Fait dans le sprint V1 (7-9 mai 2026)
+## ✅ Fait dans le sprint v2.4.1 (9-10 mai 2026)
 
-- ✅ Wind Graph 24h dépliable + boussole cardinale + flèches directionnelles
-- ✅ 7-Day Forecast carte standalone entre Dashboard et Communauté
-- ✅ Backend consensus 10 modèles 7 jours déployé en PROD
-- ✅ Time markers absolus (Rain & Wind Graph)
-- ✅ Inversion titre ville (MainCity gros / SubArea petit) + responsive
-- ✅ Stats Grid sans Wind (info dans header Wind Graph)
-- ✅ Hint chip "Partagez votre météo" + animation `bounce-slow`
-- ✅ Auto-popup contribution supprimée
-- ✅ Tuto multi-step désactivé (loop bug)
-- ✅ Tous users sur ULTIMATE pour V1, ads supprimées
-- ✅ Header Crown + Settings Subscription bloc + tier badge + "Cancel Subscription" supprimés
-- ✅ Bouton "Désactiver les alertes" rouge avec confirm dialog + warning
-- ✅ Notifications : feedback explicite (API absente / denied / granted)
-- ✅ Bug "soleil + pluie" → helper `overrideCodeForRain`
-- ✅ Icône courante unifiée → helper `getEffectiveCurrentCode`
-- ✅ iOS : safe area Dynamic Island fix (`viewport-fit=cover` + `pt-safe`)
-- ✅ iOS : `IAP_ENABLED = false` flag, 3 subscriptions ASC supprimées
-- ✅ Web : déployé en prod sur https://wiseweatherapp.xyz
-- ✅ iOS : Build 36 uploadée App Store Connect, Build 30 attachée à v1.0 en `WAITING_FOR_REVIEW`
-- ✅ Sauvegardes : web `backup/with-subscriptions-2026-05-09`, iOS `IAP_BACKUP.md`
+### Backend
+- ✅ Migration Quote Gemini → **Mistral** (`mistral-small-latest`, free tier, EU-hosted)
+- ✅ Suppression de la dép `@google/generative-ai`, slot `v23 → v24` pour purger Roosevelt
+- ✅ Consensus 10 modèles sur **`hourly.precipitation_probability`** (CASE B-bis)
+- ✅ Consensus 10 modèles sur **`hourly.weather_code`** (CASE B-ter) — résout le bug "rain all day fantôme"
+
+### Frontend
+- ✅ AppContext expose `refreshWeather()` (web + iOS)
+- ✅ Bouton 🔄 **Update** dans le header global (à gauche des boutons °C/FR), cooldown 5 min
+- ✅ Carte **Communauté** remplace HIER, toujours visible (placeholder si aucun signalement)
+- ✅ Layout corrigé (carte communauté en pleine largeur, n'écrase plus le titre ville)
+
+### iOS
+- ✅ Build 39 uploadée App Store Connect via fastlane
+- ✅ Auto-link aux 2 groupes TestFlight Internal (`Dev Build 26+` + `Internal Testers`)
+
+### Process
+- ✅ Nouvelle règle : **pas de fastlane release sans validation utilisateur explicite**
 
 ---
 
 ## 🟡 En attente
 
-### 1. 🍎 Review Apple v1.0 Build 30
-- Status actuel : `WAITING_FOR_REVIEW`
-- Délai habituel : 24-48h
-- Si rejet : analyser raison, fixer, attacher Build 36 (ou plus récente) à la version 1.0, resoumettre via `fastlane submit`
-- Si approbation : faire le release manuel dans App Store Connect (`releaseType: MANUAL` dans Fastfile)
+### 1. 🍎 Review Apple v1.0 — Build attaché = 30
+- **Status actuel** : `WAITING_FOR_REVIEW`
+- Apple review la Build 30 (la plus ancienne propre). Builds 31-39 sont en TestFlight uniquement.
+- **Si rejet** : analyser raison, attacher Build 39 (la plus récente, contient tous les fixes), resoumettre via `fastlane submit`.
+- **Si approbation** : release manuel dans App Store Connect (`releaseType: MANUAL`).
 
-### 2. 🧪 Tests post-launch (web déjà live)
-- Vérifier le hint chip s'affiche bien sur mobile / desktop
-- Vérifier le 7-Day Forecast charge en moins de 3s
-- Vérifier les icônes courantes sont cohérentes (Map / Hourly / Dashboard)
-- Vérifier la désactivation des alertes fonctionne et persiste
+### 2. 🧪 Tests post-launch web (déjà live)
+- Vérifier que le bloc Communauté s'affiche bien avec le placeholder quand aucun signalement
+- Tester le bouton Update + cooldown 5 min
+- Vérifier en condition réelle que le consensus 10 modèles élimine les "rain all day fantôme"
 
 ---
 
@@ -50,44 +47,39 @@
 ### Réactivation des abonnements
 **Référence complète : [`IAP_BACKUP.md`](IAP_BACKUP.md)**
 
-1. **Côté App Store Connect** (manuel, ~1h)
-   - Recréer Subscription Group "Wise Weather Plans"
-   - Recréer 3 subscriptions : `standard_plan` (CHF 20/mois), `ultimate_plan` (CHF 40/mois), `traveler_plan` (CHF 4/semaine)
-   - Localizations FR/EN (intégrales dans IAP_BACKUP.md)
+1. **App Store Connect** (~1h) : recréer Subscription Group + 3 IAPs (`standard_plan`, `ultimate_plan`, `traveler_plan`) avec localizations FR/EN
+2. **Code** (~30 min) :
+   - `IAP_ENABLED = true` dans `index.tsx` ligne ~17
+   - Restaurer overrides `V1 OVERRIDE` dans `context/AppContext.tsx` (initial tier `FREE` au lieu d'`ULTIMATE`, sync Firestore au lieu de force-`ULTIMATE`)
+   - Restaurer Crown header + Subscription block Settings + tier badge depuis l'historique git
+3. **Build + soumission** : bump build, sync, fastlane release + submit
 
-2. **Côté code** (~30 min)
-   - Flipper `IAP_ENABLED = true` dans `index.tsx` ligne ~17
-   - Restaurer les overrides `V1 OVERRIDE` dans `context/AppContext.tsx` :
-     - `useState<UserTier>(UserTier.ULTIMATE)` → `UserTier.FREE`
-     - `setUserTier(UserTier.ULTIMATE)` dans Firestore sync → `setUserTier(effectiveTier)`
-   - Restaurer le bloc Subscription dans Settings (depuis l'historique git) + Crown header
-   - Restaurer le tier badge (FREE/ULTIMATE) dans Hourly Forecast header
-   - Restaurer ad banner conditionnel (si business model le justifie)
-
-3. **Build + soumission**
-   - Bump build number dans pbxproj ET Info.plist
-   - `npm run build && npx cap sync ios`
-   - `cd ios/App && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 fastlane release`
-   - Attacher build à nouvelle version (1.1.0 ?)
-   - `fastlane submit` avec metadata mise à jour
-
-### Estimation totale V2 : ~2h (vs semaines de re-coding évitées)
+### Estimation V2 : ~2h (vs semaines de re-coding évitées)
 
 ---
 
-## 🐛 Bugs connus (non bloquants pour V1)
+## 🐛 Bugs connus (non bloquants)
 
 ### 1. Notifications iOS Safari (hors PWA)
-**Symptôme** : Sur iOS Safari en mode navigateur, "Activer les alertes" ne fonctionne pas (Web Push API non supportée).
-**Workaround actuel** : Alert explicatif demande à l'utilisateur d'ajouter l'app à l'écran d'accueil.
-**Fix V2** : Détecter mode PWA et activer les notifications uniquement dans ce mode + bannière "Installer l'app" sur Safari mobile.
+- iOS Safari ne supporte pas les Web Notifications en mode navigateur.
+- Workaround : alert demande à l'utilisateur d'ajouter l'app à l'écran d'accueil.
+
+---
+
+## 💡 Idées pour V2+ (backlog)
+
+1. **Notifications push hyperlocales** : si la communauté signale "pluie en cours" dans un rayon de 1 km mais que la prévision officielle dit "ciel clair", envoyer une push proactive "Pluie en cours à proximité".
+2. **Indicateur de confiance** : badge "Forte confiance" / "Moyenne" / "Faible" selon le degré d'accord entre les 10 modèles (ex: 10/10 vs 5/5).
+3. **Hybride observation + forecast** : pour la prochaine heure, faire confiance à l'observation actuelle plutôt qu'à la prédiction si elles divergent.
+4. **Auto-refresh intelligent** : refresh automatique mais SEULEMENT si la dernière donnée a > 1h, et cooldown adaptatif selon usage.
 
 ---
 
 ## 📊 Métriques à suivre post-launch
 
-- Web : nombre de visiteurs uniques (Firebase Analytics)
-- iOS : téléchargements App Store, taux de rétention J7/J30
-- Communauté : nombre de signalements / jour (collection `reports` Firestore)
+- Web : visiteurs uniques (Firebase Analytics)
+- iOS : téléchargements App Store, rétention J7/J30
+- Communauté : signalements/jour, % de localisations avec ≥1 signalement
 - Notifications : taux d'opt-in (notificationsEnabled vs total users)
-- Backend : coût Cloud Functions / mois, latence `getWeatherForecast`
+- Backend : invocations Cloud Functions/mois (limite free 2M), latence `getWeatherForecast`
+- Mistral : usage tokens/mois (limite free tier)

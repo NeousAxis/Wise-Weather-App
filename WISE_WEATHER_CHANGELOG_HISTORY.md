@@ -367,3 +367,64 @@ Sprint complet de préparation au lancement App Store (iOS) + propagation web. D
 - **Web** : branche `backup/with-subscriptions-2026-05-09` (commit `d032bb4`) — snapshot de la version avec abonnements Stripe actifs avant les modifs V1.
 - **iOS** : tout le code IAP (PremiumModal, StoreKit init, marketing copy bilingue) reste dans `index.tsx`, simplement gated par `IAP_ENABLED = false`. Aucun code à réécrire pour la V2.
 - **IAP V2 restoration** : ~30 min code (déjà codé) + ~1h ASC manuel (recréation des 3 subscriptions). Voir [IAP_BACKUP.md](IAP_BACKUP.md).
+
+---
+
+## 🗓️ 9-10 Mai 2026 — V1 POLISH SPRINT [v2.4.1 / iOS Build 39]
+
+Sprint follow-up post-V1 launch : amélioration de la fiabilité météo et bouton refresh manuel, après retour utilisateur "hier l'app prédisait pluie toute la journée alors qu'il a fait beau".
+
+### 1. 🤖 Migration Quote : Gemini → Mistral [v2.4.1]
+- **Problème** : la clé Gemini API expirait régulièrement sans warning, faisant retomber la citation quotidienne sur Eleanor Roosevelt (placeholder fallback) pendant des heures voire des jours.
+- **Solution** : bascule sur **Mistral La Plateforme** (`mistral-small-latest`) — clé `MISTRAL_API_KEY` déjà configurée dans Firebase Secrets depuis décembre 2025.
+- **Pourquoi Mistral** : projet français, GDPR-compliant, hébergé Paris (pas de Cloud Act US), free tier généreux, excellent FR, API stable.
+- **Implémentation** : appel REST direct (pas de SDK) — `fetch` sur `https://api.mistral.ai/v1/chat/completions` avec `response_format: { type: "json_object" }`. Suppression des fallbacks triple-Gemini (1 seul appel suffit, Mistral est stable).
+- **Cleanup** : `@google/generative-ai` retiré de `functions/package.json`. Slot quote bumped `v23 → v24` pour invalider le cache Roosevelt.
+
+### 2. 🔬 Backend : Consensus hourly precipitation_probability (10 modèles)
+- **Problème** : `precipitation_probability` venait du SEUL modèle "best_match" Open-Meteo. Si lui hallucinait 70% de pluie pour une heure, on l'affichait, même si les 9 autres safety models disaient 5%.
+- **Solution** : moyenne arithmétique des 10 modèles. `safetyUrl` étendue avec `&hourly=precipitation_probability,weather_code` pour récupérer toutes les variantes par modèle.
+- **Log** : `[PROXY] Smoothed precipitation_probability across 10 models for X hourly slots.`
+
+### 3. 🔬 Backend : Consensus hourly weather_code (10 modèles) — CASE B-ter
+- **Problème complémentaire** : même après le smooth de la probabilité de pluie, l'icône horaire restait pluie car `weather.hourly.weather_code` venait toujours du best_match. `overrideCodeForRain` côté frontend ne peut qu'ESCALADER (clear → rain), jamais REDESCENDRE.
+- **Solution** : vote pondéré par sévérité sur le `weather_code` horaire (mêmes règles que la consensus 7-jours daily) :
+    - UI = 2 votes pour stabilité
+    - Sur égalité, sévérité supérieure gagne (biais sécurité)
+    - Au sein de la sévérité gagnante, code météo le plus fréquent
+- **Effet** : si best_match dit "code 61 (pluie)" mais 8/9 autres modèles disent "code 2 (nuageux)", le code est **DOWNGRADÉ** vers 2.
+- **Log** : `[PROXY] Hourly consensus DOWNGRADED X slots (best_match was over-forecasting precipitation/severity).`
+
+### 4. 🔄 Frontend : Bouton Update manuel dans le header global
+- **Position** : header en haut à droite, à GAUCHE des boutons °C / FR. Visible depuis toutes les pages (Accueil, Carte, Settings).
+- **Comportement** : click → spin pendant fetch → cooldown **5 minutes** (anti-spam, protège le free tier).
+- **Coût** : 1 fetch quand l'utilisateur le décide. Avec cooldown 5min : ~1.5M req/mois pour 10k users → reste sous le seuil free Firebase (2M/mois).
+- **Tooltip dynamique** : "Mettre à jour la météo" / "Patientez 5 min avant le prochain rafraîchissement".
+- **AppContext** : nouvelle méthode `refreshWeather(): Promise<void>` exposée — wrapper autour de `fetchWeather(currentLocation)`.
+
+### 5. 🏘️ Carte Communauté remplace HIER (toujours visible)
+- **Avant** : module statique "HIER" (Matin/Midi/Soir) sous la température, montrait la météo de la veille.
+- **Après** : carte temps réel avec dernière contribution communautaire à la position de l'utilisateur (rayon ~5km, dernières 6h) :
+    - Label horizontal "COMMUNAUTÉ" centré au-dessus
+    - 3 colonnes : icône+condition / température / temps écoulé
+    - Séparateurs verticaux `w-px h-8 bg-gray-100`
+- **Toujours visible** (même quand aucun signalement à proximité) avec placeholder italique : *"Aucun signalement à proximité — soyez le premier !"*
+- **Position** : sous le bloc titre/température, pleine largeur — ne compresse jamais le titre ville.
+
+### 6. 🔄 Auto-poll pour link TestFlight
+- Script Ruby `/tmp/link_XX.rb` (one per build) : poll API App Store Connect toutes les 60s jusqu'à ce que la build soit `VALID`, puis link automatique aux 2 groupes TestFlight Internal (`Dev Build 26+` + `Internal Testers`).
+- Gain de temps : plus besoin d'attendre manuellement le processing Apple.
+
+### 7. 🛑 Nouvelle règle : pas de fastlane release sans accord utilisateur explicite
+- Apprentissage du sprint : ne plus pousser de build iOS automatiquement après chaque modif. Attendre validation formelle de l'utilisateur (tests/screenshots) avant `fastlane release`.
+- Code commit local toujours fait → traçabilité git intacte sans pollution App Store Connect.
+
+### 8. 🎨 Itérations design carte Communauté (3 versions)
+- **v1** : 3 colonnes + label vertical "COMMUNAUTÉ" sur le côté gauche.
+- **v2** (rejetée) : pill horizontal compact `rounded-full` — écrasait le titre ville quand `whitespace-nowrap` forçait la colonne droite à expandir.
+- **v3 (validée)** : retour aux 3 colonnes d'origine, label horizontal centré au-dessus. Position : sous le bloc titre/température (full-width sibling), donc n'interfère plus avec le layout du titre.
+
+### 9. 📦 Soumissions Apple
+- Build 30 → re-soumis après suppression IAPs ASC, état `WAITING_FOR_REVIEW`.
+- Builds 31-39 → uploadées pour TestFlight Internal, **non attachées** à la version 1.0 (review reste sur 30 jusqu'à approbation/rejet).
+- Build 39 = version finale validée par l'utilisateur incluant tous les fixes du sprint v2.4.1.
