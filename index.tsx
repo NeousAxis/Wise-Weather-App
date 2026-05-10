@@ -540,27 +540,34 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         </div>
       </div >
 
-      {/* Community report pill — full-width row below the title/temperature
-          area so the pill never compresses the city name. */}
+      {/* Community report card — original 3-column design, "COMMUNAUTÉ"
+          label kept HORIZONTAL at the top (was vertical before). */}
       {latestCommunityReport && (
-        <div className="-mt-4 mb-6 bg-white/60 backdrop-blur-sm rounded-full px-3 py-1.5 border border-purple-100 shadow-sm animate-in fade-in slide-in-from-top-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[9px] font-bold text-purple-600 uppercase tracking-widest leading-none">
-              {language === 'fr' ? 'COMMUNAUTÉ' : 'COMMUNITY'}
-            </span>
-            <span className="text-purple-200">•</span>
-            <div className="opacity-90 scale-90 -my-1">
-              {getWeatherIconFromLabel(latestCommunityReport.conditions[0] || 'Sunny', 18)}
+        <div className="-mt-4 mb-6 bg-white/60 backdrop-blur-sm rounded-xl p-2 border border-purple-100 shadow-sm animate-in fade-in slide-in-from-top-1">
+          <div className="text-[9px] font-bold text-purple-600 uppercase tracking-widest text-center mb-1">
+            {language === 'fr' ? 'COMMUNAUTÉ' : 'COMMUNITY'}
+          </div>
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex flex-col items-center flex-1">
+              <div className="opacity-90 scale-90 -my-1">
+                {getWeatherIconFromLabel(latestCommunityReport.conditions[0] || 'Sunny', 24)}
+              </div>
+              <span className="text-[10px] font-bold text-gray-700 leading-tight">{latestCommunityReport.conditions[0]}</span>
             </div>
-            <span className="text-[11px] font-bold text-gray-700">{latestCommunityReport.conditions[0]}</span>
             {typeof latestCommunityReport.temp === 'number' && (
               <>
-                <span className="text-gray-300">•</span>
-                <span className="text-[11px] font-bold text-gray-700">{convertTemp(latestCommunityReport.temp, unit)}°</span>
+                <div className="w-px h-8 bg-gray-100"></div>
+                <div className="flex flex-col items-center flex-1">
+                  <span className="text-[9px] text-gray-400 font-medium">{language === 'fr' ? 'Temp' : 'Temp'}</span>
+                  <span className="text-sm font-bold text-gray-700">{convertTemp(latestCommunityReport.temp, unit)}°</span>
+                </div>
               </>
             )}
-            <span className="text-gray-300">•</span>
-            <span className="text-[10px] text-gray-500">{formatTimeAgo(latestCommunityReport.timestamp)}</span>
+            <div className="w-px h-8 bg-gray-100"></div>
+            <div className="flex flex-col items-center flex-1">
+              <span className="text-[9px] text-gray-400 font-medium">{language === 'fr' ? 'Quand' : 'When'}</span>
+              <span className="text-[10px] font-bold text-gray-700 leading-tight">{formatTimeAgo(latestCommunityReport.timestamp)}</span>
+            </div>
           </div>
         </div>
       )}
