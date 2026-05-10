@@ -3036,6 +3036,7 @@ const App = () => {
   // Logic: User must be Free + HAVE ACCEPTED THE DEAL via Premium Modal
   const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user, userTier, userPlan, userExpiresAt, showPremium, setShowPremium, location, userPosition, refreshWeather, loadingWeather } = useContext(AppContext)!;
   const [refreshingHeader, setRefreshingHeader] = useState(false);
+  const [refreshCooldown, setRefreshCooldown] = useState(false);
 
   const hasAcceptedContributorDeal = typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
   // ENABLED FOR EVERYONE NOW (Production Launch)
@@ -3287,15 +3288,16 @@ const App = () => {
         <div className="flex gap-2">
           <button
             onClick={async () => {
-              if (refreshingHeader || loadingWeather) return;
+              if (refreshingHeader || refreshCooldown || loadingWeather) return;
               setRefreshingHeader(true);
               try { await refreshWeather(); } catch (e) { console.error('Refresh failed', e); }
-              // 5-min cooldown to keep us inside Firebase free tier
-              setTimeout(() => setRefreshingHeader(false), 5 * 60 * 1000);
+              setRefreshingHeader(false);
+              setRefreshCooldown(true);
+              setTimeout(() => setRefreshCooldown(false), 5 * 60 * 1000);
             }}
-            disabled={refreshingHeader || loadingWeather}
+            disabled={refreshingHeader || refreshCooldown || loadingWeather}
             title={
-              refreshingHeader
+              refreshCooldown
                 ? (language === 'fr' ? 'Patientez 5 min avant le prochain rafraîchissement' : 'Wait 5 min before refreshing again')
                 : (language === 'fr' ? 'Mettre à jour la météo' : 'Refresh weather')
             }
