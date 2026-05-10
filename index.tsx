@@ -537,7 +537,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
               <div className="opacity-90 scale-90 -my-1">
                 {getWeatherIconFromLabel(latestCommunityReport.conditions[0] || 'Sunny', 24)}
               </div>
-              <span className="text-[10px] font-bold text-gray-700 leading-tight">{latestCommunityReport.conditions[0]}</span>
+              <span className="text-[10px] font-bold text-gray-700 leading-tight">{t('condition.' + latestCommunityReport.conditions[0]) || latestCommunityReport.conditions[0]}</span>
             </div>
             {typeof latestCommunityReport.temp === 'number' && (
               <>
