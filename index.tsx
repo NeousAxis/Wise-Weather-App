@@ -205,8 +205,7 @@ const QuoteBlock = () => {
 };
 
 const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
-  const { weather, loadingWeather, unit, t, cityName, language, userTier: contextTier, setShowPremium, communityReports, location, refreshWeather } = useContext(AppContext)!;
-  const [refreshingWeather, setRefreshingWeather] = useState(false);
+  const { weather, loadingWeather, unit, t, cityName, language, userTier: contextTier, setShowPremium, communityReports, location } = useContext(AppContext)!;
 
   // Latest community report at the user's location (within ~5 km, last 6 hours).
   const latestCommunityReport = React.useMemo(() => {
@@ -440,21 +439,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
           ) : (
             <h2 className="text-3xl font-bold text-foreground tracking-tight break-words">{cityName}</h2>
           )}
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-gray-500 font-medium text-sm">{t('weather.official_forecast')}</p>
-            <button
-              onClick={async () => {
-                setRefreshingWeather(true);
-                try { await refreshWeather(); } catch (e) { console.error('Refresh failed', e); }
-                setTimeout(() => setRefreshingWeather(false), 600);
-              }}
-              disabled={refreshingWeather || loadingWeather}
-              title={language === 'fr' ? 'Mettre à jour la météo' : 'Refresh weather'}
-              className="p-1 rounded-full hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={`text-gray-400 ${refreshingWeather ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+          <p className="text-gray-500 font-medium mt-1 text-sm">{t('weather.official_forecast')}</p>
         </div>
         <div className="text-right flex-shrink-0">
           <div className="flex items-center justify-end gap-3">
@@ -3016,7 +3001,8 @@ const App = () => {
   const contributorLogic = useContributorLogic();
 
   // Logic: User must be Free + HAVE ACCEPTED THE DEAL via Premium Modal
-  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user, userTier, userPlan, userExpiresAt, showPremium, setShowPremium, location, userPosition } = useContext(AppContext)!;
+  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user, userTier, userPlan, userExpiresAt, showPremium, setShowPremium, location, userPosition, refreshWeather, loadingWeather } = useContext(AppContext)!;
+  const [refreshingHeader, setRefreshingHeader] = useState(false);
 
   const hasAcceptedContributorDeal = typeof window !== 'undefined' && localStorage.getItem('wise_contributor_accepted') === 'true';
   // ENABLED FOR EVERYONE NOW (Production Launch)
@@ -3266,6 +3252,24 @@ const App = () => {
           </span>
         </button>
         <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              if (refreshingHeader || loadingWeather) return;
+              setRefreshingHeader(true);
+              try { await refreshWeather(); } catch (e) { console.error('Refresh failed', e); }
+              // 30s cooldown to protect free-tier API budget
+              setTimeout(() => setRefreshingHeader(false), 30000);
+            }}
+            disabled={refreshingHeader || loadingWeather}
+            title={
+              refreshingHeader
+                ? (language === 'fr' ? 'Patientez 30 s avant le prochain rafraîchissement' : 'Wait 30 s before refreshing again')
+                : (language === 'fr' ? 'Mettre à jour la météo' : 'Refresh weather')
+            }
+            className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+          >
+            <RefreshCw size={14} className={refreshingHeader ? 'animate-spin' : ''} />
+          </button>
           <button
             onClick={() => setUnit(unit === 'celsius' ? 'fahrenheit' : 'celsius')}
             className={`w-8 h-8 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-center hover:bg-gray-50 ${tutorialStep === 2 ? 'relative z-[70] ring-4 ring-white ring-offset-4 ring-offset-black/50' : ''}`}
