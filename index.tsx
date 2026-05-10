@@ -3034,7 +3034,7 @@ const App = () => {
   const contributorLogic = useContributorLogic();
 
   // Logic: User must be Free + HAVE ACCEPTED THE DEAL via Premium Modal
-  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user, userTier, userPlan, userExpiresAt, showPremium, setShowPremium, location, userPosition, refreshWeather, loadingWeather } = useContext(AppContext)!;
+  const { language, setLanguage, unit, setUnit, t, requestNotifications, notificationsEnabled, testPush, lastNotification, user, userTier, userPlan, userExpiresAt, showPremium, setShowPremium, location, userPosition, refreshWeather, loadingWeather, weatherFetchedAt } = useContext(AppContext)!;
   const [refreshingHeader, setRefreshingHeader] = useState(false);
   const [refreshCooldown, setRefreshCooldown] = useState(false);
 
@@ -3285,7 +3285,12 @@ const App = () => {
             {t('app.name')}
           </span>
         </button>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {weatherFetchedAt && (
+            <span className="text-[10px] text-gray-400 font-medium hidden sm:inline tabular-nums">
+              {language === 'fr' ? 'Maj' : 'Upd'} {new Date(weatherFetchedAt).toLocaleTimeString(language === 'fr' ? 'fr-FR' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
           <button
             onClick={async () => {
               if (refreshingHeader || refreshCooldown || loadingWeather) return;
@@ -3299,7 +3304,9 @@ const App = () => {
             title={
               refreshCooldown
                 ? (language === 'fr' ? 'Patientez 5 min avant le prochain rafraîchissement' : 'Wait 5 min before refreshing again')
-                : (language === 'fr' ? 'Mettre à jour la météo' : 'Refresh weather')
+                : weatherFetchedAt
+                  ? (language === 'fr' ? `Dernière mise à jour : ${new Date(weatherFetchedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : `Last update: ${new Date(weatherFetchedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`)
+                  : (language === 'fr' ? 'Mettre à jour la météo' : 'Refresh weather')
             }
             className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
           >

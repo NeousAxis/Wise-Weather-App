@@ -34,6 +34,7 @@ interface AppContextType {
   weather: WeatherData | null;
   loadingWeather: boolean;
   refreshWeather: () => Promise<void>;
+  weatherFetchedAt: number | null;
   communityReports: CommunityReport[];
   addReport: (conditions: string[], details?: { snowLevel?: number, avalancheRisk?: number, visibilityDist?: number, isoLimit?: number, windExposure?: 'ridge' | 'valley' }) => Promise<{ gain: number, rank: number }>;
   searchCity: (query: string) => Promise<SearchResult[]>;
@@ -203,6 +204,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
     return null;
   });
   const [loadingWeather, setLoadingWeather] = useState(false);
+  const [weatherFetchedAt, setWeatherFetchedAt] = useState<number | null>(null);
   const [communityReports, setCommunityReports] = useState<CommunityReport[]>([]);
   const [majorCitiesWeather, setMajorCitiesWeather] = useState<any[]>([]);
   const [alertsCount, setAlertsCount] = useState(0);
@@ -586,6 +588,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         }
       };
       setWeather(mappedWeather);
+      setWeatherFetchedAt(Date.now());
       localStorage.setItem('wise_weather_cache', JSON.stringify(mappedWeather));
 
       if (data.current.weather_code >= 95 || data.current.wind_speed_10m > 80) {
@@ -1270,6 +1273,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       location, userPosition, cityName, updateLocation,
       weather, loadingWeather,
       refreshWeather: async () => { if (location) await fetchWeather(location.lat, location.lng); },
+      weatherFetchedAt,
       communityReports, addReport,
       searchCity,
       majorCitiesWeather,
