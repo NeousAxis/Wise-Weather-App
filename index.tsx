@@ -208,9 +208,25 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
   const { weather, loadingWeather, unit, t, cityName, language, userTier: contextTier, setShowPremium, communityReports, location } = useContext(AppContext)!;
 
   // Latest community report at the user's location (within ~5 km, last 6 hours).
-  const latestCommunityReport = React.useMemo(() => {
+  // Cached to localStorage for instant display on re-open.
+  const COMMUNITY_CACHE_KEY = 'wise_last_community_report';
+  const COMMUNITY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+  const [cachedCommunityReport, setCachedCommunityReport] = useState<CommunityReport | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem(COMMUNITY_CACHE_KEY);
+      if (!raw) return null;
+      const cached = JSON.parse(raw) as CommunityReport;
+      if (!cached || !cached.timestamp) return null;
+      if (Date.now() - cached.timestamp > COMMUNITY_CACHE_TTL_MS) return null;
+      return cached;
+    } catch { return null; }
+  });
+
+  const liveCommunityReport = React.useMemo(() => {
     if (!location || !communityReports || communityReports.length === 0) return null;
-    const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
+    const sixHoursAgo = Date.now() - COMMUNITY_CACHE_TTL_MS;
     return communityReports
       .filter(r => {
         if (r.timestamp < sixHoursAgo) return false;
@@ -220,6 +236,16 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
       })
       .sort((a, b) => b.timestamp - a.timestamp)[0] || null;
   }, [communityReports, location]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (liveCommunityReport) {
+      setCachedCommunityReport(liveCommunityReport);
+      try { localStorage.setItem(COMMUNITY_CACHE_KEY, JSON.stringify(liveCommunityReport)); } catch {}
+    }
+  }, [liveCommunityReport]);
+
+  const latestCommunityReport = liveCommunityReport || cachedCommunityReport;
 
   const formatTimeAgo = (ts: number): string => {
     const minutes = Math.max(1, Math.round((Date.now() - ts) / 60000));
