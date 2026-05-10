@@ -1,6 +1,24 @@
 # 📋 Wise Weather — TODO Prochaine Session
 
-## 🗓️ Mise à jour : 10 Mai 2026 — V1 POLISH SPRINT terminé (v2.4.1 / iOS Build 39)
+## 🗓️ Mise à jour : 10 Mai 2026 (soir) — V1 USER-FEEDBACK FIXES terminé (v2.4.2)
+## Dernière build iOS uploadée : Build 39 (le matin 10 mai)
+## Code v2.4.2 : commits locaux uniquement (pas encore en TestFlight)
+
+---
+
+## ✅ Fait dans le sprint v2.4.2 (après-midi 10 mai 2026, post user-test)
+
+### Frontend
+- ✅ i18n carte Communauté : `t('condition.${label}')` au lieu du label brut anglais (Showers → Averse en FR)
+- ✅ **Persistance** carte Communauté via `localStorage` (clé `wise_last_community_report`, TTL 6h) → affichage instantané à la réouverture
+- ✅ Rayon carte Communauté aligné sur le carrousel (10 km) — fini les contributions visibles dans l'un et pas dans l'autre
+- ✅ Suppression du fetch direct `rainJson` qui écrasait `precipitation_probability` avec best_match seul → consensus 10 modèles enfin **vraiment utilisé**
+- ✅ Bug bouton 🔄 : spinner tournait 5 min au lieu de 1-2s (séparation `refreshingHeader` / `refreshCooldown`)
+- ✅ Timestamp `Maj HH:MM` à côté du bouton 🔄 (preuve visuelle que le fetch s'exécute) + tooltip
+- ✅ Champ `weatherFetchedAt: number | null` exposé dans `AppContextType`
+
+### Process
+- ✅ Tous les fixes en commit local sur `fix/ios-finalization` — **pas d'upload App Store** (Build 39 reste la dernière en TestFlight)
 
 ---
 

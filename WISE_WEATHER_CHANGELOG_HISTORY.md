@@ -428,3 +428,50 @@ Sprint follow-up post-V1 launch : amélioration de la fiabilité météo et bout
 - Build 30 → re-soumis après suppression IAPs ASC, état `WAITING_FOR_REVIEW`.
 - Builds 31-39 → uploadées pour TestFlight Internal, **non attachées** à la version 1.0 (review reste sur 30 jusqu'à approbation/rejet).
 - Build 39 = version finale validée par l'utilisateur incluant tous les fixes du sprint v2.4.1.
+
+---
+
+## 🗓️ 10 Mai 2026 — V1 USER-FEEDBACK FIXES [v2.4.2]
+
+Suite directe du v2.4.1 — corrections issues du test utilisateur en conditions réelles l'après-midi du 10 mai.
+
+### 1. 🌐 i18n : traduction du label communauté (Showers → Averse)
+- **Bug** : la carte Communauté affichait `conditions[0]` brut (anglais : "Showers", "Cloudy"…) même en mode FR.
+- **Fix** : utilisation de `t('condition.' + label)` qui pioche dans `constants.ts` (les traductions y existent déjà : Showers→Averse, Whiteout→Jour blanc, etc.). Fallback sur le label brut si la clé manque.
+- **Fichier** : `index.tsx` (carte Communauté).
+
+### 2. 💾 Persistance carte Communauté (localStorage cache)
+- **Bug** : à chaque réouverture/retour de background, Firestore réattache son `onSnapshot` (~1-2s). Pendant ce délai, `communityReports` est vide → la carte affiche le placeholder "Aucun signalement à proximité — soyez le premier !" puis flash le report quand Firestore répond.
+- **Fix** : dual-source
+    - `liveCommunityReport` : temps réel (Firestore)
+    - `cachedCommunityReport` : seedé depuis localStorage à l'init, mis à jour à chaque live value valide
+    - Affichage = live ‖ cache (le plus à jour)
+- **TTL 6h** (= filtre live) — un cache plus vieux est ignoré.
+- **Clé** : `wise_last_community_report`.
+
+### 3. 📍 Alignement rayon carte/carousel à 10 km
+- **Bug** : la carte Communauté utilisait un rayon `0.05` (~5km), alors que le carrousel "Communauté Météo" en bas utilisait `0.1` (~10km). Pour des contributions entre 5-10km, le carrousel les affichait mais pas la carte → impression de "pas de signalement".
+- **Fix** : carte alignée sur 10km. Cohérence visuelle entre les deux blocs.
+
+### 4. 🔧 Vrai usage du consensus 10 modèles (suppression du rainJson override)
+- **Bug** : `fetchWeather` (frontend) faisait un `fetch` direct à Open-Meteo en parallèle du Cloud Function consensus, puis ÉCRASAIT `precipitation_probability` avec ce fetch brut (best_match seul). Mon CASE B-bis (consensus 10 modèles sur la probabilité de pluie) était donc **inutilisé**.
+- **Fix** : suppression du fetch direct. `precipitation_probability` vient maintenant directement du proxy = la version consensus.
+- **Effet** : cliquer 🔄 fait vraiment passer les icônes par le consensus. Les "rain all day fantôme" disparaissent enfin.
+
+### 5. 🐞 Bouton Update : spinner s'arrêtait au bout de 5 min au lieu de 1-2s
+- **Bug** : un seul état `refreshingHeader` pilotait à la fois le `animate-spin` ET le cooldown 5 min. Du coup l'icône tournait pendant toute la durée du cooldown.
+- **Fix** : deux états séparés.
+    - `refreshingHeader` : true uniquement pendant le fetch (~1-2s), drive l'animation.
+    - `refreshCooldown` : true 5 min après fetch, drive le `disabled`.
+
+### 6. 🕒 Timestamp "Maj HH:MM" dans le header
+- **Demande utilisateur** : "les prévisions 7 jours ne changent pas, donc tu me dis qu'aucune nouvelle donnée ne permet de faire une autre prévision ?"
+- **Réponse** : oui — Open-Meteo publie 4 model runs par jour (00/06/12/18 UTC). Entre deux runs, le consensus 10 modèles renvoie le même résultat.
+- **UX** : pour preuve visuelle, exposition de `weatherFetchedAt: number | null` dans AppContext, mis à jour à chaque `setWeather`. Affiché à côté du bouton 🔄 sous forme `Maj 17:23` (caché en `sm:inline` sur écran étroit). Tooltip du bouton montre aussi cette info pour les mobiles.
+
+### 7. 🛑 Confirmation règle process : pas de fastlane release sans accord
+- Toutes ces modifs commit local sur `fix/ios-finalization` mais **aucune n'a été uploadée** sur App Store Connect — Build 39 reste la dernière build envoyée, validée par l'utilisateur.
+
+### 📦 Builds non uploadées (commits locaux uniquement)
+
+Toutes les corrections du v2.4.2 sont prêtes à uploader dans une future Build (40+) une fois la review Apple de Build 30 conclue. Le code iOS et web est synchrone.

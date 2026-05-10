@@ -54,8 +54,10 @@ cp backups/pre_freemium_functional/functions_index.ts functions/src/index.ts
 
 | Date | Tag / Branche | État | Action |
 | :--- | :--- | :--- | :--- |
-| **10 Mai 2026** | iOS `fix/ios-finalization` jusqu'à commit `21970e8` (Build 39) | **V1 polish — Mistral + consensus hourly + Update btn + community always-visible** | iOS Build 39 dispo TestFlight |
-| **10 Mai 2026** | Web `main` jusqu'à `0cee051` | **V1 polish déployé prod** | wiseweatherapp.xyz à jour |
+| **10 Mai 2026 (soir)** | Web `main` jusqu'à `8f4246c` | **v2.4.2 user-feedback fixes** déployé prod | i18n + persistance + radius + consensus réel + cooldown fix + timestamp |
+| **10 Mai 2026 (soir)** | iOS `fix/ios-finalization` jusqu'à `a5e6f7d` | **v2.4.2 commits locaux** | Pas encore uploadé App Store, Build 39 reste la dernière |
+| **10 Mai 2026** | iOS commit `21970e8` (Build 39) | **V1 polish v2.4.1** | iOS Build 39 dispo TestFlight |
+| **10 Mai 2026** | Web `main` jusqu'à `0cee051` | **V1 polish v2.4.1** déployé prod | wiseweatherapp.xyz |
 | **9 Mai 2026** | `backup/with-subscriptions-2026-05-09` (web, commit `d032bb4`) | **Avant V1 launch (Stripe actif)** | Sortie V1 sans abonnements, ULTIMATE pour tous |
 | **9 Mai 2026** | [`IAP_BACKUP.md`](IAP_BACKUP.md) (iOS) | **Métadonnées 3 IAPs supprimés** | Playbook restauration V2 (2h total) |
 | **30 Jan 2026** | `V26.01.30-STABLE` | Optimisation Démarrage & Fix IA | Parallélisation APIs + Fix Prompt Gemini |
