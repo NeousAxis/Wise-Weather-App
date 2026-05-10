@@ -525,13 +525,13 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         </div>
       </div >
 
-      {/* Community report card — original 3-column design, "COMMUNAUTÉ"
-          label kept HORIZONTAL at the top (was vertical before). */}
-      {latestCommunityReport && (
-        <div className="-mt-4 mb-6 bg-white/60 backdrop-blur-sm rounded-xl p-2 border border-purple-100 shadow-sm animate-in fade-in slide-in-from-top-1">
-          <div className="text-[9px] font-bold text-purple-600 uppercase tracking-widest text-center mb-1">
-            {language === 'fr' ? 'COMMUNAUTÉ' : 'COMMUNITY'}
-          </div>
+      {/* Community report card — ALWAYS visible. Placeholder when no
+          contribution at this location yet, full data when one exists. */}
+      <div className="-mt-4 mb-6 bg-white/60 backdrop-blur-sm rounded-xl p-2 border border-purple-100 shadow-sm">
+        <div className="text-[9px] font-bold text-purple-600 uppercase tracking-widest text-center mb-1">
+          {language === 'fr' ? 'COMMUNAUTÉ' : 'COMMUNITY'}
+        </div>
+        {latestCommunityReport ? (
           <div className="flex items-center justify-between gap-1">
             <div className="flex flex-col items-center flex-1">
               <div className="opacity-90 scale-90 -my-1">
@@ -554,8 +554,14 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
               <span className="text-[10px] font-bold text-gray-700 leading-tight">{formatTimeAgo(latestCommunityReport.timestamp)}</span>
             </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="text-center py-1">
+            <span className="text-[10px] text-gray-400 italic">
+              {language === 'fr' ? 'Aucun signalement à proximité — soyez le premier !' : 'No nearby report yet — be the first!'}
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Hourly Forecast - Moved above Stats */}
       <div className="border-b border-gray-100 pb-6 mb-6">
@@ -3257,13 +3263,13 @@ const App = () => {
               if (refreshingHeader || loadingWeather) return;
               setRefreshingHeader(true);
               try { await refreshWeather(); } catch (e) { console.error('Refresh failed', e); }
-              // 30s cooldown to protect free-tier API budget
-              setTimeout(() => setRefreshingHeader(false), 30000);
+              // 5-min cooldown to keep us inside Firebase free tier
+              setTimeout(() => setRefreshingHeader(false), 5 * 60 * 1000);
             }}
             disabled={refreshingHeader || loadingWeather}
             title={
               refreshingHeader
-                ? (language === 'fr' ? 'Patientez 30 s avant le prochain rafraîchissement' : 'Wait 30 s before refreshing again')
+                ? (language === 'fr' ? 'Patientez 5 min avant le prochain rafraîchissement' : 'Wait 5 min before refreshing again')
                 : (language === 'fr' ? 'Mettre à jour la météo' : 'Refresh weather')
             }
             className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
