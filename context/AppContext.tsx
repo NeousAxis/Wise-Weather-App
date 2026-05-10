@@ -431,13 +431,11 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
         pollenWithTimeout = pollenPromise;
       }
 
-      const [proxyRes, waqiData, airJson, rainJson, pollenResult] = await Promise.all([
+      const [proxyRes, waqiData, airJson, pollenResult] = await Promise.all([
         weatherPromise,
         fetch(`https://api.waqi.info/feed/geo:${lat};${lng}/?token=aecbe865a2d037c524bccd91f73d46286d3b7493`)
           .then(r => r.json()).catch(e => null),
         fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&hourly=pm10,pm2_5,nitrogen_dioxide,ozone,us_aqi&timezone=auto&past_days=1`)
-          .then(r => r.json()).catch(e => null),
-        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability,precipitation&timezone=auto&forecast_days=4`)
           .then(r => r.json()).catch(e => null),
         pollenWithTimeout
       ]);
@@ -448,18 +446,11 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       }
       const data = proxyResult.data;
 
-      // Extract precipitation from direct fetch if available
-      let precipitationProbs: number[] | undefined = undefined;
-      let precipitationAmount: number[] | undefined = undefined;
-
-      if (rainJson && rainJson.hourly) {
-        precipitationProbs = rainJson.hourly.precipitation_probability;
-        precipitationAmount = rainJson.hourly.precipitation;
-      } else if (data.hourly) {
-        // Fallback to proxy data if it has it (future proofing)
-        precipitationProbs = data.hourly.precipitation_probability;
-        precipitationAmount = data.hourly.precipitation;
-      }
+      // Use precipitation_probability from the proxy (10-model consensus
+      // average). Previously a separate direct best_match fetch override
+      // made the consensus useless.
+      const precipitationProbs: number[] | undefined = data.hourly?.precipitation_probability;
+      const precipitationAmount: number[] | undefined = data.hourly?.precipitation;
 
 
       // Process Air Quality (WAQI)

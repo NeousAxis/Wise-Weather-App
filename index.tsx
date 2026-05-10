@@ -232,7 +232,8 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         if (r.timestamp < sixHoursAgo) return false;
         const dx = Math.abs(r.lat - location.lat);
         const dy = Math.abs(r.lng - location.lng);
-        return dx < 0.05 && dy < 0.05;
+        // 10 km radius to match the bigger CommunityCarousel block below
+        return dx < 0.1 && dy < 0.1;
       })
       .sort((a, b) => b.timestamp - a.timestamp)[0] || null;
   }, [communityReports, location]);
