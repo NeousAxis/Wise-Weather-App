@@ -5,7 +5,7 @@ import {
   Sun, Cloud, CloudRain, Wind, Droplets, ArrowUp, ArrowDown,
   Map as MapIcon, Menu, X, Heart, Thermometer,
   CloudLightning, Snowflake, Navigation, Check, Bug, Wand2,
-  Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon, Bell, Eye, Lock, Crown, ChevronUp, ChevronDown, Settings,
+  Search, MapPin, User, Sunrise, Sunset, Plus, CloudSun, MessageSquare, Layers, Crosshair, CloudFog, Moon, Bell, Eye, Lock, Crown, ChevronUp, ChevronDown, Settings, RefreshCw,
   BarChart2, Activity, Zap, Waves
 } from 'lucide-react';
 import { AppProvider, AppContext } from './context/AppContext';
@@ -205,7 +205,29 @@ const QuoteBlock = () => {
 };
 
 const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
-  const { weather, loadingWeather, unit, t, cityName, language, userTier: contextTier, setShowPremium } = useContext(AppContext)!;
+  const { weather, loadingWeather, unit, t, cityName, language, userTier: contextTier, setShowPremium, communityReports, location, refreshWeather } = useContext(AppContext)!;
+  const [refreshingWeather, setRefreshingWeather] = useState(false);
+
+  // Latest community report at the user's location (within ~5 km, last 6 hours).
+  const latestCommunityReport = React.useMemo(() => {
+    if (!location || !communityReports || communityReports.length === 0) return null;
+    const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
+    return communityReports
+      .filter(r => {
+        if (r.timestamp < sixHoursAgo) return false;
+        const dx = Math.abs(r.lat - location.lat);
+        const dy = Math.abs(r.lng - location.lng);
+        return dx < 0.05 && dy < 0.05;
+      })
+      .sort((a, b) => b.timestamp - a.timestamp)[0] || null;
+  }, [communityReports, location]);
+
+  const formatTimeAgo = (ts: number): string => {
+    const minutes = Math.max(1, Math.round((Date.now() - ts) / 60000));
+    if (minutes < 60) return language === 'fr' ? `il y a ${minutes} min` : `${minutes} min ago`;
+    const hours = Math.round(minutes / 60);
+    return language === 'fr' ? `il y a ${hours} h` : `${hours} h ago`;
+  };
   const userTier = tierOverride || contextTier;
   const [showAirDetails, setShowAirDetails] = useState(false);
   const [showRainGraph, setShowRainGraph] = useState(false);
@@ -418,7 +440,21 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
           ) : (
             <h2 className="text-3xl font-bold text-foreground tracking-tight break-words">{cityName}</h2>
           )}
-          <p className="text-gray-500 font-medium mt-1 text-sm">{t('weather.official_forecast')}</p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-gray-500 font-medium text-sm">{t('weather.official_forecast')}</p>
+            <button
+              onClick={async () => {
+                setRefreshingWeather(true);
+                try { await refreshWeather(); } catch (e) { console.error('Refresh failed', e); }
+                setTimeout(() => setRefreshingWeather(false), 600);
+              }}
+              disabled={refreshingWeather || loadingWeather}
+              title={language === 'fr' ? 'Mettre à jour la météo' : 'Refresh weather'}
+              className="p-1 rounded-full hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={`text-gray-400 ${refreshingWeather ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
         <div className="text-right flex-shrink-0">
           <div className="flex items-center justify-end gap-3">
@@ -479,33 +515,34 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
           <p className="text-gray-500 font-medium mt-1">
             H: {maxTemp}°  L: {minTemp}°
           </p>
-          {(userTier === UserTier.ULTIMATE || userTier === UserTier.TRAVELER) && weather.yesterday && weather.yesterday.details && (
+          {/* Community report card — replaces the static "HIER" module. */}
+          {latestCommunityReport && (
             <div className="mt-3 bg-white/60 backdrop-blur-sm rounded-xl p-2 border border-purple-100 shadow-sm animate-in fade-in slide-in-from-top-1 mx-4">
-              <div className="flex items-center justify-between gap-1">
+              <div className="flex items-center gap-2">
                 <div className="text-[9px] font-bold text-purple-600 uppercase tracking-widest leading-none transform rotate-180 py-1" style={{ writingMode: 'vertical-rl' }}>
-                  {language === 'fr' ? 'HIER' : 'YEST'}
+                  {language === 'fr' ? 'COMMUNAUTÉ' : 'COMMUNITY'}
                 </div>
-
                 <div className="flex flex-col items-center flex-1">
-                  <span className="text-[9px] text-gray-400 font-medium mb-0.5">{language === 'fr' ? 'Matin' : 'AM'}</span>
-                  <div className="opacity-90 scale-75 -my-1">{getWeatherIcon(weather.yesterday.details.morning.code, 24)}</div>
-                  <span className="text-xs font-bold text-gray-700">{convertTemp(weather.yesterday.details.morning.temp, unit)}°</span>
+                  <div className="opacity-90 scale-90 mb-0.5">
+                    {getWeatherIconFromLabel(latestCommunityReport.conditions[0] || 'Sunny', 26)}
+                  </div>
+                  <span className="text-[10px] font-bold text-gray-700 leading-tight">
+                    {latestCommunityReport.conditions[0]}
+                  </span>
                 </div>
-
+                {typeof latestCommunityReport.temp === 'number' && (
+                  <>
+                    <div className="w-px h-8 bg-gray-100"></div>
+                    <div className="flex flex-col items-center flex-1">
+                      <span className="text-[9px] text-gray-400 font-medium">{language === 'fr' ? 'Temp' : 'Temp'}</span>
+                      <span className="text-sm font-bold text-gray-700">{convertTemp(latestCommunityReport.temp, unit)}°</span>
+                    </div>
+                  </>
+                )}
                 <div className="w-px h-8 bg-gray-100"></div>
-
                 <div className="flex flex-col items-center flex-1">
-                  <span className="text-[9px] text-gray-400 font-medium mb-0.5">{language === 'fr' ? 'Midi' : 'Noon'}</span>
-                  <div className="opacity-90 scale-75 -my-1">{getWeatherIcon(weather.yesterday.details.noon.code, 24)}</div>
-                  <span className="text-xs font-bold text-gray-700">{convertTemp(weather.yesterday.details.noon.temp, unit)}°</span>
-                </div>
-
-                <div className="w-px h-8 bg-gray-100"></div>
-
-                <div className="flex flex-col items-center flex-1">
-                  <span className="text-[9px] text-gray-400 font-medium mb-0.5">{language === 'fr' ? 'Soir' : 'PM'}</span>
-                  <div className="opacity-90 scale-75 -my-1">{getWeatherIcon(weather.yesterday.details.evening.code, 24)}</div>
-                  <span className="text-xs font-bold text-gray-700">{convertTemp(weather.yesterday.details.evening.temp, unit)}°</span>
+                  <span className="text-[9px] text-gray-400 font-medium">{language === 'fr' ? 'Quand' : 'When'}</span>
+                  <span className="text-[10px] font-bold text-gray-700 leading-tight">{formatTimeAgo(latestCommunityReport.timestamp)}</span>
                 </div>
               </div>
             </div>

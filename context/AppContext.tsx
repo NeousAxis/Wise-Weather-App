@@ -33,6 +33,7 @@ interface AppContextType {
   updateLocation: (lat: number, lng: number, name?: string, country?: string, source?: 'gps' | 'manual') => void;
   weather: WeatherData | null;
   loadingWeather: boolean;
+  refreshWeather: () => Promise<void>;
   communityReports: CommunityReport[];
   addReport: (conditions: string[], details?: { snowLevel?: number, avalancheRisk?: number, visibilityDist?: number, isoLimit?: number, windExposure?: 'ridge' | 'valley' }) => Promise<{ gain: number, rank: number }>;
   searchCity: (query: string) => Promise<SearchResult[]>;
@@ -1277,6 +1278,7 @@ export const AppProvider = ({ children }: { children?: React.ReactNode }) => {
       unit, setUnit,
       location, userPosition, cityName, updateLocation,
       weather, loadingWeather,
+      refreshWeather: async () => { if (location) await fetchWeather(location.lat, location.lng); },
       communityReports, addReport,
       searchCity,
       majorCitiesWeather,
