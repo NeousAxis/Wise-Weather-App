@@ -515,29 +515,6 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
           <p className="text-gray-500 font-medium mt-1">
             H: {maxTemp}°  L: {minTemp}°
           </p>
-          {/* Community report card — single horizontal row, compact. */}
-          {latestCommunityReport && (
-            <div className="mt-3 bg-white/60 backdrop-blur-sm rounded-full px-3 py-1.5 border border-purple-100 shadow-sm animate-in fade-in slide-in-from-top-1 mx-4">
-              <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-[9px] font-bold text-purple-600 uppercase tracking-widest leading-none">
-                  {language === 'fr' ? 'COMMUNAUTÉ' : 'COMMUNITY'}
-                </span>
-                <span className="text-purple-200">•</span>
-                <div className="opacity-90 scale-90 -my-1">
-                  {getWeatherIconFromLabel(latestCommunityReport.conditions[0] || 'Sunny', 18)}
-                </div>
-                <span className="text-[11px] font-bold text-gray-700">{latestCommunityReport.conditions[0]}</span>
-                {typeof latestCommunityReport.temp === 'number' && (
-                  <>
-                    <span className="text-gray-300">•</span>
-                    <span className="text-[11px] font-bold text-gray-700">{convertTemp(latestCommunityReport.temp, unit)}°</span>
-                  </>
-                )}
-                <span className="text-gray-300">•</span>
-                <span className="text-[10px] text-gray-500">{formatTimeAgo(latestCommunityReport.timestamp)}</span>
-              </div>
-            </div>
-          )}
           <p className="hidden">
             {(() => {
               const p = weather.current.precipitation || 0;
@@ -562,6 +539,31 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
           </p>
         </div>
       </div >
+
+      {/* Community report pill — full-width row below the title/temperature
+          area so the pill never compresses the city name. */}
+      {latestCommunityReport && (
+        <div className="-mt-4 mb-6 bg-white/60 backdrop-blur-sm rounded-full px-3 py-1.5 border border-purple-100 shadow-sm animate-in fade-in slide-in-from-top-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[9px] font-bold text-purple-600 uppercase tracking-widest leading-none">
+              {language === 'fr' ? 'COMMUNAUTÉ' : 'COMMUNITY'}
+            </span>
+            <span className="text-purple-200">•</span>
+            <div className="opacity-90 scale-90 -my-1">
+              {getWeatherIconFromLabel(latestCommunityReport.conditions[0] || 'Sunny', 18)}
+            </div>
+            <span className="text-[11px] font-bold text-gray-700">{latestCommunityReport.conditions[0]}</span>
+            {typeof latestCommunityReport.temp === 'number' && (
+              <>
+                <span className="text-gray-300">•</span>
+                <span className="text-[11px] font-bold text-gray-700">{convertTemp(latestCommunityReport.temp, unit)}°</span>
+              </>
+            )}
+            <span className="text-gray-300">•</span>
+            <span className="text-[10px] text-gray-500">{formatTimeAgo(latestCommunityReport.timestamp)}</span>
+          </div>
+        </div>
+      )}
 
       {/* Hourly Forecast - Moved above Stats */}
       <div className="border-b border-gray-100 pb-6 mb-6">
