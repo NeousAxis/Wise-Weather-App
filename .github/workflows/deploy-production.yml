@@ -1,11 +1,11 @@
 name: Deploy to Production
 
+# Auto-trigger on push to main is DISABLED until the GitHub secret
+# FIREBASE_SERVICE_ACCOUNT_WISE_WEATHER_APP is regenerated (Firebase
+# Console → Project Settings → Service Accounts → Generate new key).
+# Until then, deploy manually via `npm run deploy:prod` from a logged-in
+# `firebase` CLI. This stops the CI from spam-failing every push.
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
   workflow_dispatch:
 
 jobs:
