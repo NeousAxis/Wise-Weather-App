@@ -1149,7 +1149,14 @@ export const triggerTestNotification = onRequest({ secrets: [geminiApiKey, googl
   }
 });
 
-// Google Pollen API Proxy
+// Google Pollen API Proxy with shared backend cache.
+//
+// Cost protection: the Google Pollen API is metered ($/1000 calls). Without
+// backend caching, every user open hits the API directly — 10k users in the
+// same city = 10k calls for identical data. The cache below stores results
+// in Firestore keyed by (rounded lat/lng, time slot, lang), so all users in
+// a ~10 km radius share a single API call per 6-hour slot. Independent of
+// user count after the first hit.
 export const getPollenForecast = onCall({ secrets: [googlePollenApiKey] }, async (request) => {
   const { lat, lng } = request.data;
 
@@ -1162,10 +1169,35 @@ export const getPollenForecast = onCall({ secrets: [googlePollenApiKey] }, async
     return { success: false, error: "API Key not configured" };
   }
 
+  const lang = request.data.lang || 'en';
+
+  // --- Cache lookup ---
+  // Round to 0.1° (~10 km) so users in the same area share the entry.
+  const latKey = Number(lat).toFixed(1);
+  const lngKey = Number(lng).toFixed(1);
+  const now = new Date();
+  const hour = now.getUTCHours();
+  // 4 slots of 6h each (00, 06, 12, 18 UTC) — aligns with the 6h TTL.
+  const slotHour = Math.floor(hour / 6) * 6;
+  const slot = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}_${String(slotHour).padStart(2, '0')}`;
+  const cacheDocId = `${latKey}_${lngKey}_${slot}_${lang}`;
+  const TTL_MS = 6 * 60 * 60 * 1000;
+
+  const db = getFirestore();
+  const cacheRef = db.collection("pollenCache").doc(cacheDocId);
   try {
-    // Request for 1 day (today)
-    // We request the language code from the client or default to 'en'
-    const lang = request.data.lang || 'en';
+    const snap = await cacheRef.get();
+    if (snap.exists) {
+      const cached = snap.data();
+      if (cached?.fetchedAt && Date.now() - cached.fetchedAt < TTL_MS && cached.payload) {
+        return { success: true, data: cached.payload, _cache: 'hit' };
+      }
+    }
+  } catch (e) {
+    console.warn("Pollen cache read failed (continuing to fetch):", e);
+  }
+
+  try {
     const response = await fetch(
       `https://pollen.googleapis.com/v1/forecast:lookup?key=${apiKey}&location.latitude=${lat}&location.longitude=${lng}&days=1&languageCode=${lang}`
     );
@@ -1173,7 +1205,6 @@ export const getPollenForecast = onCall({ secrets: [googlePollenApiKey] }, async
     if (!response.ok) {
       const errText = await response.text();
       console.error("Google Pollen API Error Details:", errText);
-      // Return the specific error to the client for debugging
       return { success: false, error: `API Error: ${response.status} - ${errText}` };
     }
 
@@ -1184,33 +1215,19 @@ export const getPollenForecast = onCall({ secrets: [googlePollenApiKey] }, async
       return { success: false, error: "No pollen data available" };
     }
 
-    // Dynamic Mapping for "Geographic Relevance"
-    // We returned a LIST of relevant pollens, not a fixed schema.
+    // Dynamic Mapping for "Geographic Relevance" — list of relevant pollens, not a fixed schema.
     const activePollens: { code: string, value: number, category: string }[] = [];
 
-    // 1. Categories (Always relevant as summary)
     if (todayInfo.pollenTypeInfo) {
       todayInfo.pollenTypeInfo.forEach((type: any) => {
         const val = type.indexInfo?.value || 0;
-        // Return ALL categories relevant to the API response
-        activePollens.push({
-          code: type.code, // GRASS, TREE, WEED
-          value: val,
-          category: type.code
-        });
+        activePollens.push({ code: type.code, value: val, category: type.code });
       });
     }
 
-    // 2. Specific Plants (Only if present in this region)
     if (todayInfo.plantInfo) {
       todayInfo.plantInfo.forEach((plant: any) => {
         const val = plant.indexInfo?.value || 0;
-        // Only return relevant plants (those that exist here, i.e., are in the list)
-        // Even if value is 0, it means it exists geographically but is inactive.
-        // However, to save UI space, maybe we focus on >0 or "in season"?
-        // User wants "geographic location" -> Show what is HERE.
-        // So we push ALL plants returned by Google for this location.
-
         activePollens.push({
           code: plant.code,
           value: val,
@@ -1219,13 +1236,14 @@ export const getPollenForecast = onCall({ secrets: [googlePollenApiKey] }, async
       });
     }
 
-    return {
-      success: true,
-      data: {
-        items: activePollens
-      }
-    };
+    const payload = { items: activePollens };
 
+    // Write to cache (best-effort; never blocks the user response on failure).
+    cacheRef.set({ payload, fetchedAt: Date.now() }).catch(e => {
+      console.warn("Pollen cache write failed:", e);
+    });
+
+    return { success: true, data: payload, _cache: 'miss' };
   } catch (error) {
     console.error("Pollen Fetch Error:", error);
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
