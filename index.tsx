@@ -146,6 +146,54 @@ const getEffectiveCurrentCode = (weather: WeatherData): number => {
 };
 
 /**
+ * Compute a consensus daily weather code by aggregating the hourly
+ * weather_code/probability arrays (themselves built from the 10-model
+ * backend consensus) for the given day. Avoids the case where
+ * weather.daily.weather_code shows "rain" because Open-Meteo flagged
+ * the single worst hour of the day, even though the hourly consensus
+ * actually shows mostly clear / cloudy. Mirrors getEffectiveCurrentCode
+ * intent for the 7-day list icons.
+ */
+const getEffectiveDailyCode = (weather: WeatherData, dayIndex: number): number => {
+  const fallback = weather.daily.weather_code?.[dayIndex] ?? 0;
+  const dailyDate = weather.daily.time?.[dayIndex];
+  if (!dailyDate || !weather.hourly?.time || !weather.hourly?.weather_code) return fallback;
+
+  const datePrefix = dailyDate.slice(0, 10);
+  const codes: number[] = [];
+  const probs: number[] = [];
+  for (let i = 0; i < weather.hourly.time.length; i++) {
+    if (weather.hourly.time[i].startsWith(datePrefix)) {
+      codes.push(weather.hourly.weather_code[i]);
+      probs.push(weather.hourly.precipitation_probability?.[i] ?? 0);
+    }
+  }
+  if (codes.length === 0) return fallback;
+
+  let wetHours = 0;
+  let severestWetCode = 0;
+  for (let i = 0; i < codes.length; i++) {
+    const c = codes[i];
+    const p = probs[i];
+    if ((c >= 51 && c <= 86) || p >= 60) {
+      wetHours++;
+      if (c > severestWetCode) severestWetCode = c;
+    }
+  }
+  // 3+ wet hours = genuinely a wet day, keep the rain code
+  if (wetHours >= 3 && severestWetCode >= 51) return severestWetCode;
+
+  // Otherwise pick the most common non-rain hourly code (cloud, sun, …)
+  const counts: Record<number, number> = {};
+  for (const c of codes) {
+    if (c < 50 || c > 86) counts[c] = (counts[c] || 0) + 1;
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (sorted.length > 0) return parseInt(sorted[0][0]);
+  return fallback;
+};
+
+/**
  * Reconcile the WMO weather_code with hourly precipitation_probability.
  * Open-Meteo's "best_match" model can return code=0 (clear) for an hour
  * while precipitation_probability is 60-90%, which makes the UI inconsistent
@@ -1356,7 +1404,7 @@ const SevenDayForecastSection = () => {
 
             const d = new Date(dateStr);
             const dayName = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-US', { weekday: 'long' }).format(d);
-            const code = weather.daily.weather_code ? weather.daily.weather_code[index] : 0;
+            const code = getEffectiveDailyCode(weather, index);
             const maxT = convertTemp(weather.daily.temperature_2m_max[index], unit);
             const minT = convertTemp(weather.daily.temperature_2m_min[index], unit);
             const isToday = index === 1;
