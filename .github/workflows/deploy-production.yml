@@ -25,8 +25,12 @@ jobs:
           node-version: '20'
       
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
-      
+        # Workaround for npm/cli#4828 — optional rollup native binary not
+        # restored on Linux runners when a macOS-built lockfile is reused.
+        run: |
+          rm -f package-lock.json
+          npm install --legacy-peer-deps
+
       - name: Run tests
         run: npm run build
       
