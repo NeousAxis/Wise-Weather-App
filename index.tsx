@@ -107,24 +107,42 @@ const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
 /**
  * Single source of truth for the icon shown for the CURRENT hour anywhere
  * in the UI (dashboard top icon, hourly forecast first slot, map current
- * marker). Same intent as web: applies real-time precipitation override,
- * then current-hour precipitation_probability override.
+ * marker). Reflects what's ACTUALLY happening, not a forecast that may
+ * never materialize:
+ *  - Real measured precip (current.precipitation >= 0.1 mm) ALWAYS wins.
+ *  - Otherwise use the hourly consensus weather_code at the current hour.
+ *  - BUT: if consensus says rain/snow (51-77) while nothing is actually
+ *    falling AND probability is low/medium (< 60%), downgrade to overcast
+ *    (3). Avoids the "PLUIE FAIBLE header while hourly widget shows cloud
+ *    for next 4 hours" inconsistency where the prediction doesn't match
+ *    reality.
  */
 const getEffectiveCurrentCode = (weather: WeatherData): number => {
-  const code = weather.current.weatherCode;
-  const temp = weather.current.temperature;
+  const tempNow = weather.current.temperature;
   const precipNow = weather.current.precipitation || 0;
-  if (precipNow >= 0.1 && code < 50) return temp <= 1 ? 71 : 61;
-  const t = weather.current.time;
-  if (t && weather.hourly?.precipitation_probability && weather.hourly.time) {
-    const hourPrefix = t.slice(0, 13);
+  const tNow = weather.current.time;
+
+  let hourlyCode = weather.current.weatherCode;
+  let hourlyProb = 0;
+  if (tNow && weather.hourly?.time && weather.hourly.weather_code) {
+    const hourPrefix = tNow.slice(0, 13);
     const idx = weather.hourly.time.findIndex((x: string) => x.startsWith(hourPrefix));
     if (idx !== -1) {
-      const prob = weather.hourly.precipitation_probability[idx] || 0;
-      return overrideCodeForRain(code, prob, temp);
+      hourlyCode = weather.hourly.weather_code[idx];
+      hourlyProb = weather.hourly.precipitation_probability?.[idx] || 0;
     }
   }
-  return code;
+
+  // Measured precip wins: it's actually falling right now.
+  if (precipNow >= 0.1 && hourlyCode < 50) return tempNow <= 1 ? 71 : 61;
+
+  // Forecast says rain/snow but nothing measured and probability isn't high:
+  // downgrade so header doesn't claim rain while hourly widget shows clouds.
+  if (precipNow < 0.1 && hourlyProb < 60 && hourlyCode >= 51 && hourlyCode <= 77) {
+    return 3;
+  }
+
+  return overrideCodeForRain(hourlyCode, hourlyProb, tempNow);
 };
 
 /**
@@ -147,6 +165,7 @@ const overrideCodeForRain = (code: number, precipProb: number, temp: number): nu
 const getWeatherIconFromLabel = (label: string, size = 24, className = "") => {
   switch (label) {
     case 'Sunny': return <Sun size={size} className={`text-yellow-500 ${className}`} />;
+    case 'PartlyCloudy': return <CloudSun size={size} className={`text-yellow-500 ${className}`} />;
     case 'Cloudy': return <Cloud size={size} className={`text-gray-400 ${className}`} />;
     case 'Rain': return <CloudRain size={size} className={`text-blue-500 ${className}`} />;
     case 'Windy': return <Wind size={size} className={`text-blue-400 ${className}`} />;
@@ -826,6 +845,7 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
                             className="text-cyan-600 opacity-50"
                             style={{ transform: `rotate(${dir}deg)` }}
                           />
+                          <span className="text-[7px] font-semibold text-cyan-700 mt-0.5 leading-none">{Math.round(visibleSpeeds[i] || 0)} km/h</span>
                         </>
                       )}
                     </div>
@@ -1917,6 +1937,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
           switch (cond) {
             case 'Sunny': type = 'sun'; color = '#FFFFFF'; break;
+            case 'PartlyCloudy': type = 'cloud'; color = '#FFFFFF'; break;
             case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break;
             case 'Rain': type = 'rain'; color = '#FFFFFF'; break;
             case 'Showers': type = 'rain'; color = '#FFFFFF'; break; // Averse -> Pluie
@@ -1966,6 +1987,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
           switch (firstCond) {
             case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
+            case 'PartlyCloudy': type = 'cloud'; break;
             case 'Cloudy': type = 'cloud'; break;
             case 'Rain': type = 'rain'; break;
             case 'Showers': type = 'rain'; break;
@@ -2012,6 +2034,7 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
             let color = '#FFFFFF';
             switch (cond) {
               case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
+              case 'PartlyCloudy': type = 'cloud'; break;
               case 'Cloudy': type = 'cloud'; break;
               case 'Rain': type = 'rain'; break;
               case 'Showers': type = 'rain'; break;
@@ -2315,9 +2338,9 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
 
           <div className="grid grid-cols-2 gap-3">
             {subView === 'main' ? (
-              // MAIN VIEW
-              ['Sunny', 'Cloudy', 'Rain', 'Storm', 'Windy', 'Snow']
-                .filter(cond => !(cond === 'Sunny' && weather?.current?.isDay === 0))
+              // MAIN VIEW — hide sun-based options at night
+              ['Sunny', 'PartlyCloudy', 'Cloudy', 'Rain', 'Storm', 'Windy', 'Snow']
+                .filter(cond => weather?.current?.isDay !== 0 || (cond !== 'Sunny' && cond !== 'PartlyCloudy'))
                 .map((cond) => {
                   // Determine if active (either directly selected OR one of its children selected)
                   const isRainActive = cond === 'Rain' && ['Rain', 'Showers'].some(r => selected.includes(r));
