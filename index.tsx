@@ -624,10 +624,22 @@ const WeatherDashboard = ({ tierOverride }: { tierOverride?: UserTier }) => {
         {latestCommunityReport ? (
           <div className="flex items-center justify-between gap-1">
             <div className="flex flex-col items-center flex-1">
-              <div className="opacity-90 scale-90 -my-1">
-                {getWeatherIconFromLabel(latestCommunityReport.conditions[0] || 'Sunny', 24)}
-              </div>
-              <span className="text-[10px] font-bold text-gray-700 leading-tight">{t('condition.' + latestCommunityReport.conditions[0]) || latestCommunityReport.conditions[0]}</span>
+              {(() => {
+                // If the report combines Sunny + Cloudy, surface it as
+                // "PartlyCloudy" (sun-with-cloud icon) so the widget reflects
+                // the user's intent instead of just showing conditions[0].
+                const conds = latestCommunityReport.conditions || [];
+                const isPartlyCloudy = conds.includes('Sunny') && conds.includes('Cloudy');
+                const displayLabel = isPartlyCloudy ? 'PartlyCloudy' : (conds[0] || 'Sunny');
+                return (
+                  <>
+                    <div className="opacity-90 scale-90 -my-1">
+                      {getWeatherIconFromLabel(displayLabel, 24)}
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-700 leading-tight">{t('condition.' + displayLabel) || displayLabel}</span>
+                  </>
+                );
+              })()}
             </div>
             {typeof latestCommunityReport.temp === 'number' && (
               <>
@@ -1981,7 +1993,6 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
           switch (cond) {
             case 'Sunny': type = 'sun'; color = '#FFFFFF'; break;
-            case 'PartlyCloudy': type = 'cloud'; color = '#FFFFFF'; break;
             case 'Cloudy': type = 'cloud'; color = '#FFFFFF'; break;
             case 'Rain': type = 'rain'; color = '#FFFFFF'; break;
             case 'Showers': type = 'rain'; color = '#FFFFFF'; break; // Averse -> Pluie
@@ -2031,7 +2042,6 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
 
           switch (firstCond) {
             case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
-            case 'PartlyCloudy': type = 'cloud'; break;
             case 'Cloudy': type = 'cloud'; break;
             case 'Rain': type = 'rain'; break;
             case 'Showers': type = 'rain'; break;
@@ -2078,7 +2088,6 @@ const MapPage = ({ userTier, setShowPremium }: { userTier: UserTier, setShowPrem
             let color = '#FFFFFF';
             switch (cond) {
               case 'Sunny': type = isNight ? 'moon' : 'sun'; break;
-              case 'PartlyCloudy': type = 'cloud'; break;
               case 'Cloudy': type = 'cloud'; break;
               case 'Rain': type = 'rain'; break;
               case 'Showers': type = 'rain'; break;
@@ -2382,9 +2391,10 @@ const ContributionModal = ({ onClose, initialSelection, onOpenMountainMode, acti
 
           <div className="grid grid-cols-2 gap-3">
             {subView === 'main' ? (
-              // MAIN VIEW — hide sun-based options at night
-              ['Sunny', 'PartlyCloudy', 'Cloudy', 'Rain', 'Storm', 'Windy', 'Snow']
-                .filter(cond => weather?.current?.isDay !== 0 || (cond !== 'Sunny' && cond !== 'PartlyCloudy'))
+              // MAIN VIEW — hide Sunny at night. Users can combine Sunny+Cloudy
+              // for "partly cloudy" — the Community widget detects that pair.
+              ['Sunny', 'Cloudy', 'Rain', 'Storm', 'Windy', 'Snow']
+                .filter(cond => !(cond === 'Sunny' && weather?.current?.isDay === 0))
                 .map((cond) => {
                   // Determine if active (either directly selected OR one of its children selected)
                   const isRainActive = cond === 'Rain' && ['Rain', 'Showers'].some(r => selected.includes(r));
