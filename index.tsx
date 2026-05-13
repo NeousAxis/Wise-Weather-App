@@ -107,37 +107,35 @@ const getWeatherIcon = (code: number, size = 24, className = "", isDay = 1) => {
 /**
  * Single source of truth for the icon shown for the CURRENT hour anywhere
  * in the UI (dashboard top icon, hourly forecast first slot, map current
- * marker). Reflects what's ACTUALLY happening, not a forecast that may
- * never materialize:
+ * marker). ONLY trusts the hourly weather_code consensus (10-model backend),
+ * NEVER weather.current.weatherCode (Open-Meteo best_match — banned because
+ * it diverges from the consensus and causes UI incoherences).
  *  - Real measured precip (current.precipitation >= 0.1 mm) ALWAYS wins.
  *  - Otherwise use the hourly consensus weather_code at the current hour.
  *  - BUT: if consensus says rain/snow (51-77) while nothing is actually
  *    falling AND probability is low/medium (< 60%), downgrade to overcast
- *    (3). Avoids the "PLUIE FAIBLE header while hourly widget shows cloud
- *    for next 4 hours" inconsistency where the prediction doesn't match
- *    reality.
+ *    (3). Avoids "PLUIE FAIBLE header while hourly widget shows cloud for
+ *    next 4 hours" — prediction not matching reality.
+ *  - If hourly is unavailable (shouldn't happen), return 0 (clear).
  */
 const getEffectiveCurrentCode = (weather: WeatherData): number => {
   const tempNow = weather.current.temperature;
   const precipNow = weather.current.precipitation || 0;
   const tNow = weather.current.time;
 
-  let hourlyCode = weather.current.weatherCode;
-  let hourlyProb = 0;
-  if (tNow && weather.hourly?.time && weather.hourly.weather_code) {
-    const hourPrefix = tNow.slice(0, 13);
-    const idx = weather.hourly.time.findIndex((x: string) => x.startsWith(hourPrefix));
-    if (idx !== -1) {
-      hourlyCode = weather.hourly.weather_code[idx];
-      hourlyProb = weather.hourly.precipitation_probability?.[idx] || 0;
-    }
-  }
+  // No hourly = no data we trust. Return clear as a neutral default rather
+  // than ever surfacing best_match.
+  if (!tNow || !weather.hourly?.time || !weather.hourly.weather_code) return 0;
 
-  // Measured precip wins: it's actually falling right now.
+  const hourPrefix = tNow.slice(0, 13);
+  const idx = weather.hourly.time.findIndex((x: string) => x.startsWith(hourPrefix));
+  if (idx === -1) return 0;
+
+  const hourlyCode = weather.hourly.weather_code[idx];
+  const hourlyProb = weather.hourly.precipitation_probability?.[idx] || 0;
+
   if (precipNow >= 0.1 && hourlyCode < 50) return tempNow <= 1 ? 71 : 61;
 
-  // Forecast says rain/snow but nothing measured and probability isn't high:
-  // downgrade so header doesn't claim rain while hourly widget shows clouds.
   if (precipNow < 0.1 && hourlyProb < 60 && hourlyCode >= 51 && hourlyCode <= 77) {
     return 3;
   }
@@ -146,18 +144,18 @@ const getEffectiveCurrentCode = (weather: WeatherData): number => {
 };
 
 /**
- * Compute a consensus daily weather code by aggregating the hourly
- * weather_code/probability arrays (themselves built from the 10-model
- * backend consensus) for the given day. Avoids the case where
- * weather.daily.weather_code shows "rain" because Open-Meteo flagged
- * the single worst hour of the day, even though the hourly consensus
- * actually shows mostly clear / cloudy. Mirrors getEffectiveCurrentCode
- * intent for the 7-day list icons.
+ * Daily weather code computed purely from the hourly consensus arrays
+ * (10-model backend). NEVER reads weather.daily.weather_code — that field
+ * is Open-Meteo's best_match daily summary and is banned (diverges from
+ * the hourly consensus and surfaces phantom rain). Aggregation rule:
+ *  - 3+ wet hours (code 51-86 or probability >= 60%) → return the most
+ *    severe rain/snow code of that day.
+ *  - Otherwise → mode of non-rain hourly codes (most common cloud/sun).
+ *  - No hourly data for this day → 0 (clear) as neutral default.
  */
 const getEffectiveDailyCode = (weather: WeatherData, dayIndex: number): number => {
-  const fallback = weather.daily.weather_code?.[dayIndex] ?? 0;
   const dailyDate = weather.daily.time?.[dayIndex];
-  if (!dailyDate || !weather.hourly?.time || !weather.hourly?.weather_code) return fallback;
+  if (!dailyDate || !weather.hourly?.time || !weather.hourly?.weather_code) return 0;
 
   const datePrefix = dailyDate.slice(0, 10);
   const codes: number[] = [];
@@ -168,7 +166,7 @@ const getEffectiveDailyCode = (weather: WeatherData, dayIndex: number): number =
       probs.push(weather.hourly.precipitation_probability?.[i] ?? 0);
     }
   }
-  if (codes.length === 0) return fallback;
+  if (codes.length === 0) return 0;
 
   let wetHours = 0;
   let severestWetCode = 0;
@@ -180,17 +178,15 @@ const getEffectiveDailyCode = (weather: WeatherData, dayIndex: number): number =
       if (c > severestWetCode) severestWetCode = c;
     }
   }
-  // 3+ wet hours = genuinely a wet day, keep the rain code
   if (wetHours >= 3 && severestWetCode >= 51) return severestWetCode;
 
-  // Otherwise pick the most common non-rain hourly code (cloud, sun, …)
   const counts: Record<number, number> = {};
   for (const c of codes) {
     if (c < 50 || c > 86) counts[c] = (counts[c] || 0) + 1;
   }
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   if (sorted.length > 0) return parseInt(sorted[0][0]);
-  return fallback;
+  return 0;
 };
 
 /**
