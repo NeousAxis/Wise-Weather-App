@@ -1,0 +1,20 @@
+name: Weather notifications cron
+
+# Pings the Vercel backend every 15 min so it checks the weather and sends
+# rain/snow/storm alerts + the daily 7am quote. Replaces the retired Firebase
+# scheduled Cloud Function (Google Cloud billing account was closed).
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sendHourlyNotifications
+        run: |
+          curl -fsS --max-time 290 -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://wise-weather-api.vercel.app/api/sendHourlyNotifications
